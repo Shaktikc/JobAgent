@@ -1,1 +1,23 @@
- .agents/
+# Agent skills (kept local, not part of the project source)
+.agents/
+
+# Secrets
+.env
+.env.local
+
+# Runtime state (SQLite, Chromium profile, screenshots)
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
