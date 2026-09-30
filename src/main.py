@@ -20,6 +20,20 @@ EXIT_NOT_IMPLEMENTED = 2
 EXIT_FAILED = 1
 
 
+def _load_env() -> None:
+    """Load `.env` into the process environment, if it exists.
+
+    Real environment variables win over `.env` values (dotenv does not override),
+    so exported vars still take precedence. Missing ``python-dotenv`` is not fatal:
+    the caller may already have exported the values.
+    """
+    try:
+        from dotenv import load_dotenv
+    except ImportError:  # pragma: no cover - optional convenience
+        return
+    load_dotenv()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="autojobapply",
@@ -125,7 +139,9 @@ async def _run_url(settings: AppSettings, job_url: str, *, dry_run: bool) -> int
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
-    # Load settings early so a broken environment fails before any browser work.
+    # Load .env first, then settings early so a broken environment fails before
+    # any browser work.
+    _load_env()
     settings = AppSettings.from_env()
     settings.paths.ensure_runtime_dirs()
 

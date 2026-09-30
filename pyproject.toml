@@ -10,6 +10,7 @@ dependencies = [
     "langchain-openai>=0.2",
     "pydantic>=2.7",
     "pyyaml>=6.0",
+    "python-dotenv>=1.0",
     "pypdf>=4.2",
     "rich>=13.7",
     "browser-use (>=0.13.10,<0.14.0)",
