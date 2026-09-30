@@ -4,7 +4,14 @@
 verification, files) live in `tasks/todo.md`. Sequencing, decisions, and risks live in
 `tasks/plan.md`. Spec: `SPEC.md`.
 
-Last updated: 2026-09-30 · **Done 6 / 16 tasks** · WIP limit: 1
+Last updated: 2026-09-30 · **Done 6 / 17 tasks** · WIP limit: 1
+
+> Architecture change 2026-09-30: the owner directed replacing Playwright with the
+> browser-use AI agent. Recorded in `docs/decisions/0001-browser-use-migration.md`
+> (ADR 0001) and task **T17**. The human submit gate, `guard`, `store`, facts rules
+> and `review-gate` are preserved; only the browser-driving layer is replaced. Work
+> is on branch `feature/browser-use-migration`; nothing is deleted until the agent
+> path is demonstrated and CP-B is re-run.
 
 > Audit 2026-09-30: T1 was already complete; T2's uncommitted source had been lost
 > (HEAD `c8d84ac`, "wokring on task 2", contains only T1 artifacts) while its compiled
@@ -40,7 +47,20 @@ Last updated: 2026-09-30 · **Done 6 / 16 tasks** · WIP limit: 1
 
 ## 🟡 In Progress
 
-*(none)*
+- **T17** — Browser layer: migrate Playwright → browser-use AI agent *(Phase 1.5, dep: T3, T5, T7, T9; ADR 0001; branch `feature/browser-use-migration`)*
+  - Started 2026-09-30 at the owner's request. Foundation landed: ADR 0001,
+    `tools/browser_agent.py` (pure `answers_to_field_instructions`,
+    `sensitive_data_for`, `build_fill_task`, `build_submit_task`,
+    `build_no_submit_system_message`; guarded async `run_task` that lazily imports
+    `browser_use`), and `tests/unit/test_browser_agent_tasks.py` (7 tests). The agent
+    never submits: the fill task carries a hard no-submit rule and submission is a
+    separate gate-only task.
+  - Verified 2026-09-30 (unit): 7 task-builder tests pass · full suite green ·
+    `ruff check .` clean · `mypy src` clean · module imports without `browser-use`
+    installed (lazy import).
+  - Next: add the `browser-use` dependency, then rewrite `tools/browser.py`,
+    `tools/linkedin.py`, `nodes/discover.py`, `nodes/fill.py`, `graph.py`, `main.py`
+    onto the agent; re-run CP-B by hand.
 
 ## 🔴 Blocked
 
@@ -214,3 +234,4 @@ Each checkpoint must be explicitly verified with the human before the next phase
 | 2026-09-30 | T7 | In Progress → Review | 31 fixture/selector tests green; live `run --url` check gated on T8 wiring. |
 | 2026-09-30 | T8 | Backlog → In Progress | Implement review-gate + minimal graph + `run --url --dry-run`. |
 | 2026-09-30 | T8 | In Progress → Review | 36 review tests green; graph compiles. Live dry-run + form inspection (CP-B) is the human step. |
+| 2026-09-30 | T17 | — → In Progress | Owner requested replacing Playwright with the browser-use AI agent. ADR 0001 recorded; submit gate/guard/store/facts/review preserved. Foundation module + 7 pure task-builder tests landed. |

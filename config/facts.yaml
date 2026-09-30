@@ -5,15 +5,26 @@
 # retrieved resume fact is flagged at review as NEEDS_REVIEW rather than guessed.
 
 facts:
+  email: "shakti3462@gmail.com"
+  phone: "0426063797"
+  phone_country_code: "Australia (+61)"
   work_authorization: "US citizen"
   requires_sponsorship: false
   notice_period: "2 weeks"
   desired_salary: "110000"
-  years_experience: 4
+  years_experience: 7
   willing_to_relocate: false
 
 rules:
   - match: "sponsor"
     answer: "No"
+  - match: "email"
+    answer_from: facts.email
+  # "Phone country code*" also contains "phone": keep this rule before the
+  # generic phone rule so the country code is never answered with the number.
+  - match: "country code"
+    answer_from: facts.phone_country_code
+  - match: "phone|mobile"
+    answer_from: facts.phone
   - match: "salary|compensation|expected pay"
     answer_from: facts.desired_salary

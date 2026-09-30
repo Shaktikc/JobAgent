@@ -3,7 +3,7 @@ name = "autojobapply"
 version = "0.1.0"
 description = "LangGraph agent that searches LinkedIn Easy Apply jobs, fills applications from your resumes, and pauses for human review before submitting."
 readme = "SPEC.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<4.0"
 authors = [{ name = "AutoJobApply" }]
 dependencies = [
     "langgraph>=0.2",
@@ -13,6 +13,7 @@ dependencies = [
     "pyyaml>=6.0",
     "pypdf>=4.2",
     "rich>=13.7",
+    "browser-use (>=0.13.10,<0.14.0)",
 ]
 
 # The package directory is literally named `src` (owner-chosen layout).

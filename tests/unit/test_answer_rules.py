@@ -54,6 +54,29 @@ def test_real_facts_yaml_loads_and_validates() -> None:
     assert all(rule.match for rule in config.rules)
 
 
+def test_real_facts_yaml_answers_the_aero_contact_labels() -> None:
+    """The live 2026 Aero Easy Apply contact step asks exactly these three labels.
+
+    Regression from the 2026-09-30 live dry-run: placeholder facts.yaml left all
+    three blank/NEEDS_REVIEW. The shipped config must answer them from a hard
+    rule, so a real application review shows filled answers, not blanks.
+    """
+    config = FactsConfig.from_yaml(FACTS_PATH)
+
+    answers = {
+        answer.field: answer
+        for answer in answer_fields(
+            ["Email address*", "Phone country code*", "Mobile phone number*"],
+            config,
+        )
+    }
+
+    for label, answer in answers.items():
+        assert answer.value, f"{label!r} must be answered by the shipped facts.yaml"
+        assert answer.provenance is Provenance.FACTS_RULE
+        assert answer.confidence == FACTS_RULE_CONFIDENCE
+
+
 # --- regex matching ---------------------------------------------------------
 
 

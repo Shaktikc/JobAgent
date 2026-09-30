@@ -409,3 +409,42 @@ and measure the trust criterion before scaling.
 **Dependencies:** Checkpoint D
 **Files likely touched:** none (config values only)
 **Estimated scope:** M (calendar time, not code)
+
+---
+
+## Task 17: Browser layer — migrate Playwright → browser-use (AI agent)
+
+**Description:** Owner-directed architecture change (see
+`docs/decisions/0001-browser-use-migration.md`, ADR 0001). Replace the hand-written
+Playwright browser layer with the browser-use agent. The browser-independent layers
+(`guard`, `store`, facts rules, `review-gate`) are **kept unchanged**; only the code
+that drives the browser is replaced. The human submit gate stays: the agent may read
+and fill, never submit; submission is a separate agent task run only by the review
+gate after approval.
+
+**Acceptance criteria:**
+- [ ] `tools/browser_agent.py`: pure task/answer builders + guarded agent runner;
+      answers injected via `sensitive_data`, not embedded in prompt text
+- [ ] `tools/browser.py`: browser-use `Browser` on the dedicated `data/profile`;
+      manual login preserved; everyday Chrome profile never touched
+- [ ] `nodes/fill.py`: agent-backed fill; `build_fill_task` carries a hard no-submit
+      rule; submission is a gate-only task (`build_submit_task`)
+- [ ] `nodes/discover.py` + `tools/linkedin.py`: job read via agent structured output,
+      still emitting the same `JobState`
+- [ ] Every agent run brackets `guard.check_stop()` and is paced; STOP halts it
+- [ ] A PNG screenshot is still captured for every application
+- [ ] No direct Playwright calls remain in the browser layer
+- [ ] All prior browser-independent unit tests still pass
+
+**Verification:**
+- [ ] `poetry run ruff check .` and `poetry run mypy src` clean
+- [ ] `poetry run pytest -m "not integration"` (full unit suite)
+- [ ] Manual (owner, needs OpenRouter key + Chromium): `run --url <job> --dry-run`
+      reaches review with **no submission** and a screenshot in `data/artifacts/`
+- [ ] Manual: `login` persists via `data/profile`
+
+**Dependencies:** Tasks 3, 5, 7 (browser layer); T9 for the LLM key
+**Files likely touched:** `src/tools/browser_agent.py`, `src/tools/browser.py`,
+`src/tools/linkedin.py`, `src/nodes/discover.py`, `src/nodes/fill.py`,
+`src/graph.py`, `src/main.py`, `pyproject.toml`, `tests/unit/test_browser_agent_tasks.py`
+**Estimated scope:** L

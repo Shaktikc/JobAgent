@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Apply | LinkedIn</title>
+  </head>
+  <body>
+    <div id="root">
+      <main>
+        <button
+          data-view-name="job-apply-button"
+          aria-label="Easy Apply to this job"
+          type="button"
+        >
+          <span>Easy Apply</span>
+        </button>
+      </main>
+
+      <!--
+        Current (2026) LinkedIn "Aero" Easy Apply modal, captured from a live
+        Easy Apply page (job 4468706364, 2026-09-30). Unlike the legacy fixture
+        (easy_apply_modal.html), this is a native <dialog data-testid="dialog">
+        carrying the "unified-apply" SDUI screen — not a div[role="dialog"].
+        Hashed utility class names and SVGs are omitted; the stable hooks
+        (data-testid / data-view-name / id / for / type / required) are preserved.
+      -->
+      <dialog data-testid="dialog" aria-labelledby="dialog-header" open>
+        <button type="button" aria-label="Dismiss"><span>Dismiss</span></button>
+        <div>
+          <header id="dialog-header"><h2>Apply to Talent Forge Group</h2></header>
+          <div data-testid="dialog-content">
+            <div data-sdui-screen="com.linkedin.sdui.flagshipnav.jobs.easyapply.EasyApply">
+              <div data-view-name="unified-apply" data-display-contents="true">
+                <p>1/4 pages</p>
+                <p>Contact info</p>
+
+                <label for="email">Email address*</label>
+                <select id="email" required>
+                  <option value="" disabled hidden></option>
+                  <option value="shakti3462@gmail.com">shakti3462@gmail.com</option>
+                </select>
+
+                <label for="country">Phone country code*</label>
+                <select id="country" required>
+                  <option value="" disabled hidden></option>
+                  <option value="au">Australia (+61)</option>
+                  <option value="us">United States (+1)</option>
+                </select>
+
+                <label for="phone">Mobile phone number*</label>
+                <input id="phone" type="tel" required />
+
+                <button type="button" data-view-name="continue-unify">Next</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </dialog>
+    </div>
+  </body>
+</html>

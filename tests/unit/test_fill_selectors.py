@@ -30,6 +30,9 @@ from src.tools.store import Answer, Provenance
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 MODAL_HTML = (FIXTURES / "easy_apply_modal.html").read_text(encoding="utf-8")
+# The live 2026 "Aero" modal: a native <dialog data-testid="dialog">, not a
+# div[role="dialog"]. Captured on 2026-09-30 (see the fixture's comment).
+AERO_MODAL_HTML = (FIXTURES / "easy_apply_modal_aero.html").read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +128,25 @@ def test_modal_selector_resolves_the_dialog() -> None:
 
     assert len(found) == 1
     assert found[0].attrs.get("role") == "dialog"
+
+
+def test_modal_selector_resolves_the_aero_dialog() -> None:
+    """The live 2026 modal is a native <dialog data-testid="dialog">.
+
+    Regression: the previous selector only matched div[role="dialog"], so the real
+    Easy Apply form never resolved and the run died opening the modal.
+    """
+    found = query(AERO_MODAL_HTML, fill.MODAL_SELECTOR)
+
+    assert len(found) == 1
+    assert found[0].tag == "dialog"
+    assert found[0].attrs.get("data-testid") == "dialog"
+
+
+def test_step_control_selector_sees_aero_contact_controls() -> None:
+    found = query(AERO_MODAL_HTML, fill.STEP_CONTROL_SELECTOR)
+
+    assert {el.attrs.get("id") for el in found} == {"email", "country", "phone"}
 
 
 def test_text_input_selector_resolves_only_text_fields() -> None:

@@ -46,7 +46,15 @@ EASY_APPLY_BUTTON_SELECTOR = (
     'button[data-testid="easy-apply-button"], '
     "button.jobs-apply-button"
 )
-MODAL_SELECTOR = 'div[role="dialog"], div[data-testid="jobs-easy-apply-modal"]'
+# The live 2026 "Aero" Easy Apply modal is a native <dialog data-testid="dialog">
+# (aria-labelledby="dialog-header"), not a div[role="dialog"]; keep both so the
+# selector survives LinkedIn's UI generations.
+MODAL_SELECTOR = (
+    'dialog[data-testid="dialog"], '
+    'dialog[aria-labelledby="dialog-header"], '
+    'div[role="dialog"], '
+    'div[data-testid="jobs-easy-apply-modal"]'
+)
 STEP_CONTROL_SELECTOR = "input, textarea, select"
 TEXT_INPUT_SELECTOR = (
     'input[type="text"], input[type="number"], input[type="email"], '
