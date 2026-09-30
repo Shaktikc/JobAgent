@@ -61,6 +61,12 @@ def main(argv: list[str] | None = None) -> int:
     settings = AppSettings.from_env()
     settings.paths.ensure_runtime_dirs()
 
+    if args.command == "login":
+        # Imported lazily so `--help` and non-browser commands stay lightweight.
+        from src.tools.browser import login
+
+        return login(settings)
+
     print(
         f"[scaffold] '{args.command}' is not implemented yet; see SPEC.md and tasks/todo.md.",
         file=sys.stderr,

@@ -79,6 +79,65 @@ class LLMSettings(BaseModel):
 
 
 # --------------------------------------------------------------------------
+# Session (browser identity, dedicated profile, login behavior — SPEC.md §8)
+# --------------------------------------------------------------------------
+
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+)
+
+
+class Viewport(BaseModel):
+    width: int = 1280
+    height: int = 800
+
+
+class SessionSettings(BaseModel):
+    """Browser session identity. The profile path lives in :class:`Paths`.
+
+    Values here are the *only* source for the browser's user-agent/viewport; the
+    browser module must not hardcode them (SPEC.md §8).
+    """
+
+    user_agent: str = DEFAULT_USER_AGENT
+    viewport: Viewport = Field(default_factory=Viewport)
+    locale: str = "en-US"
+    timezone_id: str | None = None
+    headless: bool = False
+    slow_mo_ms: int = 0
+    login_timeout_seconds: int = 300
+    navigation_timeout_ms: int = 60_000
+
+    @classmethod
+    def from_env(cls) -> SessionSettings:
+        return cls(
+            user_agent=os.environ.get("AUTOJOB_SESSION_USER_AGENT") or DEFAULT_USER_AGENT,
+            viewport=Viewport(
+                width=int(os.environ.get("AUTOJOB_SESSION_VIEWPORT_WIDTH", "1280")),
+                height=int(os.environ.get("AUTOJOB_SESSION_VIEWPORT_HEIGHT", "800")),
+            ),
+            locale=os.environ.get("AUTOJOB_SESSION_LOCALE", "en-US"),
+            timezone_id=os.environ.get("AUTOJOB_SESSION_TIMEZONE") or None,
+            headless=_env_bool("AUTOJOB_SESSION_HEADLESS", default=False),
+            slow_mo_ms=int(os.environ.get("AUTOJOB_SESSION_SLOW_MO_MS", "0")),
+            login_timeout_seconds=int(
+                os.environ.get("AUTOJOB_SESSION_LOGIN_TIMEOUT_SECONDS", "300")
+            ),
+            navigation_timeout_ms=int(
+                os.environ.get("AUTOJOB_SESSION_NAVIGATION_TIMEOUT_MS", "60000")
+            ),
+        )
+
+
+def _env_bool(name: str, *, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+# --------------------------------------------------------------------------
 # Guard (pacing, daily cap, business hours)
 # --------------------------------------------------------------------------
 
@@ -187,6 +246,7 @@ class FactsConfig(BaseModel):
 class AppSettings(BaseModel):
     paths: Paths = Field(default_factory=Paths)
     llm: LLMSettings = Field(default_factory=LLMSettings)
+    session: SessionSettings = Field(default_factory=SessionSettings)
     guard: GuardSettings = Field(default_factory=GuardSettings)
 
     @classmethod
@@ -194,5 +254,6 @@ class AppSettings(BaseModel):
         return cls(
             paths=Paths(),
             llm=LLMSettings.from_env(),
+            session=SessionSettings.from_env(),
             guard=GuardSettings.from_env(),
         )

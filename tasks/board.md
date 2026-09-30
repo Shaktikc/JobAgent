@@ -29,7 +29,6 @@ Last updated: 2026-09-30 · **Done 2 / 16 tasks** · WIP limit: 1
 
 ## 🔵 Backlog
 
-- **T3** — `session`: browser launch, persistent profile, `login` *(Phase 0, dep: T1)*
 - **T4** — `guard`: pacing, daily cap, business hours, STOP sentinel *(Phase 0, dep: T1, T2)*
 - **T5** — `discovery` (partial): read a job, detect Easy Apply from a URL *(Phase 1, dep: T3)*
 - **T6** — `answering`: facts rules + provenance, no LLM *(Phase 1, dep: T1)*
@@ -54,7 +53,17 @@ Last updated: 2026-09-30 · **Done 2 / 16 tasks** · WIP limit: 1
 
 ## 🟣 Review (awaiting human inspection)
 
-*(none)*
+- **T3** — `session`: browser launch, persistent profile, `login` *(Phase 0, dep: T1)*
+  - Implemented 2026-09-30: `tools/browser.py` (launch + `login`), `tools/linkedin.py`
+    (login-state predicate), `SessionSettings` in `configuration.py`, `login` wired in
+    `main.py`.
+  - Verified 2026-09-30: `pytest -m "not integration"` → 37 passed (11 in
+    `test_session_config.py`) · `pytest -m integration tests/integration/test_session_browser.py`
+    → 2 passed (real Chromium: configured UA/viewport, cookies survive a restart) ·
+    ruff clean · mypy clean.
+  - **Human step required (not runnable by the agent):** run `poetry run python -m src.main login`,
+    log in to LinkedIn manually; then run it again and confirm it prints
+    "session reused from data/profile" without prompting (criterion 1). If OK, move to Done.
 
 ## 🟢 Done
 
@@ -119,3 +128,5 @@ Each checkpoint must be explicitly verified with the human before the next phase
 | 2026-09-30 | T2 | Backlog (unchanged) | Audit: HEAD `c8d84ac` "wokring on task 2" contains only T1 artifacts; `store.py` still a stub, no `test_store.py`. T2 not started. |
 | 2026-09-30 | T2 | Backlog → In Progress | Found lost uncommitted T2 work: 16 `test_store.py` tests passing today, compiled `.pyc` cache remains. Recovering source and re-verifying. |
 | 2026-09-30 | T2 | In Progress → Done | Recovered `store.py` + `test_store.py` from `.pyc` bytecode; original compiled tests 16/16; full gate green (see Done card). |
+| 2026-09-30 | T3 | Backlog → In Progress | Implement `session` (browser launch, persistent profile, `login`). |
+| 2026-09-30 | T3 | In Progress → Review | Code + unit/integration verification green; awaiting the human login-twice check (criterion 1). |
