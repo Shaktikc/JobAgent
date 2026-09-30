@@ -72,6 +72,14 @@ Last updated: 2026-09-30 · **Done 6 / 17 tasks** · WIP limit: 1
     `python -m src.main run --url <job> --dry-run`, which requires the T8 graph. Once
     T8 lands, run that against one real Easy Apply job and confirm the step fills and
     a PNG appears in `data/artifacts/`. Then move T7 to Done.
+  - CP-B defects fixed 2026-09-30 (TDD, from the real dry-run of job `4468706364`):
+    (1) `open_and_read_fields` silently returned `()` on a failed/absent agent read,
+    hiding the bug behind "no fields"; it now raises `FillError`, and `_node_answer`
+    marks the job `failed` (mirrors `_node_fill`). (2) `READ_FORM_TASK` + the fill
+    task read/filled only the modal's first step ("1/4 pages" in the live form); both
+    now walk every step via Next/Continue and still never Submit. Regression-guarded
+    by `tests/unit/test_fill_read_fields.py` (8) + `test_browser_agent_tasks.py` (2),
+    field-agnostic (they assert behavior, not a fixed field list). Re-run CP-B live.
 - **T8** — `review-gate` + minimal graph + `run --url <job> --dry-run` *(Phase 1, dep: T2, T7)*
   - Implemented 2026-09-30: `nodes/review.py` — pure `parse_action`, `render_review`,
     `apply_edit`, `resolve_outcome`, and an interactive `review_application` with
@@ -247,3 +255,4 @@ Each checkpoint must be explicitly verified with the human before the next phase
 | 2026-09-30 | T8 | In Progress → Review | 36 review tests green; graph compiles. Live dry-run + form inspection (CP-B) is the human step. |
 | 2026-09-30 | T17 | — → In Progress | Owner requested replacing Playwright with the browser-use AI agent. ADR 0001 recorded; submit gate/guard/store/facts/review preserved. Foundation module + 7 pure task-builder tests landed. |
 | 2026-09-30 | T17 | In Progress → Review | Full migration done: all Playwright code removed (dependency too); browser-use drives login/read/fill; submit is gate-only. 135 unit tests, ruff/mypy clean. Live dry-run is the human step. |
+| 2026-09-30 | T7 | Review (re-verified) | CP-B TDD fixes from the real dry-run of job `4468706364`: field-read no longer silently returns `()` (raises `FillError`, job → `failed`); read/fill walk every modal step (was page 1 of "1/4 pages"). +10 field-agnostic tests, full suite 145 passed, ruff/mypy clean. Re-run live CP-B. |
