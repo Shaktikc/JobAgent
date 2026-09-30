@@ -51,6 +51,9 @@ _SUBMIT_ONCE_EXTENSION = (
 _ANSWER_INSTRUCTIONS_HEADER = (
     "Fill the LinkedIn Easy Apply form currently open for the job below. Work only "
     "on this application; do not search for other jobs.\n\n"
+    "The form is a multi-step modal. Fill every field on the current step, then click "
+    'the "Next" or "Continue" button to move to the following step and fill it too, '
+    "repeating until you reach the final review step. Do NOT click Submit there.\n\n"
     "Use exactly these answers. The <TOKEN> placeholders are substituted for the "
     "real values automatically — reference the token exactly as shown:\n"
 )
@@ -211,12 +214,20 @@ async def run_task(
     output_model_schema: type[Any] | None = None,
     guard: Any = None,
     max_actions_per_step: int = 5,
+    max_failures: int = 3,
+    log: bool = False,
 ) -> AgentRunResult:
     """Run one browser-use task, bracketed by ``guard``.
 
     The whole run is treated as a single round-trip action: STOP is checked before
     and after, and the randomised pause is applied once before the run (not per
     internal LLM step, which the guard cannot see).
+
+    ``log=True`` turns on the watchable per-step console lines and the stale-session
+    recovery hook (see :mod:`src.tools.agent_hooks`): if a navigation failure leaves
+    the browser disconnected, the next step re-attaches it instead of spinning
+    (CP-B, 2026-09-30). ``max_failures`` bounds how long a task can thrash before
+    it gives up, so a runaway agent can never hang the run forever.
     """
     try:
         from browser_use import Agent
@@ -236,8 +247,19 @@ async def run_task(
         available_file_paths=[str(p) for p in (available_file_paths or [])],
         output_model_schema=output_model_schema,
         max_actions_per_step=max_actions_per_step,
+        max_failures=max_failures,
+        # Do not kill the shared browser when this one task ends — the pipeline runs
+        # several tasks against the same session (CP-B, 2026-09-30).
+        keep_alive=True,
     )
-    result = await agent.run()
+
+    run_kwargs: dict[str, Any] = {}
+    if log:
+        from src.tools.agent_hooks import StepLogger, build_on_step_end
+
+        run_kwargs["on_step_end"] = build_on_step_end(logger=StepLogger())
+
+    result = await agent.run(**run_kwargs)
 
     if guard is not None:
         guard.check_stop()
