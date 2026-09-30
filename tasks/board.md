@@ -29,7 +29,6 @@ Last updated: 2026-09-30 · **Done 6 / 16 tasks** · WIP limit: 1
 
 ## 🔵 Backlog
 
-- **T8** — `review-gate` + minimal graph + `run --url <job> --dry-run` *(Phase 1, dep: T2, T7)*
 - **T9** — LLM client (OpenRouter) with structured output *(Phase 2, dep: T1)*
 - **T10** — `answering`: LLM integration + `NEEDS_REVIEW` threshold *(Phase 2, dep: T6, T9)*
 - **T11** — `routing`: resume auto-index + selection *(Phase 2, dep: T2, T9)*
@@ -66,6 +65,25 @@ Last updated: 2026-09-30 · **Done 6 / 16 tasks** · WIP limit: 1
     `python -m src.main run --url <job> --dry-run`, which requires the T8 graph. Once
     T8 lands, run that against one real Easy Apply job and confirm the step fills and
     a PNG appears in `data/artifacts/`. Then move T7 to Done.
+- **T8** — `review-gate` + minimal graph + `run --url <job> --dry-run` *(Phase 1, dep: T2, T7)*
+  - Implemented 2026-09-30: `nodes/review.py` — pure `parse_action`, `render_review`,
+    `apply_edit`, `resolve_outcome`, and an interactive `review_application` with
+    injectable prompt/output/submit. Excludes: reject ⇒ no submit + `rejected`;
+    approve ⇒ exactly one submit + captured confirmation + `applied`; `--dry-run`
+    never submits (stays `filled`); Ctrl-C/EOF ⇒ `filled`, re-offerable. `state.py`
+    gained `answers`/`resume_file`/`status` and `RunState`; `fill.py` gained
+    `list_step_widgets`, `submit_application`, `capture_confirmation`; `graph.py`
+    builds the minimal LangGraph (`discover → answer → fill → review`) with injected
+    `Runtime`; `main.py` wires `run --url [--dry-run]`.
+  - Verified 2026-09-30 (unit): `pytest -m "not integration" tests/unit/test_review_decisions.py`
+    → 36 passed (all decision paths, edits, dry-run, interrupt) · full suite →
+    165 passed · `ruff check .` clean · `mypy src` clean · `python -m src.main --help`
+    → 0 · `run` without `--url` → 2 · graph compiles with nodes
+    `discover/answer/fill/review`.
+  - **Human step pending — CP-B:** run `python -m src.main run --url <real Easy Apply job> --dry-run`,
+    confirm it reaches review and stops with **no submission**, a PNG in
+    `data/artifacts/`, and that the answers look right. Then move T7 and T8 to Done
+    and sign off CP-B.
 
 ## 🟢 Done
 
@@ -146,7 +164,7 @@ Each checkpoint must be explicitly verified with the human before the next phase
 - All unit tests pass; `ruff check .` clean ✓
 - Human sign-off required before Phase 1 (T5+) begins.
 
-**CP-B — Riskiest assumption proven ⚠️** *(after T5–T8)* · status: Backlog
+**CP-B — Riskiest assumption proven ⚠️** *(after T5–T8)* · status: ⚠️ code complete 2026-09-30 — awaiting the human dry-run + form inspection
 - The go/no-go gate for the whole project.
 - `--dry-run` on **one real LinkedIn job** reaches review with no submission
 - A screenshot exists in `data/artifacts/` for that application (criterion 12, partial)
@@ -194,3 +212,5 @@ Each checkpoint must be explicitly verified with the human before the next phase
 | 2026-09-30 | T6 | In Progress → Done | 23 rule-engine tests green; full suite 98 passed, ruff/mypy clean. |
 | 2026-09-30 | T7 | Backlog → In Progress | Implement single-step filling: fields, resume upload, screenshot, guard. |
 | 2026-09-30 | T7 | In Progress → Review | 31 fixture/selector tests green; live `run --url` check gated on T8 wiring. |
+| 2026-09-30 | T8 | Backlog → In Progress | Implement review-gate + minimal graph + `run --url --dry-run`. |
+| 2026-09-30 | T8 | In Progress → Review | 36 review tests green; graph compiles. Live dry-run + form inspection (CP-B) is the human step. |

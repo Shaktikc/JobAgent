@@ -1,7 +1,6 @@
 """Entry point for AutoJobApply: graph execution entry point and command dispatch.
 
-Scaffold state: the command surface is frozen so `--help` works and downstream
-tasks have a stable CLI, but each command is wired to its node in a later task:
+Command surface, wired task by task:
 
 - ``login``  -> Task 3 (session)
 - ``run``    -> Task 8 (minimal: ``--url ... --dry-run``), completed in Task 15
@@ -17,6 +16,7 @@ import sys
 from src.configuration import AppSettings
 
 EXIT_NOT_IMPLEMENTED = 2
+EXIT_FAILED = 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -54,6 +54,61 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _run_url(settings: AppSettings, job_url: str, *, dry_run: bool) -> int:
+    """Run the minimal single-job pipeline (Task 8)."""
+    from src.configuration import FactsConfig
+    from src.graph import Runtime, resolve_default_resume, run_single_url
+    from src.nodes.discover import NotEasyApplyError
+    from src.nodes.fill import FillError
+    from src.tools import browser, store
+    from src.tools.guard import Guard, GuardHalt
+
+    conn = store.connect(settings.paths.db)
+    store.init_db(conn)
+    guard = Guard(settings.guard, settings.paths, conn)
+
+    try:
+        guard.assert_startable()
+        guard.assert_can_apply()
+    except GuardHalt as halt:
+        print(str(halt), file=sys.stderr)
+        return EXIT_FAILED
+
+    facts = FactsConfig.from_yaml(settings.paths.config / "facts.yaml")
+    resume = resolve_default_resume(settings)
+
+    try:
+        with browser.browser_context(settings) as context:
+            page = context.pages[0] if context.pages else context.new_page()
+            runtime = Runtime(
+                settings=settings,
+                conn=conn,
+                page=page,
+                guard=guard,
+                facts=facts,
+                resume_path=resume,
+                dry_run=dry_run,
+                job_url=job_url,
+            )
+            final = run_single_url(runtime)
+    except NotEasyApplyError as exc:
+        print(f"Skipping job: {exc}", file=sys.stderr)
+        return EXIT_FAILED
+    except GuardHalt as halt:
+        print(str(halt), file=sys.stderr)
+        return EXIT_FAILED
+    except FillError as exc:
+        print(f"Filling failed: {exc}", file=sys.stderr)
+        return EXIT_FAILED
+
+    print(
+        f"Done. status={final.get('status')} "
+        f"submitted={final.get('submitted')} "
+        f"confirmation={final.get('confirmation')}"
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
@@ -66,6 +121,15 @@ def main(argv: list[str] | None = None) -> int:
         from src.tools.browser import login
 
         return login(settings)
+
+    if args.command == "run":
+        if not args.url:
+            print(
+                "`run` requires --url until search is implemented in Task 12.",
+                file=sys.stderr,
+            )
+            return EXIT_NOT_IMPLEMENTED
+        return _run_url(settings, args.url, dry_run=args.dry_run)
 
     print(
         f"[scaffold] '{args.command}' is not implemented yet; see SPEC.md and tasks/todo.md.",

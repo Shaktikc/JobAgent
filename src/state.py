@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from typing import TypedDict
 
+from src.tools.store import Answer, JobStatus
+
 
 class JobState(TypedDict, total=False):
     """One discovered job, passed from ``discovery`` to later graph nodes.
@@ -25,3 +27,20 @@ class JobState(TypedDict, total=False):
     url: str
     description: str
     easy_apply: bool
+    # Task 8: what the reviewer sees and what orchestration persists.
+    answers: list[Answer]
+    resume_file: str | None
+    status: JobStatus | str
+
+
+class RunState(TypedDict, total=False):
+    """The channels for one ``run --url`` pass through the minimal graph."""
+
+    job_url: str
+    dry_run: bool
+    job: JobState
+    answer_map: dict[str, Answer]
+    review_action: str
+    submitted: bool
+    confirmation: str | None
+    status: str

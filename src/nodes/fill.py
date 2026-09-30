@@ -53,6 +53,13 @@ TEXT_INPUT_SELECTOR = (
     'input[type="tel"], input[type="url"], textarea'
 )
 FILE_INPUT_SELECTOR = 'input[type="file"]'
+SUBMIT_BUTTON_SELECTOR = (
+    'button[data-testid="submit-application-button"], '
+    'button[aria-label="Submit application"]'
+)
+CONFIRMATION_SELECTOR = (
+    'div[data-testid="post-apply-modal"], .artdeco-modal--layer-confirmation'
+)
 
 ARTIFACT_SUFFIX = "png"
 
@@ -235,6 +242,40 @@ def capture_screenshot(page: Page, artifacts_dir: Path, job_id: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     page.screenshot(path=str(path))
     return path
+
+
+def list_step_widgets(page: Page) -> list[Widget]:
+    """Read every control in the open modal, without changing anything.
+
+    Used by orchestration to answer the real field labels before filling.
+    """
+    modal = page.query_selector(MODAL_SELECTOR)
+    if modal is None:
+        raise FillError("Easy Apply modal is not open.")
+    return [_element_widget(element) for element in modal.query_selector_all(STEP_CONTROL_SELECTOR)]
+
+
+def capture_confirmation(page: Page) -> str:
+    """Read the post-submit confirmation, falling back to the resulting URL."""
+    element = page.query_selector(CONFIRMATION_SELECTOR)
+    if element is not None:
+        text = (element.inner_text() or "").strip()
+        if text:
+            return text
+    return page.url
+
+
+def submit_application(page: Page, guard: Guard) -> str:
+    """Click Submit — called only by the review gate after explicit approval.
+
+    Returns the captured confirmation. Raises if the button is absent, so a job is
+    never marked `applied` without an actual submission.
+    """
+    button = page.wait_for_selector(SUBMIT_BUTTON_SELECTOR, state="visible")
+    if button is None:
+        raise FillError("Submit button not found; application was not submitted.")
+    _act(guard, button.click, pace=True)
+    return capture_confirmation(page)
 
 
 def open_application_form(page: Page, guard: Guard) -> ElementHandle:
