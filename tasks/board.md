@@ -4,7 +4,7 @@
 verification, files) live in `tasks/todo.md`. Sequencing, decisions, and risks live in
 `tasks/plan.md`. Spec: `SPEC.md`.
 
-Last updated: 2026-09-30 · **Done 2 / 16 tasks** · WIP limit: 1
+Last updated: 2026-09-30 · **Done 3 / 16 tasks** · WIP limit: 1
 
 > Audit 2026-09-30: T1 was already complete; T2's uncommitted source had been lost
 > (HEAD `c8d84ac`, "wokring on task 2", contains only T1 artifacts) while its compiled
@@ -53,17 +53,7 @@ Last updated: 2026-09-30 · **Done 2 / 16 tasks** · WIP limit: 1
 
 ## 🟣 Review (awaiting human inspection)
 
-- **T3** — `session`: browser launch, persistent profile, `login` *(Phase 0, dep: T1)*
-  - Implemented 2026-09-30: `tools/browser.py` (launch + `login`), `tools/linkedin.py`
-    (login-state predicate), `SessionSettings` in `configuration.py`, `login` wired in
-    `main.py`.
-  - Verified 2026-09-30: `pytest -m "not integration"` → 37 passed (11 in
-    `test_session_config.py`) · `pytest -m integration tests/integration/test_session_browser.py`
-    → 2 passed (real Chromium: configured UA/viewport, cookies survive a restart) ·
-    ruff clean · mypy clean.
-  - **Human step required (not runnable by the agent):** run `poetry run python -m src.main login`,
-    log in to LinkedIn manually; then run it again and confirm it prints
-    "session reused from data/profile" without prompting (criterion 1). If OK, move to Done.
+*(none)*
 
 ## 🟢 Done
 
@@ -80,6 +70,16 @@ Last updated: 2026-09-30 · **Done 2 / 16 tasks** · WIP limit: 1
     `test_store.py`) · `ruff check .` → clean · `mypy src` → 23 files clean ·
     schema creates `jobs`, `answers`, `resume_index` idempotently with the six status
     and four provenance `CHECK` values.
+- **T3** — `session`: browser launch, persistent profile, `login` *(Phase 0)*
+  - Implemented 2026-09-30: `tools/browser.py` (only browser entry point + `login`),
+    `tools/linkedin.py` (login-state predicate), `SessionSettings`/`Viewport` in
+    `configuration.py`, `login` wired in `main.py`.
+  - Verified 2026-09-30: `pytest -m "not integration"` → 37 passed (11 in
+    `test_session_config.py`) · `pytest -m integration tests/integration/test_session_browser.py`
+    → 2 passed (real Chromium: configured UA/viewport, cookies survive a restart) ·
+    `ruff check .` clean · `mypy src` clean.
+  - Criterion 1 (login persists; a second run reuses it) signed off by the owner on
+    2026-09-30.
 
 ---
 
@@ -130,3 +130,4 @@ Each checkpoint must be explicitly verified with the human before the next phase
 | 2026-09-30 | T2 | In Progress → Done | Recovered `store.py` + `test_store.py` from `.pyc` bytecode; original compiled tests 16/16; full gate green (see Done card). |
 | 2026-09-30 | T3 | Backlog → In Progress | Implement `session` (browser launch, persistent profile, `login`). |
 | 2026-09-30 | T3 | In Progress → Review | Code + unit/integration verification green; awaiting the human login-twice check (criterion 1). |
+| 2026-09-30 | T3 | Review → Done | Owner signed off criterion 1 (login persists, second run reuses). |
