@@ -2,7 +2,7 @@
 
 Rewritten in Task 17 (ADR 0001): the browser half is now a browser-use agent task
 plus thin helpers over the session's current URL. The hand-written HTML parser and
-direct Playwright page reads are gone; reading is the agent's structured output.
+direct page reads are gone; reading is the agent's structured output.
 
 Everything here except ``wait_for_login`` is pure and unit-testable without a
 browser or an LLM.

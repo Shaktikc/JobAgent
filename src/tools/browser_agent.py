@@ -65,8 +65,9 @@ class BrowserUseNotInstalledError(RuntimeError):
 
     def __init__(self) -> None:
         super().__init__(
-            "browser-use is not installed. Run `poetry add browser-use` (see "
-            "docs/decisions/0001-browser-use-migration.md) and install Chromium."
+            "browser-use is not installed. Run `poetry add browser-use` and "
+            "`poetry run browser-use install` (see "
+            "docs/decisions/0001-browser-use-migration.md)."
         )
 
 

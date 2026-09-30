@@ -41,7 +41,7 @@ Last updated: 2026-09-30 · **Done 6 / 17 tasks** · WIP limit: 1
 - **T11** — `routing`: resume auto-index + selection *(Phase 2, dep: T2, T9)*
 - **T12** — `discovery`: search, filters, dedupe *(Phase 2, dep: T5, T4, T2)*
 - **T13** — `filling`: multi-step navigation *(Phase 3, dep: T7)*
-- **T14** — `filling`: widgets + unknown handling *(Phase 3, dep: T13)*
+- **T14** — `filling`: form fields + unknown handling *(Phase 3, dep: T13)*
 - **T15** — `orchestration`: run loop, checkpointing, crash resume, `status` *(Phase 3, dep: T2–T14)*
 - **T16** — Guarded live validation, 5–10/day *(Phase 4, dep: CP-D)*
 

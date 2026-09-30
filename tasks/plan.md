@@ -26,11 +26,11 @@ terminal review before submitting. Nine capability modules (`state`, `session`,
 3. **Two different "states" never share a name:** `src/state.py` = LangGraph channels;
    `src/tools/store.py` = SQLite persistence.
 4. **`NEEDS_REVIEW` is a first-class answer state, not an error.** Unknown required
-   widgets are left blank and surfaced — never guessed, never a silent job skip.
+   fields are left blank and surfaced — never guessed, never a silent job skip.
 5. **OpenRouter via `langchain-openai`** with `base_url` override; model selected
    purely by `AUTOJOB_LLM_MODEL`, so swapping models is a config change, not code
    (success criterion 13).
-6. **Playwright sync API**, sequential, single job at a time. No parallelism — it is
+6. **browser-use agent**, sequential, single job at a time. No parallelism — it is
    both simpler and safer for account risk.
 7. **Template placeholders stay stubs.** `nodes/ingest|plan|execute|verify.py`,
    `tools/opencode_client.py`, `tools/git_snapshot.py`, `workspace/` are created as
@@ -59,7 +59,7 @@ checkboxes here.
 | T11 | `routing` — resume auto-index + selection | 2 |
 | T12 | `discovery` — search, filters, dedupe | 2 |
 | T13 | `filling` — multi-step navigation | 3 |
-| T14 | `filling` — widgets + unknown handling | 3 |
+| T14 | `filling` — form fields + unknown handling | 3 |
 | T15 | `orchestration` — run loop, checkpointing, crash resume, `status` | 3 |
 | T16 | Guarded live validation (operational, 5–10/day) | 4 |
 

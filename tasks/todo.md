@@ -65,7 +65,7 @@ Distinct from `src/state.py` (LangGraph channels), which Task 8 introduces.
 
 ## Task 3: `session` — browser launch, persistent profile, `login`
 
-**Description:** Playwright (sync) persistent context on a dedicated profile, plus the
+**Description:** A browser-use `Browser` on a dedicated persistent profile, plus the
 `login` command that waits for a manual LinkedIn login and persists the session.
 
 **Acceptance criteria:**
@@ -121,18 +121,18 @@ Criteria and status: `tasks/board.md` → **CP-A**.
 whether Easy Apply is available. Emits the `JobState` that later tasks consume.
 
 **Acceptance criteria:**
-- [ ] Title, company, description, and URL are extracted correctly for a real job page
+- [ ] Title, company, description, and URL are read correctly for a real job page
 - [ ] Easy Apply availability is detected before any filling is attempted
 - [ ] A non-Easy-Apply job raises a clear, typed error rather than proceeding
-- [ ] Parsing is testable against saved HTML fixtures with no network
+- [ ] Job-id and login-state helpers are unit-testable with no network
 
 **Verification:**
-- [ ] `poetry run pytest -m "not integration" tests/unit/test_discover_parse.py`
+- [ ] `poetry run pytest -m "not integration" tests/unit/test_linkedin_agent.py`
 - [ ] Manual: run against one real Easy Apply URL
 
 **Dependencies:** Task 3
 **Files likely touched:** `src/tools/linkedin.py`, `src/nodes/discover.py`,
-`tests/unit/test_discover_parse.py`, `tests/fixtures/`
+`tests/unit/test_linkedin_agent.py`
 **Estimated scope:** M
 
 ---
@@ -167,17 +167,18 @@ screenshot for every application. Multi-step navigation is Task 13.
 - [ ] Text fields are filled with the values produced by Task 6
 - [ ] The routed resume PDF is uploaded to the file input
 - [ ] A PNG of the filled form is saved to `data/artifacts/` for **every** application
-- [ ] Selectors are module-level constants in `nodes/fill.py`, never inline
-- [ ] An unrecognized widget is left blank and flagged, not guessed
+- [ ] Browser-use tasks are built as pure functions in `nodes/fill.py` and
+      `tools/browser_agent.py`, never inline
+- [ ] An unrecognized field is left blank and flagged, not guessed
 - [ ] Every action is routed through `guard`
 
 **Verification:**
-- [ ] `poetry run pytest -m "not integration" tests/unit/test_fill_selectors.py`
+- [ ] `poetry run pytest -m "not integration" tests/unit/test_fill_agent.py tests/unit/test_browser_agent_tasks.py`
 - [ ] Manual: `run --url <job> --dry-run` fills a real form and stops at review
 
 **Dependencies:** Task 3, Task 6
-**Files likely touched:** `src/nodes/fill.py`, `tests/unit/test_fill_selectors.py`,
-`tests/fixtures/`
+**Files likely touched:** `src/nodes/fill.py`, `src/tools/browser_agent.py`,
+`tests/unit/test_fill_agent.py`, `tests/unit/test_browser_agent_tasks.py`
 **Estimated scope:** M
 
 ---
@@ -337,25 +338,25 @@ required starred fields and per-step validation.
 
 ---
 
-## Task 14: `filling` — widgets and unknown handling
+## Task 14: `filling` — form fields and unknown handling
 
-**Description:** Handle dropdowns, radio groups, checkboxes, and numeric fields; define
-exactly what happens on an unrecognized required widget.
+**Description:** Cover dropdowns, radio groups, checkboxes, and numeric fields via the
+agent; define exactly what happens on an unrecognized required field.
 
 **Acceptance criteria:**
 - [ ] Dropdowns, radios, and checkboxes are set to the chosen answer
 - [ ] Numeric/text-constrained fields validate before advancing
-- [ ] An unrecognized required widget is left blank and surfaced at review as
+- [ ] An unrecognized required field is left blank and surfaced at review as
       `NEEDS_REVIEW` — never guessed, never a silent job skip
 - [ ] Mixed-type multi-step forms fill correctly in one pass
 
 **Verification:**
-- [ ] `poetry run pytest -m "not integration" tests/unit/test_fill_widgets.py`
+- [ ] `poetry run pytest -m "not integration" tests/unit/test_fill_agent.py`
 - [ ] Manual: `--dry-run` on a job containing a dropdown and a radio group
 
 **Dependencies:** Task 13
-**Files likely touched:** `src/nodes/fill.py`, `tests/unit/test_fill_widgets.py`,
-`tests/fixtures/`
+**Files likely touched:** `src/nodes/fill.py`, `src/tools/browser_agent.py`,
+`tests/unit/test_fill_agent.py`
 **Estimated scope:** M
 
 ---
@@ -439,7 +440,7 @@ gate after approval.
 **Verification:**
 - [ ] `poetry run ruff check .` and `poetry run mypy src` clean
 - [ ] `poetry run pytest -m "not integration"` (full unit suite)
-- [ ] Manual (owner, needs OpenRouter key + Chromium): `run --url <job> --dry-run`
+- [ ] Manual (owner, needs OpenRouter key + browser): `run --url <job> --dry-run`
       reaches review with **no submission** and a screenshot in `data/artifacts/`
 - [ ] Manual: `login` persists via `data/profile`
 

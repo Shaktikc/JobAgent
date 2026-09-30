@@ -5,7 +5,7 @@
 .env
 .env.local
 
-# Runtime state (SQLite, Chromium profile, screenshots)
+# Runtime state (SQLite, browser profile, screenshots)
 data/
 
 # Python

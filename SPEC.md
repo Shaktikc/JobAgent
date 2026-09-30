@@ -4,15 +4,14 @@ Status: **APPROVED** 2026-09-29. Supersedes the draft of the same date.
 Source of truth for what we're building, why, and how we'll know it's done.
 Idea one-pager: `docs/ideas/auto-job-apply.md`
 
-> **Amendment 2026-09-30 (ADR 0001).** The browser layer was migrated from
-> Playwright to the **browser-use** AI agent at the owner's request. Prose below
-> that says "Playwright" describes the original design; read it as "browser-use".
-> The non-browser architecture (guard, state/SQLite, facts rules, review gate) and
-> every safety invariant are unchanged: the agent reads and fills, **never
-> submits**; submission is a separate agent task run only by the review gate after
-> explicit approval. The dedicated persistent profile (`data/profile`) and
-> manual-only login remain. New: `src/tools/browser_agent.py` + its task-builder
-> tests. Removed: all direct Playwright code and the `playwright` dependency.
+> **Amendment 2026-09-30 (ADR 0001).** The browser layer is the **browser-use** AI
+> agent (an owner-directed migration away from Playwright, recorded in ADR 0001).
+> This spec describes the browser-use design throughout. The non-browser
+> architecture (guard, state/SQLite, facts rules, review gate) and every safety
+> invariant are unchanged: the agent reads and fills, **never submits**; submission
+> is a separate agent task run only by the review gate after explicit approval. The
+> dedicated persistent profile (`data/profile`) and manual-only login remain.
+> `src/tools/browser_agent.py` holds the task builders and the guarded runner.
 
 ---
 
@@ -163,13 +162,13 @@ AutoJobApply/
 ├── resumes/                    # Resumes (PDF) — any number, one per role you target
 ├── data/                       # Runtime, gitignored
 │   ├── autojobapply.db         # SQLite
-│   ├── profile/                # Dedicated Chromium profile (cookies)
+│   ├── profile/                # Dedicated browser profile (cookies)
 │   ├── artifacts/              # Per-job screenshots on failure
 │   └── STOP                    # Sentinel file; if present, guard halts everything
 ├── tests/                      # Testing infrastructure
 │   ├── unit/                   # Independent node and tool logic
 │   ├── integration/            # End-to-end graph runs (browser smoke, marked, manual)
-│   └── fixtures/               # Saved HTML samples for selector tests
+│   └── fixtures/               # Saved samples for tests
 ├── docs/ideas/auto-job-apply.md
 ├── .env.example                # Managed API keys, LLM/Ollama config, or proxy setups
 ├── langgraph.json              # Compilation blueprint for LangGraph cloud/managed infra
@@ -349,7 +348,7 @@ any of these values requires asking first.
 - Changing `config/*.yaml` structural shape (not just values).
 
 **Never**
-- Commit `.env`, cookies, the Chromium profile, or resumes containing PII.
+- Commit `.env`, cookies, the browser profile, or resumes containing PII.
 - Submit an application without explicit human approval at `review-gate`.
 - Bypass, disable, or "temporarily" skip `guard`.
 - Remove a failing test to get to green.
@@ -382,7 +381,7 @@ any of these values requires asking first.
 - **`filling`** — a real Easy Apply flow is completed up to the final Submit button
   without submitting; multi-step modals, required starred questions, and dropdowns
   are handled; a screenshot of the filled form is saved to `data/artifacts/` for
-  **every** application; an unrecognized required widget is left blank and surfaced at
+  **every** application; an unrecognized required field is left blank and surfaced at
   review as `NEEDS_REVIEW` (never silently guessed, never a silent job skip); a hard
   failure captures a screenshot and marks the job `failed`.
 - **`review-gate`** — displays job title, company, URL, resume used, and every
@@ -402,8 +401,8 @@ any of these values requires asking first.
    Easy-Apply-only, deduped jobs.
 3. Resumes dropped into `resumes/` are auto-indexed with no naming convention, and
    routing selects the expected resume on a fixture set of job titles.
-4. For a fixture Easy Apply modal, every recognized field receives an answer with
-   provenance; unrecognized required widgets appear at review as `NEEDS_REVIEW`.
+4. On a real Easy Apply form (dry-run), every recognized field receives an answer with
+   provenance; unrecognized required fields appear at review as `NEEDS_REVIEW`.
 5. A real Easy Apply flow reaches the Submit button without submitting.
 6. The terminal review shows job + every answer + provenance and accepts
    approve / reject / edit.
@@ -430,7 +429,7 @@ All open questions were resolved on 2026-09-29.
 | Resume variants | **Any number.** Auto-indexed from `resumes/` (LLM-extracted role keywords, cached by file hash) and matched to jobs automatically. `resumes.yaml` holds optional overrides only. No fixed taxonomy, no naming convention. |
 | Cap and hours | **Confirmed:** 30/day, 09:00–18:00 local, 20–90s randomized delays. |
 | Screenshots | **Every application** — PNG of the filled form saved to `data/artifacts/` before review. |
-| Unknown widgets | **Surface at review** as `NEEDS_REVIEW`, left blank. Never a silent guess, never a silent skip. |
+| Unknown fields | **Surface at review** as `NEEDS_REVIEW`, left blank. Never a silent guess, never a silent skip. |
 | Spam filtering | **Keyword list only** — `exclude_keywords` / `exclude_companies`. No built-in heuristics; "Promoted" listings are not excluded. |
 
 ### Still open (non-blocking)
