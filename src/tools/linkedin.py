@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import re
 import time
+from contextlib import suppress
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import TYPE_CHECKING
 
 from playwright.sync_api import Page
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 if TYPE_CHECKING:  # avoid importing the guard at module load; only used as a type
     from src.tools.guard import Guard
@@ -65,6 +67,27 @@ APPLY_BUTTON_CLASSES = frozenset(
         "jobs-s-apply__button",
     }
 )
+
+# New (2026) LinkedIn "Aero" UI renders hashed utility class names, so the class
+# selectors above are now only a fallback. These stable hooks are the primary read:
+#   <button data-view-name="job-apply-button" aria-label="Easy Apply to this job">
+#   <span data-testid="expandable-text-box">   (the job description)
+#   <div aria-label="Company, <name>.">
+#   <title>Role | Company | LinkedIn</title>   (server-rendered)
+APPLY_BUTTON_VIEW = "job-apply-button"
+DESCRIPTION_TESTID = "expandable-text-box"
+COMPANY_LABEL_PREFIX = "Company,"
+LINKEDIN_TITLE_SUFFIX = "linkedin"
+
+# Any of these means the client-side job detail has rendered. Parsing before one
+# appears reads an empty shell (see read_job).
+DETAIL_RENDER_SELECTORS = (
+    f'[data-testid="{DESCRIPTION_TESTID}"]',
+    ".jobs-description__content",
+    ".jobs-description-content__text",
+    ".jobs-box__html-content",
+)
+DETAIL_RENDER_TIMEOUT_MS = 20_000
 
 _BUTTON_TAGS = frozenset({"button", "a"})
 _VOID_TAGS = frozenset(
@@ -156,11 +179,31 @@ def _clean(parts: list[str]) -> str:
     return " ".join(" ".join(parts).split())
 
 
+def _split_document_title(raw: str) -> tuple[str, str]:
+    """Split an SSR ``<title>`` like ``Role | Company | LinkedIn`` into (role, company).
+
+    The ``<title>`` is server-rendered, so it survives LinkedIn hashing its CSS
+    classes. It is only consulted when the class-based title/company are missing.
+    """
+    parts = [
+        part.strip()
+        for part in raw.split("|")
+        if part.strip() and part.strip().lower() != LINKEDIN_TITLE_SUFFIX
+    ]
+    title = parts[0] if parts else ""
+    company = parts[1] if len(parts) > 1 else ""
+    return title, company
+
+
 class _JobCardParser(HTMLParser):
-    """Collect title/company/description text and apply-button text from one page.
+    """Collect title/company/description and apply-button text from one page.
 
     Inherited frames propagate, so text inside nested markup (e.g. a company
     ``<a>`` or a title ``<span>``) is still attributed to its matched ancestor.
+
+    Reads both the legacy class names and the current stable hooks:
+    ``data-view-name="job-apply-button"``, ``data-testid="expandable-text-box"``,
+    ``aria-label="Company, …"`` and the server-rendered ``<title>``.
     """
 
     def __init__(self) -> None:
@@ -171,14 +214,43 @@ class _JobCardParser(HTMLParser):
         self._company: list[str] = []
         self._description: list[str] = []
         self._apply: list[str] = []
+        self._doc_title: list[str] = []
+        self._in_doc_title = False
+        self._company_label = ""
+        self._description_taken = False
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         classes = _class_set(attrs)
+        lookup = {name: value for name, value in attrs}
         parent = self._stack[-1] if self._stack else ("", False, False, False, False)
+
+        if tag == "title":
+            self._in_doc_title = True
+
+        label = lookup.get("aria-label")
+        if label and label.startswith(COMPANY_LABEL_PREFIX) and not self._company_label:
+            self._company_label = label[len(COMPANY_LABEL_PREFIX) :].strip().rstrip(".")
+
+        # The first expandable text box on a job page is the job description; a
+        # second one may carry the company blurb, so only the first is taken.
+        is_description_box = (
+            lookup.get("data-testid") == DESCRIPTION_TESTID
+            and not self._description_taken
+        )
+        if is_description_box:
+            self._description_taken = True
+
         in_title = parent[1] or bool(classes & TITLE_CLASSES)
         in_company = parent[2] or bool(classes & COMPANY_CLASSES)
-        in_description = parent[3] or bool(classes & DESCRIPTION_CLASSES)
-        in_apply = parent[4] or tag in _BUTTON_TAGS or bool(classes & APPLY_BUTTON_CLASSES)
+        in_description = (
+            parent[3] or bool(classes & DESCRIPTION_CLASSES) or is_description_box
+        )
+        in_apply = (
+            parent[4]
+            or tag in _BUTTON_TAGS
+            or bool(classes & APPLY_BUTTON_CLASSES)
+            or lookup.get("data-view-name") == APPLY_BUTTON_VIEW
+        )
         if tag not in _VOID_TAGS:
             self._stack.append((tag, in_title, in_company, in_description, in_apply))
         if in_apply:
@@ -190,12 +262,17 @@ class _JobCardParser(HTMLParser):
         self.handle_starttag(tag, attrs)
 
     def handle_endtag(self, tag: str) -> None:
+        if tag == "title":
+            self._in_doc_title = False
         for index in range(len(self._stack) - 1, -1, -1):
             if self._stack[index][0] == tag:
                 del self._stack[index:]
                 return
 
     def handle_data(self, data: str) -> None:
+        if self._in_doc_title:
+            self._doc_title.append(data)
+            return
         if not self._stack:
             return
         _, in_title, in_company, in_description, in_apply = self._stack[-1]
@@ -209,13 +286,19 @@ class _JobCardParser(HTMLParser):
             self._apply.append(data)
 
     def result(self) -> tuple[str, str, str, bool]:
-        easy_apply = any(_EASY_APPLY_TEXT in _clean([part]).lower() for part in self._apply)
-        return (
-            _clean(self._title),
-            _clean(self._company),
-            _clean(self._description),
-            easy_apply,
+        easy_apply = any(
+            _EASY_APPLY_TEXT in _clean([part]).lower() for part in self._apply
         )
+
+        title = _clean(self._title)
+        company = _clean(self._company)
+        if not company and self._company_label:
+            company = self._company_label
+        if (not title or not company) and self._doc_title:
+            doc_title, doc_company = _split_document_title(_clean(self._doc_title))
+            title = title or doc_title
+            company = company or doc_company
+        return title, company, _clean(self._description), easy_apply
 
 
 def _parse(html: str) -> tuple[str, str, str, bool]:
@@ -249,12 +332,22 @@ def parse_job_page(html: str, *, url: str = "") -> JobDetails:
 
 
 def read_job(page: Page, url: str, *, guard: Guard | None = None) -> JobDetails:
-    """Navigate to a job URL and parse it. Browser I/O lives here, not in nodes.
+    """Navigate to a job URL, wait for it to render, and parse it.
+
+    LinkedIn hydrates the job detail client-side, so parsing at
+    ``domcontentloaded`` reads an empty shell. We wait for the rendered
+    description first; a timeout falls back to whatever is present.
 
     When a ``guard`` is supplied the fetched HTML is screened for a
     rate-limit/checkpoint page before anything is read (SPEC.md §8).
     """
     page.goto(url, wait_until="domcontentloaded")
+    # Parse whatever is present rather than failing; an unrendered page simply
+    # yields empty fields, and callers enforce Easy Apply from there.
+    with suppress(PlaywrightTimeoutError):
+        page.wait_for_selector(
+            ", ".join(DETAIL_RENDER_SELECTORS), timeout=DETAIL_RENDER_TIMEOUT_MS
+        )
     html = page.content()
     if guard is not None:
         guard.check_page_text(html)
