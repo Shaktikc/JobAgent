@@ -29,7 +29,6 @@ Last updated: 2026-09-30 · **Done 4 / 16 tasks** · WIP limit: 1
 
 ## 🔵 Backlog
 
-- **T5** — `discovery` (partial): read a job, detect Easy Apply from a URL *(Phase 1, dep: T3)*
 - **T6** — `answering`: facts rules + provenance, no LLM *(Phase 1, dep: T1)*
 - **T7** — `filling`: single-step fields, resume upload, screenshots *(Phase 1, dep: T3, T6)*
 - **T8** — `review-gate` + minimal graph + `run --url <job> --dry-run` *(Phase 1, dep: T2, T7)*
@@ -52,7 +51,24 @@ Last updated: 2026-09-30 · **Done 4 / 16 tasks** · WIP limit: 1
 
 ## 🟣 Review (awaiting human inspection)
 
-*(none)*
+- **T5** — `discovery` (partial): read a job, detect Easy Apply from a URL *(Phase 1, dep: T3)*
+  - Implemented 2026-09-30: `tools/linkedin.py` (`JobDetails`, `job_id_from_url`,
+    `detect_easy_apply`, `parse_job_page`, browser `read_job`), `nodes/discover.py`
+    (`NotEasyApplyError`, `ensure_easy_apply`, `extract_job`, `read_job`, `as_job_state`)
+    and `state.JobState` (the shared contract). Parsing uses stdlib `html.parser`
+    over read selectors — no new dependency.
+  - Verified 2026-09-30: `pytest -m "not integration" tests/unit/test_discover_parse.py`
+    → 12 passed against saved fixtures (title/company/description/URL, job-id
+    extraction, Easy Apply true/false, typed refusal for external apply) · full suite
+    → 68 passed · `ruff check .` clean · `mypy src` clean.
+  - **Human step required (not runnable by the agent — needs the logged-in profile
+    and network):** read one real Easy Apply URL and confirm the fields parse:
+    ```powershell
+    $env:AUTOJOB_TEST_JOB_URL = "https://www.linkedin.com/jobs/view/<id>/"
+    poetry run pytest -m integration tests/integration/test_discover_browser.py
+    ```
+    If the real page's class names differ, the read selectors in
+    `src/tools/linkedin.py` need updating. If OK, move to Done.
 
 ## 🟢 Done
 
@@ -142,3 +158,5 @@ Each checkpoint must be explicitly verified with the human before the next phase
 | 2026-09-30 | T3 | Review → Done | Owner signed off criterion 1 (login persists, second run reuses). |
 | 2026-09-30 | T4 | Backlog → In Progress | Implement `guard` (pacing, cap, hours, STOP, rate-limit). |
 | 2026-09-30 | T4 | In Progress → Done | All acceptance criteria verified; 19 guard tests + manual STOP check green. |
+| 2026-09-30 | T5 | Backlog → In Progress | Implement partial `discovery`: parse one job page + detect Easy Apply. |
+| 2026-09-30 | T5 | In Progress → Review | Code + 12 fixture tests green; awaiting the human real-URL read (selectors vs. live DOM). |
