@@ -4,7 +4,12 @@
 verification, files) live in `tasks/todo.md`. Sequencing, decisions, and risks live in
 `tasks/plan.md`. Spec: `SPEC.md`.
 
-Last updated: 2026-09-29 · **Done 1 / 16 tasks** · WIP limit: 1
+Last updated: 2026-09-30 · **Done 1 / 16 tasks** · WIP limit: 1
+
+> Audit 2026-09-30: repo state re-verified against this board. Only **T1** is complete.
+> HEAD (`c8d84ac`, "wokring on task 2") is mislabeled — its contents are entirely T1
+> artifacts; `src/tools/store.py` is still the docstring-only stub and
+> `tests/unit/test_store.py` does not exist. **T2 has not started.**
 
 ---
 
@@ -102,3 +107,5 @@ Each checkpoint must be explicitly verified with the human before the next phase
 | 2026-09-29 | T1 | In Progress → Blocked | Poetry not installed; spec specifies Poetry. Awaiting human decision. |
 | 2026-09-29 | T1 | Blocked → In Progress | Human: install Poetry, keep the spec; download Chromium during scaffold. |
 | 2026-09-29 | T1 | In Progress → Done | All acceptance criteria verified (commands in the Done card). |
+| 2026-09-30 | T1 | Done (re-verified) | Audit: `ruff` clean · `mypy src` 23 files clean · `pytest -m "not integration"` 10 passed · `--help` OK. |
+| 2026-09-30 | T2 | Backlog (unchanged) | Audit: HEAD `c8d84ac` "wokring on task 2" contains only T1 artifacts; `store.py` still a stub, no `test_store.py`. T2 not started. |
