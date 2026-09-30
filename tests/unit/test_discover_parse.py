@@ -18,9 +18,15 @@ FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 
 EASY_APPLY_HTML = (FIXTURES / "job_easy_apply.html").read_text(encoding="utf-8")
 EXTERNAL_APPLY_HTML = (FIXTURES / "job_external_apply.html").read_text(encoding="utf-8")
+AERO_EASY_APPLY_HTML = (FIXTURES / "job_aero_easy_apply.html").read_text(encoding="utf-8")
+AERO_EXTERNAL_APPLY_HTML = (FIXTURES / "job_aero_external_apply.html").read_text(
+    encoding="utf-8"
+)
 
 EASY_APPLY_URL = "https://www.linkedin.com/jobs/view/4012345678/"
 EXTERNAL_APPLY_URL = "https://www.linkedin.com/jobs/view/4099999999/"
+AERO_EASY_APPLY_URL = "https://www.linkedin.com/jobs/view/4468706364/"
+AERO_EXTERNAL_APPLY_URL = "https://www.linkedin.com/jobs/view/4055555555/"
 
 
 # --- URL / job id -----------------------------------------------------------
@@ -82,6 +88,62 @@ def test_parse_unknown_page_leaves_fields_empty() -> None:
     assert details.company == ""
     assert details.description == ""
     assert details.easy_apply is False
+
+
+# --- parsing: current LinkedIn "Aero" markup (hashed classes) ---------------
+
+
+def test_aero_page_extracts_title_company_description() -> None:
+    details = linkedin.parse_job_page(AERO_EASY_APPLY_HTML, url=AERO_EASY_APPLY_URL)
+
+    assert details.title == "Data Engineer"
+    assert details.company == "Globex"
+    assert "build pipelines" in details.description
+    assert "5+ years of Python" in details.description
+    assert "SQL and Airflow" in details.description
+
+
+def test_aero_description_takes_only_the_job_description_box() -> None:
+    details = linkedin.parse_job_page(AERO_EASY_APPLY_HTML, url=AERO_EASY_APPLY_URL)
+
+    assert "founded in 1998" not in details.description
+
+
+def test_aero_detects_easy_apply_from_the_apply_button_hook() -> None:
+    assert linkedin.detect_easy_apply(AERO_EASY_APPLY_HTML) is True
+
+
+def test_aero_detects_external_apply_as_not_easy_apply() -> None:
+    assert linkedin.detect_easy_apply(AERO_EXTERNAL_APPLY_HTML) is False
+
+
+def test_aero_external_apply_raises_typed_error() -> None:
+    with pytest.raises(NotEasyApplyError, match="Easy Apply"):
+        extract_job(AERO_EXTERNAL_APPLY_HTML, url=AERO_EXTERNAL_APPLY_URL)
+
+
+def test_company_aria_label_used_when_class_and_title_lack_company() -> None:
+    html = (
+        "<html><head><title>Analyst</title></head>"
+        '<body><div aria-label="Company, Acme Corp."></div></body></html>'
+    )
+
+    details = linkedin.parse_job_page(html)
+
+    assert details.title == "Analyst"
+    assert details.company == "Acme Corp"
+
+
+def test_title_tag_company_fallback_ignores_linkedin_suffix() -> None:
+    html = (
+        "<html><head><title>Staff Engineer | Umbrella | LinkedIn</title></head>"
+        "<body></body></html>"
+    )
+
+    details = linkedin.parse_job_page(html)
+
+    assert details.title == "Staff Engineer"
+    assert details.company == "Umbrella"
 
 
 # --- node behaviour: Easy Apply gate ---------------------------------------
