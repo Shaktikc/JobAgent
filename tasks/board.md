@@ -4,7 +4,7 @@
 verification, files) live in `tasks/todo.md`. Sequencing, decisions, and risks live in
 `tasks/plan.md`. Spec: `SPEC.md`.
 
-Last updated: 2026-09-30 · **Done 4 / 16 tasks** · WIP limit: 1
+Last updated: 2026-09-30 · **Done 5 / 16 tasks** · WIP limit: 1
 
 > Audit 2026-09-30: T1 was already complete; T2's uncommitted source had been lost
 > (HEAD `c8d84ac`, "wokring on task 2", contains only T1 artifacts) while its compiled
@@ -51,24 +51,7 @@ Last updated: 2026-09-30 · **Done 4 / 16 tasks** · WIP limit: 1
 
 ## 🟣 Review (awaiting human inspection)
 
-- **T5** — `discovery` (partial): read a job, detect Easy Apply from a URL *(Phase 1, dep: T3)*
-  - Implemented 2026-09-30: `tools/linkedin.py` (`JobDetails`, `job_id_from_url`,
-    `detect_easy_apply`, `parse_job_page`, browser `read_job`), `nodes/discover.py`
-    (`NotEasyApplyError`, `ensure_easy_apply`, `extract_job`, `read_job`, `as_job_state`)
-    and `state.JobState` (the shared contract). Parsing uses stdlib `html.parser`
-    over read selectors — no new dependency.
-  - Verified 2026-09-30: `pytest -m "not integration" tests/unit/test_discover_parse.py`
-    → 12 passed against saved fixtures (title/company/description/URL, job-id
-    extraction, Easy Apply true/false, typed refusal for external apply) · full suite
-    → 68 passed · `ruff check .` clean · `mypy src` clean.
-  - **Human step required (not runnable by the agent — needs the logged-in profile
-    and network):** read one real Easy Apply URL and confirm the fields parse:
-    ```powershell
-    $env:AUTOJOB_TEST_JOB_URL = "https://www.linkedin.com/jobs/view/<id>/"
-    poetry run pytest -m integration tests/integration/test_discover_browser.py
-    ```
-    If the real page's class names differ, the read selectors in
-    `src/tools/linkedin.py` need updating. If OK, move to Done.
+*(none)*
 
 ## 🟢 Done
 
@@ -104,6 +87,23 @@ Last updated: 2026-09-30 · **Done 4 / 16 tasks** · WIP limit: 1
     → 19 passed (fake clock) · full suite → 56 passed · `ruff check .` clean ·
     `mypy src` clean · manual: created `data/STOP`, next guarded action raised
     `GuardHalt`, sentinel removed.
+- **T5** — `discovery` (partial): read a job, detect Easy Apply from a URL *(Phase 1)*
+  - Implemented 2026-09-30: `tools/linkedin.py` (`JobDetails`, `job_id_from_url`,
+    `detect_easy_apply`, `parse_job_page`, browser `read_job`), `nodes/discover.py`
+    (`NotEasyApplyError`, `ensure_easy_apply`, `extract_job`, `read_job`, `as_job_state`)
+    and `state.JobState` (the shared contract). Parsing uses stdlib `html.parser`
+    over read selectors — no new dependency.
+  - Corrected 2026-09-30 after a live read failed: `read_job` now waits for the
+    client-rendered description before parsing, and the parser reads LinkedIn's
+    current stable hooks (`data-view-name="job-apply-button"`,
+    `data-testid="expandable-text-box"`, `aria-label="Company, …"`, the SSR
+    `<title>`) with the old class names kept as fallback. Two Aero fixtures added.
+  - Verified 2026-09-30: `pytest -m "not integration" tests/unit/test_discover_parse.py`
+    → 19 passed · full suite → 75 passed · `ruff check .` clean · `mypy src` clean ·
+    `pytest -m integration tests/integration/test_discover_browser.py` → 1 passed
+    against a **real Easy Apply page** (`jobs/view/4468706364/`, both the canonical
+    view URL and the `search-results/?currentJobId=…` form), fields non-empty and
+    Easy Apply detected.
 
 ---
 
@@ -160,3 +160,5 @@ Each checkpoint must be explicitly verified with the human before the next phase
 | 2026-09-30 | T4 | In Progress → Done | All acceptance criteria verified; 19 guard tests + manual STOP check green. |
 | 2026-09-30 | T5 | Backlog → In Progress | Implement partial `discovery`: parse one job page + detect Easy Apply. |
 | 2026-09-30 | T5 | In Progress → Review | Code + 12 fixture tests green; awaiting the human real-URL read (selectors vs. live DOM). |
+| 2026-09-30 | T5 | Review → In Progress | Live read of a real Easy Apply URL failed: parse raced hydration and LinkedIn's hashed class names broke the read selectors. Fixing wait + selectors. |
+| 2026-09-30 | T5 | In Progress → Done | Fixed hydration wait + stable hooks (Aero). Unit 19, full 75, ruff/mypy clean; real-URL integration test passes. |
