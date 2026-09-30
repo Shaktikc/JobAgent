@@ -4,7 +4,7 @@
 verification, files) live in `tasks/todo.md`. Sequencing, decisions, and risks live in
 `tasks/plan.md`. Spec: `SPEC.md`.
 
-Last updated: 2026-09-30 · **Done 3 / 16 tasks** · WIP limit: 1
+Last updated: 2026-09-30 · **Done 4 / 16 tasks** · WIP limit: 1
 
 > Audit 2026-09-30: T1 was already complete; T2's uncommitted source had been lost
 > (HEAD `c8d84ac`, "wokring on task 2", contains only T1 artifacts) while its compiled
@@ -29,7 +29,6 @@ Last updated: 2026-09-30 · **Done 3 / 16 tasks** · WIP limit: 1
 
 ## 🔵 Backlog
 
-- **T4** — `guard`: pacing, daily cap, business hours, STOP sentinel *(Phase 0, dep: T1, T2)*
 - **T5** — `discovery` (partial): read a job, detect Easy Apply from a URL *(Phase 1, dep: T3)*
 - **T6** — `answering`: facts rules + provenance, no LLM *(Phase 1, dep: T1)*
 - **T7** — `filling`: single-step fields, resume upload, screenshots *(Phase 1, dep: T3, T6)*
@@ -80,6 +79,15 @@ Last updated: 2026-09-30 · **Done 3 / 16 tasks** · WIP limit: 1
     `ruff check .` clean · `mypy src` clean.
   - Criterion 1 (login persists; a second run reuses it) signed off by the owner on
     2026-09-30.
+- **T4** — `guard`: pacing, daily cap, business hours, STOP sentinel *(Phase 0)*
+  - Implemented 2026-09-30: `tools/guard.py` (`Guard`, `GuardHalt`,
+    `detect_rate_limit_signal`) with injectable clock/sleep/rng; STOP sentinel;
+    daily cap via `store.count_applied_today`; business-hours gate; randomized
+    20–90s pacing; a rate-limit/checkpoint signal trips STOP and raises.
+  - Verified 2026-09-30: `pytest -m "not integration" tests/unit/test_guard.py`
+    → 19 passed (fake clock) · full suite → 56 passed · `ruff check .` clean ·
+    `mypy src` clean · manual: created `data/STOP`, next guarded action raised
+    `GuardHalt`, sentinel removed.
 
 ---
 
@@ -87,11 +95,12 @@ Last updated: 2026-09-30 · **Done 3 / 16 tasks** · WIP limit: 1
 
 Each checkpoint must be explicitly verified with the human before the next phase begins.
 
-**CP-A — Foundation** *(after T1–T4)* · status: Backlog
-- `poetry install` and `python -m src.main --help` succeed
-- `login` persists a session; a second run reuses it (criterion 1)
-- Guard refuses the 31st daily attempt and out-of-hours runs (criterion 9)
-- All unit tests pass; `ruff check .` clean
+**CP-A — Foundation** *(after T1–T4)* · status: ⚠️ criteria met 2026-09-30 — awaiting human sign-off
+- `poetry install` and `python -m src.main --help` succeed ✓
+- `login` persists a session; a second run reuses it (criterion 1) ✓ (T3, owner sign-off)
+- Guard refuses the 31st daily attempt and out-of-hours runs (criterion 9) ✓ (T4)
+- All unit tests pass; `ruff check .` clean ✓
+- Human sign-off required before Phase 1 (T5+) begins.
 
 **CP-B — Riskiest assumption proven ⚠️** *(after T5–T8)* · status: Backlog
 - The go/no-go gate for the whole project.
@@ -131,3 +140,5 @@ Each checkpoint must be explicitly verified with the human before the next phase
 | 2026-09-30 | T3 | Backlog → In Progress | Implement `session` (browser launch, persistent profile, `login`). |
 | 2026-09-30 | T3 | In Progress → Review | Code + unit/integration verification green; awaiting the human login-twice check (criterion 1). |
 | 2026-09-30 | T3 | Review → Done | Owner signed off criterion 1 (login persists, second run reuses). |
+| 2026-09-30 | T4 | Backlog → In Progress | Implement `guard` (pacing, cap, hours, STOP, rate-limit). |
+| 2026-09-30 | T4 | In Progress → Done | All acceptance criteria verified; 19 guard tests + manual STOP check green. |
