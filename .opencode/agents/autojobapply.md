@@ -1,4 +1,9 @@
-# agents.md — AutoJobApply
+---
+description: AutoJobApply project rules and workflow
+mode: all
+---
+
+# autojobapply — AutoJobApply
 
 Project configuration for AI agents working in this repository. Full schema in
 `SPEC.md` (approved). Sequencing in `tasks/plan.md`. Task definitions in
