@@ -105,3 +105,39 @@ def test_system_messages_gate_submission() -> None:
 
     submit = build_submit_system_message()
     assert "explicit human approval" in submit
+
+
+# --- multi-step modals (the 2026-09-30 real dry-run showed "1/4 pages") ------
+
+
+def test_fill_task_walks_every_step_but_still_never_submits() -> None:
+    """The Easy Apply modal is multi-step; the fill must advance with Next, not stop.
+
+    The real Talent Forge form was "1/4 pages". A single-step fill leaves steps 2-4
+    untouched and the answers lost. The task must tell the agent to click Next to
+    continue filling, stop at the final review, and never click Submit.
+    """
+    task = build_fill_task(
+        title="Full Stack Engineer",
+        company="Talent Forge Group",
+        url="https://www.linkedin.com/jobs/view/4468706364/",
+        instructions=(),
+        resume_path=None,
+    )
+
+    assert "Next" in task  # advance through the modal's steps
+    assert "Submit" in task  # the forbidden control is named
+    assert NO_SUBMIT_EXTENSION in task  # ...and still forbidden
+
+
+def test_read_form_task_collects_labels_across_all_steps() -> None:
+    """Reading only "the form it currently shows" misses later steps' fields.
+
+    The label read must walk the modal with Next to expose every question, without
+    submitting, so the rules can answer all of them.
+    """
+    from src.nodes.fill import READ_FORM_TASK
+
+    assert "Next" in READ_FORM_TASK or "Continue" in READ_FORM_TASK
+    assert "every" in READ_FORM_TASK  # all steps, not just the first
+    assert "Submit" in READ_FORM_TASK  # named as forbidden

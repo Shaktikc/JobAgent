@@ -66,10 +66,13 @@ class FillOutcome(BaseModel):
 
 READ_FORM_TASK = (
     "LinkedIn is showing a job page. If the LinkedIn Easy Apply form is not already "
-    'open, click the "Easy Apply" button to open it, then list the label of every '
-    "question and field the form currently shows, in order.\n\n"
+    'open, click the "Easy Apply" button to open it. The form is a multi-step modal: '
+    'collect the labels from EVERY step. Read the labels the current step shows, then '
+    'click the "Next" or "Continue" button to reveal the following step and read its '
+    "labels too, repeating until you reach the final review step. Return the label of "
+    "every question and field across all steps, in order.\n\n"
     "Read only: do NOT type into any field, do NOT upload anything, and do NOT click "
-    "Submit. Return the field labels as structured output."
+    'Submit or "Submit application". Return the field labels as structured output.'
 )
 
 _WRITE_EXTRA = (
@@ -137,7 +140,15 @@ async def capture_screenshot(browser: Any, artifacts_dir: Path, job_id: str) -> 
 
 
 async def open_and_read_fields(browser: Any, llm: Any, guard: Any) -> tuple[str, ...]:
-    """Open the Easy Apply form and return the field labels the agent found."""
+    """Open the Easy Apply form and return the field labels the agent found.
+
+    A read that yields no :class:`FormFields` is a failure, not an empty form: raise
+    :class:`FillError` rather than returning ``()``. "No fields on the form" and "the
+    read failed" must never look identical — the latter would silently turn every
+    answer into ``NEEDS_REVIEW`` (seen in the 2026-09-30 real dry-run of job
+    ``4468706364``, where a broken field-read hid the contact labels and the email and
+    country code were recorded ``NEEDS_REVIEW`` despite being filled).
+    """
     result = await browser_agent.run_task(
         READ_FORM_TASK,
         llm=llm,
@@ -147,9 +158,15 @@ async def open_and_read_fields(browser: Any, llm: Any, guard: Any) -> tuple[str,
         guard=guard,
     )
     found = result.structured_output
-    if isinstance(found, FormFields):
-        return tuple(label for label in found.fields if label.strip())
-    return ()
+    if not isinstance(found, FormFields):
+        raise FillError(
+            "the browser-use agent did not return form fields; cannot answer a form "
+            "we could not read"
+        )
+    labels = tuple(label for label in found.fields if label.strip())
+    if not labels:
+        raise FillError("the Easy Apply form showed no readable field labels")
+    return labels
 
 
 def _fill_instructions(answers: Iterable[Answer]) -> tuple[FieldInstruction, ...]:

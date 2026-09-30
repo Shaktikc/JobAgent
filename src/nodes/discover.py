@@ -14,6 +14,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from src.state import JobState
+from src.tools import browser as browser_tools
 from src.tools import linkedin
 from src.tools.browser_agent import run_task
 
@@ -81,7 +82,7 @@ async def read_job(
         raise DiscoveryError("the browser-use agent did not return a job extraction")
 
     if guard is not None:
-        guard.check_page_text(await browser.get_state_as_text())
+        guard.check_page_text(await browser_tools.read_page_text(browser))
 
     ensure_easy_apply(extraction, label=url)
     logger.info(

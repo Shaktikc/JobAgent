@@ -87,8 +87,15 @@ async def _node_discover(runtime: Runtime, state: RunState) -> RunState:
 
 async def _node_answer(runtime: Runtime, state: RunState) -> RunState:
     """Read the real form fields with the agent, then answer them with the rules."""
-    labels = await fill.open_and_read_fields(runtime.browser, runtime.llm, runtime.guard)
-    answers = answering.answer_fields(labels, runtime.facts)
+    job_id = state["job"]["job_id"]
+    try:
+        labels = await fill.open_and_read_fields(runtime.browser, runtime.llm, runtime.guard)
+        answers = answering.answer_fields(labels, runtime.facts)
+    except Exception:
+        # A field-read failure is a failed application, not a silent blank form —
+        # mirror _node_fill so the job never sits at `seen` with no signal.
+        store.set_job_status(runtime.conn, job_id, store.JobStatus.FAILED)
+        raise
     job: JobState = {**state["job"], "answers": list(answers)}
     return {"job": job, "answer_map": {answer.field: answer for answer in answers}}
 
