@@ -4,7 +4,7 @@
 verification, files) live in `tasks/todo.md`. Sequencing, decisions, and risks live in
 `tasks/plan.md`. Spec: `SPEC.md`.
 
-Last updated: 2026-09-30 · **Done 5 / 16 tasks** · WIP limit: 1
+Last updated: 2026-09-30 · **Done 6 / 16 tasks** · WIP limit: 1
 
 > Audit 2026-09-30: T1 was already complete; T2's uncommitted source had been lost
 > (HEAD `c8d84ac`, "wokring on task 2", contains only T1 artifacts) while its compiled
@@ -29,7 +29,6 @@ Last updated: 2026-09-30 · **Done 5 / 16 tasks** · WIP limit: 1
 
 ## 🔵 Backlog
 
-- **T6** — `answering`: facts rules + provenance, no LLM *(Phase 1, dep: T1)*
 - **T7** — `filling`: single-step fields, resume upload, screenshots *(Phase 1, dep: T3, T6)*
 - **T8** — `review-gate` + minimal graph + `run --url <job> --dry-run` *(Phase 1, dep: T2, T7)*
 - **T9** — LLM client (OpenRouter) with structured output *(Phase 2, dep: T1)*
@@ -104,6 +103,20 @@ Last updated: 2026-09-30 · **Done 5 / 16 tasks** · WIP limit: 1
     against a **real Easy Apply page** (`jobs/view/4468706364/`, both the canonical
     view URL and the `search-results/?currentJobId=…` form), fields non-empty and
     Easy Apply detected.
+- **T6** — `answering`: facts rules + provenance, no LLM *(Phase 1)*
+  - Implemented 2026-09-30: `nodes/answer.py` — `match_rule` (case-insensitive
+    regex over `config/facts.yaml` rules), `rule_value` (literal or
+    `answer_from` fact path, booleans rendered Yes/No), `answer_field` /
+    `answer_fields` emitting the shared `store.Answer` with provenance and
+    confidence. Precedence is rule → resume → LLM guess; a matched rule always
+    claims the field, and anything uncovered is `NEEDS_REVIEW` with an empty
+    value (never silently empty).
+  - Verified 2026-09-30: `pytest -m "not integration" tests/unit/test_answer_rules.py`
+    → 23 passed (real `facts.yaml` loads/validates; regex match; provenance and
+    confidence; precedence over supplied LLM output) · full suite → 98 passed ·
+    `ruff check .` clean · `mypy src` clean.
+  - No LLM, no network, no browser — deterministic and fully covered by unit tests,
+    so no human-only step is required.
 
 ---
 
@@ -162,3 +175,5 @@ Each checkpoint must be explicitly verified with the human before the next phase
 | 2026-09-30 | T5 | In Progress → Review | Code + 12 fixture tests green; awaiting the human real-URL read (selectors vs. live DOM). |
 | 2026-09-30 | T5 | Review → In Progress | Live read of a real Easy Apply URL failed: parse raced hydration and LinkedIn's hashed class names broke the read selectors. Fixing wait + selectors. |
 | 2026-09-30 | T5 | In Progress → Done | Fixed hydration wait + stable hooks (Aero). Unit 19, full 75, ruff/mypy clean; real-URL integration test passes. |
+| 2026-09-30 | T6 | Backlog → In Progress | Implement deterministic facts rule engine + provenance (no LLM). |
+| 2026-09-30 | T6 | In Progress → Done | 23 rule-engine tests green; full suite 98 passed, ruff/mypy clean. |
