@@ -1,19 +1,22 @@
-"""Manual integration smoke for partial `discovery` (Task 5).
+"""Manual integration smoke for `discovery` via browser-use (Task 5/17).
 
-Requires a real browser and a human-logged-in LinkedIn session in
-``data/profile``. It reads **one real Easy Apply job URL** and asserts the parsed
-fields are non-empty. It never fills or submits anything.
+Requires a real browser, a human-logged-in LinkedIn session in ``data/profile``,
+and an OpenRouter key + model. It reads **one real Easy Apply job URL** and asserts
+the agent's read is non-empty. It never fills or submits anything.
 
-Set the URL (see the board's T5 Review card), then run::
+Set the environment, then run::
 
     $env:AUTOJOB_TEST_JOB_URL = "https://www.linkedin.com/jobs/view/<id>/"
+    $env:OPENROUTER_API_KEY = "..."
+    $env:AUTOJOB_LLM_MODEL = "anthropic/claude-sonnet-4-6"
     poetry run pytest -m integration tests/integration/test_discover_browser.py
 
-Skipped automatically when ``AUTOJOB_TEST_JOB_URL`` is unset.
+Skipped automatically when the URL or the model is unset.
 """
 
 from __future__ import annotations
 
+import asyncio
 import os
 
 import pytest
@@ -21,6 +24,7 @@ import pytest
 from src.configuration import AppSettings
 from src.nodes import discover
 from src.tools import browser
+from src.tools.browser_agent import build_openrouter_llm
 
 pytestmark = pytest.mark.integration
 
@@ -35,11 +39,17 @@ def job_url() -> str:
 
 def test_read_real_easy_apply_job(job_url: str) -> None:
     settings = AppSettings.from_env()
+    if not settings.llm.model:
+        pytest.skip("set AUTOJOB_LLM_MODEL to run the browser-use read")
     settings.paths.ensure_runtime_dirs()
 
-    with browser.browser_context(settings) as context:
-        page = context.pages[0] if context.pages else context.new_page()
-        state = discover.read_job(page, job_url)
+    async def go() -> dict:
+        async with browser.browser_session(settings) as session:
+            llm = build_openrouter_llm(settings.llm.model or "")
+            state = await discover.read_job(session, llm, job_url)
+        return state
+
+    state = asyncio.run(go())
 
     assert state["easy_apply"] is True
     assert state["job_id"]

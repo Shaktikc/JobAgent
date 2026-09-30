@@ -17,7 +17,7 @@ browser or a real submission.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
 
@@ -125,7 +125,7 @@ def _prompt_or_quit(prompt: Callable[[str], str], message: str) -> str | None:
         return None
 
 
-def review_application(
+async def review_application(
     job: JobState,
     answers: Sequence[Answer],
     *,
@@ -133,12 +133,12 @@ def review_application(
     resume_file: str | None = None,
     prompt: Callable[[str], str] = input,
     out: Callable[[str], None] = print,
-    submit: Callable[[], str] | None = None,
+    submit: Callable[[], Awaitable[str]] | None = None,
 ) -> ReviewResult:
     """Show the review and act on the human's decision.
 
     The only place in the codebase that may call ``submit`` — and only after an
-    explicit approve outside dry-run. ``submit`` is called at most once.
+    explicit approve outside dry-run. ``submit`` is awaited at most once.
     """
     current = tuple(answers)
 
@@ -176,7 +176,7 @@ def review_application(
     if submitted:
         if submit is None:
             raise RuntimeError("approval requires a submit handler but none was provided")
-        confirmation = submit()
+        confirmation = await submit()
 
     return ReviewResult(
         action=action,

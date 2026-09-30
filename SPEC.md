@@ -4,6 +4,16 @@ Status: **APPROVED** 2026-09-29. Supersedes the draft of the same date.
 Source of truth for what we're building, why, and how we'll know it's done.
 Idea one-pager: `docs/ideas/auto-job-apply.md`
 
+> **Amendment 2026-09-30 (ADR 0001).** The browser layer was migrated from
+> Playwright to the **browser-use** AI agent at the owner's request. Prose below
+> that says "Playwright" describes the original design; read it as "browser-use".
+> The non-browser architecture (guard, state/SQLite, facts rules, review gate) and
+> every safety invariant are unchanged: the agent reads and fills, **never
+> submits**; submission is a separate agent task run only by the review gate after
+> explicit approval. The dedicated persistent profile (`data/profile`) and
+> manual-only login remain. New: `src/tools/browser_agent.py` + its task-builder
+> tests. Removed: all direct Playwright code and the `playwright` dependency.
+
 ---
 
 ## 1. Objective
@@ -32,7 +42,7 @@ account restriction.
 | `discovery` | Run search from config, harvest job cards, apply filters, extract job details, detect Easy Apply, classify role | session, guard, state |
 | `routing` | Auto-index every resume in `resumes/`; select the best-matching resume for a job | discovery, state |
 | `answering` | Map resume + facts file onto form questions via LLM; facts rules; per-answer provenance + confidence | routing, state |
-| `filling` | Playwright automation of the multi-step Easy Apply modal | session, answering, guard |
+| `filling` | browser-use agent automation of the multi-step Easy Apply modal | session, answering, guard |
 | `review-gate` | Terminal review: show job + every answer with provenance; approve / reject / edit; sole authority to submit | filling, state |
 | `orchestration` | LangGraph graph wiring modules into the run loop | all |
 
@@ -53,7 +63,7 @@ the project owner and is not mitigable by engineering.
 |---|---|
 | Language | Python 3.11+ |
 | Orchestration | LangGraph |
-| Browser automation | Playwright (sync API, dedicated persistent Chromium profile) |
+| Browser automation | browser-use AI agent (dedicated persistent browser profile) |
 | LLM | **OpenRouter** (OpenAI-compatible) via `langchain-openai` with `base_url=https://openrouter.ai/api/v1`. Model chosen by env var (`AUTOJOB_LLM_MODEL`) so it can be switched freely between runs. Structured output is required — answers must come back as validated Pydantic objects, never prose. |
 | Config validation | Pydantic v2 + PyYAML |
 | Persistence | SQLite via stdlib `sqlite3` (no ORM for MVP) |
@@ -75,7 +85,7 @@ All run from the repo root.
 ```
 # Setup (Poetry)
 poetry install
-poetry run playwright install chromium
+poetry run browser-use install
 
 # First-time auth: opens the browser, you log in to LinkedIn manually, session persists
 poetry run python -m src.main login
@@ -93,18 +103,17 @@ poetry run python -m src.main search
 poetry run python -m src.main status
 
 # Quality gates
-poetry run pytest -m "not integration"   # unit + selector tests, no browser — before commit
+poetry run pytest -m "not integration"   # unit tests, no browser — before commit
 poetry run pytest -m integration         # manual browser smoke against a logged-in profile
 poetry run ruff check . --fix
 poetry run ruff format .
 poetry run mypy src
 ```
 
-**One-time setup download.** `poetry run playwright install chromium` fetches a
-dedicated Chromium build (~196 MB) plus a headless shell (~115 MB, ~310 MB total) into
-the local Playwright cache. It is pulled during the Task 1 scaffold — not deferred —
-so the scaffold's acceptance criteria can actually be verified. This is the only large
-download in setup; `poetry install` itself is a few tens of MB of Python wheels.
+**One-time setup download.** `poetry run browser-use install` installs the browser
+browser-use drives. It is pulled during setup — not deferred — so acceptance
+criteria can actually be verified. This is the only large download; `poetry
+install` itself is a few tens of MB of Python wheels.
 
 ---
 
@@ -134,14 +143,14 @@ AutoJobApply/
 │   │   ├── discover.py         # ACTIVE: search → harvest → filter → Easy Apply detect
 │   │   ├── route.py            # ACTIVE: resume selection (auto-indexed from resumes/)
 │   │   ├── answer.py           # ACTIVE: facts rules + LLM answers + provenance
-│   │   ├── fill.py             # ACTIVE: Playwright Easy Apply modal automation + selectors
+│   │   ├── fill.py             # ACTIVE: browser-use agent fill + gate-only submit
 │   │   └── review.py           # ACTIVE: terminal review gate (approve/reject/edit)
 │   └── tools/                  # Tools exposed directly to the LangGraph state
 │       ├── __init__.py
 │       ├── opencode_client.py  # [placeholder] retained verbatim — no target codebase here
 │       ├── git_snapshot.py     # [placeholder] retained verbatim — no code rollback here
-│       ├── browser.py          # ACTIVE: Playwright session/profile/page primitives
-│       ├── linkedin.py         # ACTIVE: LinkedIn search + modal operations
+│       ├── browser.py          # ACTIVE: browser-use session/profile lifecycle
+│       ├── browser_agent.py    # ACTIVE: browser-use task builders + guarded runner
 │       ├── guard.py            # ACTIVE: pacing, daily cap, business hours, STOP sentinel
 │       ├── store.py            # ACTIVE: SQLite persistence & dedupe
 │       └── resume_parser.py    # ACTIVE: PDF → text
@@ -230,7 +239,8 @@ Conventions:
 - No bare `except:`; catch specific exceptions and log with context.
 - Log via stdlib `logging` with structured extras (`job_id=`, `module=`,
   `answer_field=`); never log PII or full resume contents.
-- Selectors are centralized as module-level constants in `nodes/fill.py` — never inline in logic.
+- Browser-use tasks are built as pure functions in `tools/browser_agent.py` and
+  `nodes/fill.py` — never inline in logic; there are no DOM selectors to centralise.
 - `configuration.py` is the single source of settings; nodes receive config explicitly,
   never read env vars directly.
 - Secrets only from environment / `.env` (gitignored).
@@ -244,8 +254,9 @@ Conventions:
   and dedupe; role classification; `nodes/route.py`; facts rule engine; provenance
   assignment; `tools/store.py` against an in-memory SQLite; `tools/guard.py` cap and
   business-hours logic. No network, no browser.
-- **Selector tests:** parse saved HTML fixtures in `tests/fixtures/` to assert the
-  selector constants in `nodes/fill.py` still resolve the expected nodes.
+- **Task-builder tests:** assert the pure browser-use task/answer builders inject
+  values via `sensitive_data` tokens and always carry the no-submit rule
+  (`tests/unit/test_browser_agent_tasks.py`).
 - **Integration (`poetry run pytest -m integration`, manual, never in CI):** lives in
   `tests/integration/`. Launches the real browser against the logged-in profile, runs
   one Easy Apply flow in `--dry-run`, and asserts it reaches the review gate without
@@ -253,7 +264,7 @@ Conventions:
 - **Coverage expectation:** logic-bearing files (`nodes/route.py`, the rules in
   `nodes/answer.py`, `tools/guard.py`, `tools/store.py`, the filters in
   `nodes/discover.py`) should be well covered by unit tests. Browser-driving code is
-  covered by integration smoke, not unit coverage — do not mock Playwright into unit
+  covered by integration smoke, not unit coverage — do not mock browser-use into unit
   tests.
 - Tests must never perform a real submission. Integration always uses `--dry-run`.
 

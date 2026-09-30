@@ -1,12 +1,12 @@
 """The StateGraph builder and compiler.
 
-``langgraph.json`` points at ``build_graph`` in this module. The assembly is
-implemented in Task 8 (minimal: single URL -> read -> answer -> fill -> review)
-and completed in Task 15 (full loop with checkpointing and crash resume).
+``langgraph.json`` points at ``build_graph`` in this module. Rewritten in Task 17
+(ADR 0001): the pipeline is the same shape (read → answer → fill → review) but is
+async, because browser-use is asyncio-native. Completion (full loop, checkpointing,
+crash resume) is Task 15.
 
-Browser, database and settings dependencies are injected through :class:`Runtime`
-so the graph is a plain, testable pipeline; the no-argument studio entry point is
-completed in Task 15.
+Browser, database and settings dependencies are injected through :class:`Runtime`;
+the no-argument studio entry point is completed in Task 15.
 """
 
 from __future__ import annotations
@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
-from playwright.sync_api import Page
 
 from src.configuration import AppSettings, FactsConfig, ResumeRoutingConfig
 from src.nodes import answer as answering
@@ -34,11 +33,12 @@ LIVE_RUN_NOTICE = "Live submit enabled (no --dry-run): approval at the gate will
 
 @dataclass
 class Runtime:
-    """Everything the minimal graph needs, injected once per run."""
+    """Everything the graph needs, injected once per run."""
 
     settings: AppSettings
     conn: sqlite3.Connection
-    page: Page
+    browser: Any
+    llm: Any
     guard: Guard
     facts: FactsConfig
     resume_path: Path | None
@@ -62,12 +62,14 @@ def resolve_default_resume(settings: AppSettings) -> Path | None:
 
 
 # ---------------------------------------------------------------------------
-# Nodes — thin functions over RunState; all I/O lives in src/tools and src/nodes
+# Nodes — thin async functions over RunState; all I/O lives in src/tools and nodes
 # ---------------------------------------------------------------------------
 
 
-def _node_discover(runtime: Runtime, state: RunState) -> RunState:
-    job = discover.read_job(runtime.page, state["job_url"], guard=runtime.guard)
+async def _node_discover(runtime: Runtime, state: RunState) -> RunState:
+    job = await discover.read_job(
+        runtime.browser, runtime.llm, state["job_url"], guard=runtime.guard
+    )
     runtime.out(f"Read job: {job.get('title', '')} at {job.get('company', '')}")
     store.upsert_job(
         runtime.conn,
@@ -75,31 +77,32 @@ def _node_discover(runtime: Runtime, state: RunState) -> RunState:
             job_id=job["job_id"],
             title=job.get("title", ""),
             company=job.get("company", ""),
-            url=job.get("url", ""),
             description=job.get("description", ""),
+            url=job.get("url", ""),
             status=store.JobStatus.SEEN,
         ),
     )
     return {"job": job}
 
 
-def _node_answer(runtime: Runtime, state: RunState) -> RunState:
-    """Open the modal and answer each real field label with the Task 6 rules."""
-    fill.open_application_form(runtime.page, runtime.guard)
-    labels = [widget.label for widget in fill.list_step_widgets(runtime.page) if widget.label]
+async def _node_answer(runtime: Runtime, state: RunState) -> RunState:
+    """Read the real form fields with the agent, then answer them with the rules."""
+    labels = await fill.open_and_read_fields(runtime.browser, runtime.llm, runtime.guard)
     answers = answering.answer_fields(labels, runtime.facts)
-    return {"answer_map": {answer.field: answer for answer in answers}}
+    job: JobState = {**state["job"], "answers": list(answers)}
+    return {"job": job, "answer_map": {answer.field: answer for answer in answers}}
 
 
-def _node_fill(runtime: Runtime, state: RunState) -> RunState:
+async def _node_fill(runtime: Runtime, state: RunState) -> RunState:
     job = state["job"]
     job_id = job["job_id"]
     try:
-        report = fill.fill_current_step(
-            runtime.page,
+        report = await fill.fill_application(
+            runtime.browser,
+            runtime.llm,
             runtime.guard,
-            job_id,
-            state.get("answer_map", {}),
+            job,
+            job.get("answers", []),
             resume_path=runtime.resume_path,
             artifacts_dir=runtime.settings.paths.artifacts,
         )
@@ -110,10 +113,10 @@ def _node_fill(runtime: Runtime, state: RunState) -> RunState:
     # Review must show every field: the answers actually filled, plus a
     # NEEDS_REVIEW entry for each control left blank (never guessed).
     review_answers: list[store.Answer] = list(report.filled)
-    for widget in report.flagged:
+    for label in report.flagged:
         review_answers.append(
             store.Answer(
-                field=widget.label.strip() or "(unnamed field)",
+                field=label.strip() or "(unnamed field)",
                 value="",
                 provenance=store.Provenance.NEEDS_REVIEW,
                 confidence=0.0,
@@ -140,14 +143,16 @@ def _node_fill(runtime: Runtime, state: RunState) -> RunState:
     return {"job": filled_job, "status": store.JobStatus.FILLED.value}
 
 
-def _node_review(runtime: Runtime, state: RunState) -> RunState:
+async def _node_review(runtime: Runtime, state: RunState) -> RunState:
     job = state["job"]
     submit = (
         None
         if runtime.dry_run
-        else partial(fill.submit_application, runtime.page, runtime.guard)
+        else partial(
+            fill.submit_application, runtime.browser, runtime.llm, runtime.guard, job
+        )
     )
-    result = review.review_application(
+    result = await review.review_application(
         job,
         job.get("answers", []),
         dry_run=runtime.dry_run,
@@ -179,7 +184,7 @@ def build_graph(runtime: Runtime | None = None) -> Any:
     """
     if runtime is None:
         raise RuntimeError(
-            "build_graph needs a Runtime in Task 8; the studio entry point is "
+            "build_graph needs a Runtime in Task 8/17; the studio entry point is "
             "completed in Task 15."
         )
 
@@ -196,9 +201,11 @@ def build_graph(runtime: Runtime | None = None) -> Any:
     return builder.compile()
 
 
-def run_single_url(runtime: Runtime) -> RunState:
-    """Run the minimal pipeline for one ``--url`` job and return the final state."""
+async def run_single_url(runtime: Runtime) -> RunState:
+    """Run the pipeline for one ``--url`` job and return the final state."""
     runtime.out(LIVE_RUN_NOTICE if not runtime.dry_run else DRY_RUN_NOTICE)
     graph = build_graph(runtime)
-    final: RunState = graph.invoke({"job_url": runtime.job_url, "dry_run": runtime.dry_run})
+    final: RunState = await graph.ainvoke(
+        {"job_url": runtime.job_url, "dry_run": runtime.dry_run}
+    )
     return final

@@ -47,20 +47,7 @@ Last updated: 2026-09-30 · **Done 6 / 17 tasks** · WIP limit: 1
 
 ## 🟡 In Progress
 
-- **T17** — Browser layer: migrate Playwright → browser-use AI agent *(Phase 1.5, dep: T3, T5, T7, T9; ADR 0001; branch `feature/browser-use-migration`)*
-  - Started 2026-09-30 at the owner's request. Foundation landed: ADR 0001,
-    `tools/browser_agent.py` (pure `answers_to_field_instructions`,
-    `sensitive_data_for`, `build_fill_task`, `build_submit_task`,
-    `build_no_submit_system_message`; guarded async `run_task` that lazily imports
-    `browser_use`), and `tests/unit/test_browser_agent_tasks.py` (7 tests). The agent
-    never submits: the fill task carries a hard no-submit rule and submission is a
-    separate gate-only task.
-  - Verified 2026-09-30 (unit): 7 task-builder tests pass · full suite green ·
-    `ruff check .` clean · `mypy src` clean · module imports without `browser-use`
-    installed (lazy import).
-  - Next: add the `browser-use` dependency, then rewrite `tools/browser.py`,
-    `tools/linkedin.py`, `nodes/discover.py`, `nodes/fill.py`, `graph.py`, `main.py`
-    onto the agent; re-run CP-B by hand.
+*(none)*
 
 ## 🔴 Blocked
 
@@ -104,6 +91,30 @@ Last updated: 2026-09-30 · **Done 6 / 17 tasks** · WIP limit: 1
     confirm it reaches review and stops with **no submission**, a PNG in
     `data/artifacts/`, and that the answers look right. Then move T7 and T8 to Done
     and sign off CP-B.
+- **T17** — Browser layer: migrate Playwright → browser-use AI agent *(Phase 1.5, dep: T3, T5, T7, T9; ADR 0001; branch `feature/browser-use-migration`)*
+  - Owner-directed full migration, 2026-09-30. **All Playwright code removed** (the
+    `playwright` dependency too; browser-use drives the browser via CDP). The
+    non-browser layers — `guard`, `store`, facts rules, the review gate — are kept.
+  - New/changed: `tools/browser_agent.py` (pure `answers_to_field_instructions`,
+    `sensitive_data_for`, `build_fill_task`, `build_submit_task`,
+    `build_no_submit_system_message`; guarded async `run_task` with structured
+    output; lazy `browser_use` imports). `tools/browser.py` now starts a browser-use
+    `Browser` on `data/profile` and `login` is async. `tools/linkedin.py` is URL
+    helpers + the agent read task. `nodes/discover.py` reads via the agent's
+    structured `JobExtraction`. `nodes/fill.py` is agent-backed: `open_and_read_fields`,
+    `fill_application`, and the gate-only `submit_application`. `review.py` is async.
+    `graph.py`/`main.py` are async asyncio-native.
+  - **The agent never submits on its own**: fill tasks carry a hard no-submit rule;
+    submission is `build_submit_task`, called only by the review gate after approval.
+    Answers are passed through `sensitive_data`, not pasted into prompts.
+  - Verified 2026-09-30 (unit): full suite **135 passed**, 3 deselected ·
+    `ruff check .` clean · `mypy src` 24 files clean · `--help` → 0 ·
+    `run` without `--url` → 2 · graph compiles with nodes `discover/answer/fill/review`
+    (async). API verified against installed `browser-use 0.13.10`.
+  - **Human step pending — CP-B (now browser-use):** needs `OPENROUTER_API_KEY` +
+    `AUTOJOB_LLM_MODEL` and `poetry run browser-use install`; then
+    `python -m src.main run --url <real Easy Apply job> --dry-run`, confirm no
+    submission + a PNG in `data/artifacts/`, and inspect the filled form.
 
 ## 🟢 Done
 
@@ -235,3 +246,4 @@ Each checkpoint must be explicitly verified with the human before the next phase
 | 2026-09-30 | T8 | Backlog → In Progress | Implement review-gate + minimal graph + `run --url --dry-run`. |
 | 2026-09-30 | T8 | In Progress → Review | 36 review tests green; graph compiles. Live dry-run + form inspection (CP-B) is the human step. |
 | 2026-09-30 | T17 | — → In Progress | Owner requested replacing Playwright with the browser-use AI agent. ADR 0001 recorded; submit gate/guard/store/facts/review preserved. Foundation module + 7 pure task-builder tests landed. |
+| 2026-09-30 | T17 | In Progress → Review | Full migration done: all Playwright code removed (dependency too); browser-use drives login/read/fill; submit is gate-only. 135 unit tests, ruff/mypy clean. Live dry-run is the human step. |

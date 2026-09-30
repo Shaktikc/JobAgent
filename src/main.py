@@ -2,8 +2,8 @@
 
 Command surface, wired task by task:
 
-- ``login``  -> Task 3 (session)
-- ``run``    -> Task 8 (minimal: ``--url ... --dry-run``), completed in Task 15
+- ``login``  -> Task 3/17 (browser-use session, manual login)
+- ``run``    -> Task 8/17 (minimal: ``--url ... --dry-run``), completed in Task 15
 - ``search`` -> Task 12 (discovery)
 - ``status`` -> Task 15 (orchestration)
 """
@@ -11,6 +11,7 @@ Command surface, wired task by task:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 
 from src.configuration import AppSettings
@@ -54,14 +55,23 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _run_url(settings: AppSettings, job_url: str, *, dry_run: bool) -> int:
-    """Run the minimal single-job pipeline (Task 8)."""
+async def _run_url(settings: AppSettings, job_url: str, *, dry_run: bool) -> int:
+    """Run the single-job pipeline (Task 8/17)."""
     from src.configuration import FactsConfig
     from src.graph import Runtime, resolve_default_resume, run_single_url
-    from src.nodes.discover import NotEasyApplyError
+    from src.nodes.discover import DiscoveryError, NotEasyApplyError
     from src.nodes.fill import FillError
     from src.tools import browser, store
+    from src.tools.browser_agent import build_openrouter_llm
     from src.tools.guard import Guard, GuardHalt
+
+    if not settings.llm.model:
+        print(
+            "Set AUTOJOB_LLM_MODEL (and OPENROUTER_API_KEY) before running; "
+            "browser-use needs a model. See Task 9.",
+            file=sys.stderr,
+        )
+        return EXIT_FAILED
 
     conn = store.connect(settings.paths.db)
     store.init_db(conn)
@@ -78,21 +88,24 @@ def _run_url(settings: AppSettings, job_url: str, *, dry_run: bool) -> int:
     resume = resolve_default_resume(settings)
 
     try:
-        with browser.browser_context(settings) as context:
-            page = context.pages[0] if context.pages else context.new_page()
+        async with browser.browser_session(settings) as session:
             runtime = Runtime(
                 settings=settings,
                 conn=conn,
-                page=page,
+                browser=session,
+                llm=build_openrouter_llm(settings.llm.model),
                 guard=guard,
                 facts=facts,
                 resume_path=resume,
                 dry_run=dry_run,
                 job_url=job_url,
             )
-            final = run_single_url(runtime)
+            final = await run_single_url(runtime)
     except NotEasyApplyError as exc:
         print(f"Skipping job: {exc}", file=sys.stderr)
+        return EXIT_FAILED
+    except DiscoveryError as exc:
+        print(f"Could not read job: {exc}", file=sys.stderr)
         return EXIT_FAILED
     except GuardHalt as halt:
         print(str(halt), file=sys.stderr)
@@ -120,7 +133,7 @@ def main(argv: list[str] | None = None) -> int:
         # Imported lazily so `--help` and non-browser commands stay lightweight.
         from src.tools.browser import login
 
-        return login(settings)
+        return asyncio.run(login(settings))
 
     if args.command == "run":
         if not args.url:
@@ -129,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return EXIT_NOT_IMPLEMENTED
-        return _run_url(settings, args.url, dry_run=args.dry_run)
+        return asyncio.run(_run_url(settings, args.url, dry_run=args.dry_run))
 
     print(
         f"[scaffold] '{args.command}' is not implemented yet; see SPEC.md and tasks/todo.md.",

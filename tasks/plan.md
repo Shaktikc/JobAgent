@@ -75,7 +75,7 @@ checkboxes here.
 | Risk | Impact | Mitigation |
 |---|---|---|
 | LinkedIn account restriction from automation | High | Guard caps/pacing/hours, `--dry-run` default early, start at 5–10/day (Task 16), stop-on-signal |
-| Easy Apply DOM changes break selectors | High | Selectors centralized in `nodes/fill.py`; fixture-based selector tests; integration smoke before each scaling step |
+| Easy Apply DOM changes break the automation | High | browser-use agent reads the page semantically (fewer brittle selectors); integration smoke before each scaling step |
 | LLM produces a plausible wrong answer | High | Facts rules take precedence; confidence threshold → `NEEDS_REVIEW`; human gate on every submit; criterion 11 is the acceptance test |
 | Resume auto-index mis-maps a resume | Medium | Overrides in `resumes.yaml`; low confidence falls back to `default_variant` **and is flagged at review** |
 | Review latency makes the tool abandoned | Medium | One-at-a-time review was chosen deliberately; measure take-over rate during Task 16 |

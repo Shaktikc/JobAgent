@@ -1,13 +1,15 @@
-"""Unit tests for `review-gate` decision logic (Task 8).
+"""Unit tests for `review-gate` decision logic (Task 8; async in Task 17).
 
 No browser and no real submission: the interactive gate takes an injectable prompt,
-output sink and submit handler, so every approve/reject/edit/quit path is exercised
-deterministically. The live `run --url --dry-run` smoke is manual (see the board).
+output sink and async submit handler, so every approve/reject/edit/quit path is
+exercised deterministically.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+import asyncio
+from collections.abc import Callable, Coroutine, Sequence
+from typing import Any
 
 import pytest
 
@@ -37,6 +39,10 @@ ANSWERS = (
 )
 
 
+def _run(coro: Coroutine[Any, Any, ReviewResult]) -> ReviewResult:
+    return asyncio.run(coro)
+
+
 class _Prompter:
     """A scripted prompt that records calls and can be exhausted."""
 
@@ -54,6 +60,18 @@ class _Prompter:
 def _collector() -> tuple[list[str], Callable[[str], None]]:
     lines: list[str] = []
     return lines, lines.append
+
+
+class _Submit:
+    """An async submit handler that records how many times it was awaited."""
+
+    def __init__(self, confirmation: str = "Application sent") -> None:
+        self.calls = 0
+        self._confirmation = confirmation
+
+    async def __call__(self) -> str:
+        self.calls += 1
+        return self._confirmation
 
 
 # --- command parsing --------------------------------------------------------
@@ -100,9 +118,7 @@ def test_render_shows_job_resume_and_every_answer_with_provenance() -> None:
 
 
 def test_render_flags_missing_resume() -> None:
-    text = render_review(JOB, ANSWERS, resume_file=None)
-
-    assert "(none)" in text
+    assert "(none)" in render_review(JOB, ANSWERS, resume_file=None)
 
 
 # --- edits ------------------------------------------------------------------
@@ -154,81 +170,76 @@ def test_quit_leaves_the_application_filled_and_reofferable() -> None:
 
 def test_approve_dry_run_prints_and_does_not_submit() -> None:
     lines, out = _collector()
-    prompter = _Prompter(["a"])
-    submitted: list[str] = []
+    submit = _Submit()
 
-    result = review_application(
-        JOB,
-        ANSWERS,
-        dry_run=True,
-        prompt=prompter,
-        out=out,
-        submit=lambda: submitted.append("x") or "should not run",
+    result = _run(
+        review_application(
+            JOB, ANSWERS, dry_run=True, prompt=_Prompter(["a"]), out=out, submit=submit
+        )
     )
 
     assert isinstance(result, ReviewResult)
     assert result.action is ReviewAction.APPROVE
     assert result.submitted is False
     assert result.status is JobStatus.FILLED
-    assert submitted == []
+    assert submit.calls == 0
     assert any("Senior Data Analyst" in line for line in lines)
 
 
 def test_approve_outside_dry_run_submits_exactly_once_and_captures_confirmation() -> None:
     _, out = _collector()
-    prompter = _Prompter(["approve"])
-    submitted: list[str] = []
+    submit = _Submit("Application sent")
 
-    def fake_submit() -> str:
-        submitted.append("submitted")
-        return "Application sent"
-
-    result = review_application(
-        JOB, ANSWERS, dry_run=False, prompt=prompter, out=out, submit=fake_submit
+    result = _run(
+        review_application(
+            JOB,
+            ANSWERS,
+            dry_run=False,
+            prompt=_Prompter(["approve"]),
+            out=out,
+            submit=submit,
+        )
     )
 
     assert result.submitted is True
     assert result.status is JobStatus.APPLIED
     assert result.confirmation == "Application sent"
-    assert submitted == ["submitted"]  # exactly one
+    assert submit.calls == 1
 
 
 def test_reject_marks_rejected_and_submits_nothing() -> None:
     _, out = _collector()
-    prompter = _Prompter(["r"])
-    submitted: list[str] = []
+    submit = _Submit()
 
-    result = review_application(
-        JOB,
-        ANSWERS,
-        dry_run=False,
-        prompt=prompter,
-        out=out,
-        submit=lambda: submitted.append("x") or "nope",
+    result = _run(
+        review_application(
+            JOB, ANSWERS, dry_run=False, prompt=_Prompter(["r"]), out=out, submit=submit
+        )
     )
 
     assert result.action is ReviewAction.REJECT
     assert result.submitted is False
     assert result.status is JobStatus.REJECTED
-    assert submitted == []
+    assert submit.calls == 0
 
 
 def test_edit_updates_the_value_before_submission() -> None:
     _, out = _collector()
-    prompter = _Prompter(["e", "City", "Cambridge", "a"])
-    submitted: list[str] = []
+    submit = _Submit("done")
 
-    result = review_application(
-        JOB,
-        ANSWERS,
-        dry_run=False,
-        prompt=prompter,
-        out=out,
-        submit=lambda: submitted.append("x") or "done",
+    result = _run(
+        review_application(
+            JOB,
+            ANSWERS,
+            dry_run=False,
+            prompt=_Prompter(["e", "City", "Cambridge", "a"]),
+            out=out,
+            submit=submit,
+        )
     )
 
     assert {a.field: a.value for a in result.answers}["City"] == "Cambridge"
-    assert submitted == ["x"]
+    assert submit.calls == 1
     assert result.status is JobStatus.APPLIED
 
 
@@ -236,7 +247,9 @@ def test_invalid_command_reprompts() -> None:
     _, out = _collector()
     prompter = _Prompter(["bogus", "a"])
 
-    result = review_application(JOB, ANSWERS, dry_run=True, prompt=prompter, out=out)
+    result = _run(
+        review_application(JOB, ANSWERS, dry_run=True, prompt=prompter, out=out)
+    )
 
     assert result.action is ReviewAction.APPROVE
     assert len(prompter.calls) == 2
@@ -244,38 +257,44 @@ def test_invalid_command_reprompts() -> None:
 
 def test_interrupt_mid_review_leaves_application_filled() -> None:
     _, out = _collector()
-    submitted: list[str] = []
+    submit = _Submit()
 
     def interrupted(_: str) -> str:
         raise KeyboardInterrupt
 
-    result = review_application(
-        JOB,
-        ANSWERS,
-        dry_run=False,
-        prompt=interrupted,
-        out=out,
-        submit=lambda: submitted.append("x") or "nope",
+    result = _run(
+        review_application(
+            JOB,
+            ANSWERS,
+            dry_run=False,
+            prompt=interrupted,
+            out=out,
+            submit=submit,
+        )
     )
 
     assert result.action is ReviewAction.QUIT
     assert result.submitted is False
     assert result.status is JobStatus.FILLED
-    assert submitted == []
+    assert submit.calls == 0
 
 
 def test_approve_outside_dry_run_without_a_submit_handler_raises() -> None:
     _, out = _collector()
-    prompter = _Prompter(["a"])
 
     with pytest.raises(RuntimeError, match="submit"):
-        review_application(JOB, ANSWERS, dry_run=False, prompt=prompter, out=out, submit=None)
+        _run(
+            review_application(
+                JOB, ANSWERS, dry_run=False, prompt=_Prompter(["a"]), out=out, submit=None
+            )
+        )
 
 
 def test_needs_review_fields_are_visible_in_the_result() -> None:
     _, out = _collector()
-    prompter = _Prompter(["a"])
 
-    result = review_application(JOB, ANSWERS, dry_run=True, prompt=prompter, out=out)
+    result = _run(
+        review_application(JOB, ANSWERS, dry_run=True, prompt=_Prompter(["a"]), out=out)
+    )
 
     assert any(a.provenance is Provenance.NEEDS_REVIEW for a in result.answers)

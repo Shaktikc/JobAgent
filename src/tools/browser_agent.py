@@ -4,9 +4,9 @@ See ``docs/decisions/0001-browser-use-migration.md`` (ADR 0001). This module own
 everything that turns our data into a browser-use task and everything that runs the
 agent, while preserving the project's hard safety invariants (``SPEC.md`` §8):
 
-- **The agent never submits.** :func:`build_fill_task` ends with a hard no-submit
-  instruction; submission is a separate task (:func:`build_submit_task`) introduced
-  only by the review gate after explicit approval.
+- **The agent never submits on its own.** :func:`build_fill_task` ends with a hard
+  no-submit instruction; submission is a separate task (:func:`build_submit_task`)
+  introduced only by the review gate after explicit approval.
 - **Every run is guarded.** :func:`run_task` brackets the agent with
   ``guard.check_stop()`` and paces it with ``guard.pause_between_actions()``.
 - **Answers are injected, not pasted.** :func:`sensitive_data_for` maps each answer
@@ -15,8 +15,8 @@ agent, while preserving the project's hard safety invariants (``SPEC.md`` §8):
 
 The task builders and data marshalling are pure: no browser, no LLM, no
 ``browser_use`` import at module load. That keeps this module unit-testable and
-importable even when the dependency is absent (SPEC.md §6). ``browser_use`` is
-imported lazily inside the live functions.
+importable even when the dependency is absent. ``browser_use`` is imported lazily
+inside the live functions.
 """
 
 from __future__ import annotations
@@ -90,6 +90,8 @@ class AgentRunResult:
 
     done: bool
     successful: bool | None
+    final_result: str | None = None
+    structured_output: Any = None
     output: Any = None
 
 
@@ -131,9 +133,7 @@ def answers_to_field_instructions(
     return tuple(instructions)
 
 
-def sensitive_data_for(
-    instructions: Sequence[FieldInstruction],
-) -> dict[str, str]:
+def sensitive_data_for(instructions: Sequence[FieldInstruction]) -> dict[str, str]:
     """Build browser-use ``sensitive_data`` from the field instructions."""
     return {instruction.placeholder: instruction.value for instruction in instructions}
 
@@ -184,29 +184,9 @@ def build_submit_task(*, title: str, company: str, url: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Live layer — imports browser_use lazily so the module stays importable/tests run
-# without the heavy dependency installed.
+# Live layer — imports browser_use lazily so the module stays importable and its
+# pure tests run without the heavy dependency installed.
 # ---------------------------------------------------------------------------
-
-
-def build_browser(settings: Any) -> Any:
-    """Launch browser-use on the project's dedicated profile (never system Chrome).
-
-    Manual login persists in ``data/profile`` exactly as before (ADR 0001).
-    """
-    try:
-        from browser_use import Browser
-    except ImportError as exc:  # pragma: no cover - exercised only without the dep
-        raise BrowserUseNotInstalledError() from exc
-
-    return Browser(
-        user_data_dir=str(settings.paths.profile),
-        headless=settings.session.headless,
-        window_size={
-            "width": settings.session.viewport.width,
-            "height": settings.session.viewport.height,
-        },
-    )
 
 
 def build_openrouter_llm(model: str) -> Any:
@@ -227,6 +207,7 @@ async def run_task(
     system_message: str,
     sensitive_data: Mapping[str, str] | None = None,
     available_file_paths: Sequence[Path] | None = None,
+    output_model_schema: type[Any] | None = None,
     guard: Any = None,
     max_actions_per_step: int = 5,
 ) -> AgentRunResult:
@@ -252,6 +233,7 @@ async def run_task(
         extend_system_message=system_message,
         sensitive_data=dict(sensitive_data) if sensitive_data else None,
         available_file_paths=[str(p) for p in (available_file_paths or [])],
+        output_model_schema=output_model_schema,
         max_actions_per_step=max_actions_per_step,
     )
     result = await agent.run()
@@ -262,5 +244,7 @@ async def run_task(
     return AgentRunResult(
         done=bool(getattr(result, "is_done", False)),
         successful=getattr(result, "is_successful", None),
+        final_result=getattr(result, "final_result", None),
+        structured_output=getattr(result, "structured_output", None),
         output=result,
     )

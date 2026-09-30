@@ -1,80 +1,93 @@
-"""`discovery` — search LinkedIn, harvest job cards, filter, extract details.
+"""`discovery` — read a job posting via the browser-use agent.
 
-Implemented in two parts:
-- Task 5: read a single job URL and detect Easy Apply availability.
-- Task 12: run the search from ``config/search.yaml``, apply filters, dedupe.
+Rewritten in Task 17 (ADR 0001): the read is the agent's structured output against
+``linkedin.JobExtraction``. The node still emits the same :class:`~src.state.JobState`
+contract, and still refuses a non-Easy-Apply job *before* anything can fill it.
 
-All network access goes through ``src/tools/linkedin.py`` and ``src/tools/guard.py``;
-this node stays testable against saved HTML fixtures.
+All browser/network work routes through ``src/tools/browser_agent.run_task`` (which
+brackets ``guard``); this node stays thin.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
-
-from playwright.sync_api import Page
+from typing import TYPE_CHECKING, Any
 
 from src.state import JobState
 from src.tools import linkedin
+from src.tools.browser_agent import run_task
 
 if TYPE_CHECKING:  # type-only: the guard is optional and passed in by the caller
     from src.tools.guard import Guard
 
 logger = logging.getLogger(__name__)
 
+READ_ONLY_SYSTEM_MESSAGE = (
+    "You may only read pages. Never click Apply, Easy Apply, or anything that "
+    "submits or fills an application. Do not log in or change any settings."
+)
+
 
 class NotEasyApplyError(RuntimeError):
-    """Raised when a job does not offer Easy Apply and must not be queued.
-
-    Typed so callers can skip the job cleanly instead of proceeding to filling
-    (Task 5 acceptance: a non-Easy-Apply job raises rather than proceeding).
-    """
+    """Raised when a job does not offer Easy Apply and must not be queued."""
 
 
-def ensure_easy_apply(details: linkedin.JobDetails) -> None:
-    """Refuse a job that has no Easy Apply button, before any filling is attempted."""
-    if not details.easy_apply:
-        label = details.job_id or details.url
+class DiscoveryError(RuntimeError):
+    """The agent did not return a usable job extraction."""
+
+
+def ensure_easy_apply(extraction: linkedin.JobExtraction, *, label: str) -> None:
+    """Refuse a job that has no Easy Apply, before any filling is attempted."""
+    if not extraction.easy_apply:
         raise NotEasyApplyError(
             f"Job {label!r} does not offer LinkedIn Easy Apply; not queuing it."
         )
 
 
-def as_job_state(details: linkedin.JobDetails) -> JobState:
-    """Project parsed details onto the shared :class:`~src.state.JobState` contract."""
+def as_job_state(extraction: linkedin.JobExtraction, *, url: str) -> JobState:
+    """Project the agent's read onto the shared :class:`~src.state.JobState` contract."""
     return JobState(
-        job_id=details.job_id,
-        title=details.title,
-        company=details.company,
-        url=details.url,
-        description=details.description,
-        easy_apply=details.easy_apply,
+        job_id=linkedin.job_id_from_url(url),
+        title=extraction.title,
+        company=extraction.company,
+        url=url,
+        description=extraction.description,
+        easy_apply=extraction.easy_apply,
     )
 
 
-def extract_job(html: str, *, url: str) -> JobState:
-    """Parse a job page (pure) and emit its ``JobState``, or raise if not Easy Apply.
+async def read_job(
+    browser: Any,
+    llm: Any,
+    url: str,
+    *,
+    guard: Guard | None = None,
+) -> JobState:
+    """Read one job URL with the browser-use agent and emit its ``JobState``.
 
-    No browser and no network: usable directly against saved HTML fixtures.
+    Easy Apply is checked here, before returning — so no caller can start filling a
+    job that is not Easy Apply.
     """
-    details = linkedin.parse_job_page(html, url=url)
-    ensure_easy_apply(details)
+    result = await run_task(
+        linkedin.build_read_job_task(url),
+        llm=llm,
+        browser=browser,
+        system_message=READ_ONLY_SYSTEM_MESSAGE,
+        output_model_schema=linkedin.JobExtraction,
+        guard=guard,
+    )
+    extraction = result.structured_output
+    if not isinstance(extraction, linkedin.JobExtraction):
+        raise DiscoveryError("the browser-use agent did not return a job extraction")
+
+    if guard is not None:
+        guard.check_page_text(await browser.get_state_as_text())
+
+    ensure_easy_apply(extraction, label=url)
     logger.info(
         "discovery: read job job_id=%s title=%r company=%r",
-        details.job_id,
-        details.title,
-        details.company,
+        linkedin.job_id_from_url(url),
+        extraction.title,
+        extraction.company,
     )
-    return as_job_state(details)
-
-
-def read_job(page: Page, url: str, *, guard: Guard | None = None) -> JobState:
-    """Fetch one job URL through the browser and emit its ``JobState``.
-
-    Easy Apply is checked here, before returning — so no caller can start filling
-    a job that is not Easy Apply.
-    """
-    details = linkedin.read_job(page, url, guard=guard)
-    ensure_easy_apply(details)
-    return as_job_state(details)
+    return as_job_state(extraction, url=url)

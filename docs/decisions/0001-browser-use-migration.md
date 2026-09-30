@@ -1,6 +1,6 @@
 # ADR 0001 — Replace the Playwright browser layer with browser-use
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-09-30
 - **Deciders:** project owner, engineering agent
 - **Supersedes:** the Playwright-based approach in `tools/browser.py`,
@@ -87,8 +87,8 @@ LLM. Only the live run requires the dependency and an OpenRouter key.
 3. **Full ground-up rewrite discarding T1–T8.** Rejected: loses verified, browser-
    independent logic (guard, store, facts rules, review gate) for no safety benefit.
 
-## Open question for the owner
+## Decision resolved by the owner
 
-Does the agent ever get permission to submit? This ADR assumes **no** and treats
-submission as a human-gated, separate action. If the owner wants autonomous
-submission, `SPEC.md` §8 must be amended first.
+The owner confirmed the migration on 2026-09-30 and **did not** grant the agent
+permission to submit. This ADR therefore stands as written: submission is a
+human-gated, separate action.

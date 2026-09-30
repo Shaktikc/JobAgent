@@ -6,6 +6,8 @@ config-to-options mapping and the URL-based login predicate only.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from src.configuration import AppSettings, SessionSettings, Viewport
@@ -54,23 +56,18 @@ def test_session_env_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
     assert session.locale == "en-AU"
 
 
-def test_context_options_carry_the_configured_identity() -> None:
+def test_launch_options_carry_the_configured_identity() -> None:
     session = SessionSettings(
         user_agent="Agent/9",
         viewport=Viewport(width=1440, height=900),
     )
 
-    options = browser.build_context_options(session)
+    options = browser.build_launch_options(session, Path("data/profile"))
 
     assert options["user_agent"] == "Agent/9"
     assert options["viewport"] == {"width": 1440, "height": 900}
     assert options["headless"] is False
-
-
-def test_context_options_omit_timezone_when_unset() -> None:
-    options = browser.build_context_options(SessionSettings(timezone_id=None))
-
-    assert "timezone_id" not in options
+    assert str(options["user_data_dir"]).endswith("profile")
 
 
 def test_app_settings_expose_session() -> None:
