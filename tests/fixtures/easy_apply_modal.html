@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head><title>Apply | LinkedIn</title></head>
+  <body>
+    <main>
+      <button
+        data-view-name="job-apply-button"
+        class="artdeco-button artdeco-button--primary"
+        aria-label="Easy Apply to Senior Data Analyst at Acme Analytics"
+      >
+        Easy Apply
+      </button>
+    </main>
+
+    <div role="dialog" aria-modal="true" class="jobs-easy-apply-modal">
+      <h2>Apply to Acme Analytics</h2>
+      <form>
+        <label for="city">City</label>
+        <input id="city" name="city" type="text" required />
+
+        <label for="salary">What is your expected salary? *</label>
+        <input id="salary" name="salary" type="text" />
+
+        <label for="sponsor">Do you require sponsorship?</label>
+        <select id="sponsor" name="sponsor">
+          <option value="">Select an option</option>
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+        </select>
+
+        <fieldset>
+          <legend>Are you willing to relocate?</legend>
+          <label><input type="radio" name="relocate" value="yes" /> Yes</label>
+          <label><input type="radio" name="relocate" value="no" /> No</label>
+        </fieldset>
+
+        <label for="resume">Resume</label>
+        <input id="resume" name="resume" type="file" accept="application/pdf" />
+      </form>
+      <button data-testid="next-button" type="button">Next</button>
+    </div>
+  </body>
+</html>

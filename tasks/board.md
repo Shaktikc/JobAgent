@@ -29,7 +29,6 @@ Last updated: 2026-09-30 · **Done 6 / 16 tasks** · WIP limit: 1
 
 ## 🔵 Backlog
 
-- **T7** — `filling`: single-step fields, resume upload, screenshots *(Phase 1, dep: T3, T6)*
 - **T8** — `review-gate` + minimal graph + `run --url <job> --dry-run` *(Phase 1, dep: T2, T7)*
 - **T9** — LLM client (OpenRouter) with structured output *(Phase 2, dep: T1)*
 - **T10** — `answering`: LLM integration + `NEEDS_REVIEW` threshold *(Phase 2, dep: T6, T9)*
@@ -50,7 +49,23 @@ Last updated: 2026-09-30 · **Done 6 / 16 tasks** · WIP limit: 1
 
 ## 🟣 Review (awaiting human inspection)
 
-*(none)*
+- **T7** — `filling`: single-step fields, resume upload, screenshots *(Phase 1, dep: T3, T6)*
+  - Implemented 2026-09-30: `nodes/fill.py` — module-level selectors
+    (`EASY_APPLY_BUTTON_SELECTOR`, `MODAL_SELECTOR`, `STEP_CONTROL_SELECTOR`,
+    `TEXT_INPUT_SELECTOR`, `FILE_INPUT_SELECTOR`); pure `widget_kind`, `decide`,
+    `normalize_label`/`lookup_answer`, `artifact_path`; guarded
+    `open_application_form`, `fill_current_step`, `fill_application` (captures a
+    failure screenshot, then re-raises so the job is marked `failed`). Every action
+    goes through `guard` (`check_stop` per action, paced modal open); unrecognized
+    widgets are left blank and flagged, never guessed.
+  - Verified 2026-09-30 (unit): `pytest -m "not integration" tests/unit/test_fill_selectors.py`
+    → 31 passed against `tests/fixtures/easy_apply_modal.html` (selector resolution,
+    widget classification, fill/flag decisions, screenshot naming) · full suite →
+    129 passed · `ruff check .` clean · `mypy src` clean.
+  - **Human step pending, blocked on T8:** the todo's manual check is
+    `python -m src.main run --url <job> --dry-run`, which requires the T8 graph. Once
+    T8 lands, run that against one real Easy Apply job and confirm the step fills and
+    a PNG appears in `data/artifacts/`. Then move T7 to Done.
 
 ## 🟢 Done
 
@@ -177,3 +192,5 @@ Each checkpoint must be explicitly verified with the human before the next phase
 | 2026-09-30 | T5 | In Progress → Done | Fixed hydration wait + stable hooks (Aero). Unit 19, full 75, ruff/mypy clean; real-URL integration test passes. |
 | 2026-09-30 | T6 | Backlog → In Progress | Implement deterministic facts rule engine + provenance (no LLM). |
 | 2026-09-30 | T6 | In Progress → Done | 23 rule-engine tests green; full suite 98 passed, ruff/mypy clean. |
+| 2026-09-30 | T7 | Backlog → In Progress | Implement single-step filling: fields, resume upload, screenshot, guard. |
+| 2026-09-30 | T7 | In Progress → Review | 31 fixture/selector tests green; live `run --url` check gated on T8 wiring. |
