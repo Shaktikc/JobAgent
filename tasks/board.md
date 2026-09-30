@@ -4,12 +4,12 @@
 verification, files) live in `tasks/todo.md`. Sequencing, decisions, and risks live in
 `tasks/plan.md`. Spec: `SPEC.md`.
 
-Last updated: 2026-09-30 · **Done 1 / 16 tasks** · WIP limit: 1
+Last updated: 2026-09-30 · **Done 2 / 16 tasks** · WIP limit: 1
 
-> Audit 2026-09-30: repo state re-verified against this board. Only **T1** is complete.
-> HEAD (`c8d84ac`, "wokring on task 2") is mislabeled — its contents are entirely T1
-> artifacts; `src/tools/store.py` is still the docstring-only stub and
-> `tests/unit/test_store.py` does not exist. **T2 has not started.**
+> Audit 2026-09-30: T1 was already complete; T2's uncommitted source had been lost
+> (HEAD `c8d84ac`, "wokring on task 2", contains only T1 artifacts) while its compiled
+> `.pyc` cache remained. T2 was recovered from that bytecode, re-verified, and is now
+> **Done** — see the Done card and Change Log.
 
 ---
 
@@ -29,7 +29,6 @@ Last updated: 2026-09-30 · **Done 1 / 16 tasks** · WIP limit: 1
 
 ## 🔵 Backlog
 
-- **T2** — `state`: SQLite schema + repository (`tools/store.py`) *(Phase 0, dep: T1)*
 - **T3** — `session`: browser launch, persistent profile, `login` *(Phase 0, dep: T1)*
 - **T4** — `guard`: pacing, daily cap, business hours, STOP sentinel *(Phase 0, dep: T1, T2)*
 - **T5** — `discovery` (partial): read a job, detect Easy Apply from a URL *(Phase 1, dep: T3)*
@@ -63,6 +62,15 @@ Last updated: 2026-09-30 · **Done 1 / 16 tasks** · WIP limit: 1
   - Verified 2026-09-29: `poetry install` → 0 · `poetry check` → All set · ruff → clean ·
     mypy → 23 files clean · pytest → 10 passed · `python -m src.main --help` → 0 ·
     placeholders AST-verified as docstring-only · Chromium downloaded.
+- **T2** — `state`: SQLite schema + repository (`tools/store.py`) *(Phase 0)*
+  - Recovered 2026-09-30 from lost uncommitted work, via the compiled `.pyc` bytecode
+    (source, tests, and schema were reconstructed; the original compiled test module
+    passes 16/16 against the reconstruction). Two style-only lint fixes applied
+    (`str, Enum` → `StrEnum`; combined nested `with`).
+  - Verified 2026-09-30: `pytest -m "not integration"` → 26 passed (16 in
+    `test_store.py`) · `ruff check .` → clean · `mypy src` → 23 files clean ·
+    schema creates `jobs`, `answers`, `resume_index` idempotently with the six status
+    and four provenance `CHECK` values.
 
 ---
 
@@ -109,3 +117,5 @@ Each checkpoint must be explicitly verified with the human before the next phase
 | 2026-09-29 | T1 | In Progress → Done | All acceptance criteria verified (commands in the Done card). |
 | 2026-09-30 | T1 | Done (re-verified) | Audit: `ruff` clean · `mypy src` 23 files clean · `pytest -m "not integration"` 10 passed · `--help` OK. |
 | 2026-09-30 | T2 | Backlog (unchanged) | Audit: HEAD `c8d84ac` "wokring on task 2" contains only T1 artifacts; `store.py` still a stub, no `test_store.py`. T2 not started. |
+| 2026-09-30 | T2 | Backlog → In Progress | Found lost uncommitted T2 work: 16 `test_store.py` tests passing today, compiled `.pyc` cache remains. Recovering source and re-verifying. |
+| 2026-09-30 | T2 | In Progress → Done | Recovered `store.py` + `test_store.py` from `.pyc` bytecode; original compiled tests 16/16; full gate green (see Done card). |
