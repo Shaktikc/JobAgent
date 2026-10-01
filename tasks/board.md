@@ -190,6 +190,15 @@ Last updated: 2026-09-30 · **Done 6 / 17 tasks** · WIP limit: 1
     → 19 passed (fake clock) · full suite → 56 passed · `ruff check .` clean ·
     `mypy src` clean · manual: created `data/STOP`, next guarded action raised
     `GuardHalt`, sentinel removed.
+  - **Re-verified 2026-10-01 after the browser-use migration — no defect.** All six
+    criteria hold. `pytest -m "not integration" tests/unit/test_guard.py` → **19
+    passed** · full unit suite **154 passed, 3 deselected** · `ruff check .` clean ·
+    `mypy src` 25 files clean · manual real-path STOP check repeated (`data/STOP`
+    → `GuardHalt`, sentinel removed). Wiring intact through the browser-use layer:
+    `main.py` asserts startable/can-apply; `nodes/discover.py` checks page text via
+    `browser.read_page_text`; `browser_agent.run_task` brackets every agent run with
+    `check_stop` + `pause_between_actions`. Values still come from `GuardSettings`
+    (cap 30, 09:00–18:00, 20–90s), and clock/sleep/rng remain injectable.
 - **T5** — `discovery` (partial): read a job, detect Easy Apply from a URL *(Phase 1)*
   - Implemented 2026-09-30: `tools/linkedin.py` (`JobDetails`, `job_id_from_url`,
     `detect_easy_apply`, `parse_job_page`, browser `read_job`), `nodes/discover.py`
@@ -295,3 +304,4 @@ Each checkpoint must be explicitly verified with the human before the next phase
 | 2026-10-01 | — | — | Untracked PII resumes per SPEC.md §8: `resumes/` and `myResumes/` PDFs removed from the index, `resumes/.gitkeep` added, both folders gitignored. |
 | 2026-10-01 | T3 | Done → In Progress | Reopened: integration smoke fails on browser-use 0.13.10 — `Page.evaluate` requires `(...args) => …`; test used Playwright-style bare expressions. |
 | 2026-10-01 | T3 | In Progress → Done | Fixed arrow-function form + numeric coercion; integration 2 passed, T3 unit 10 passed, full suite 154, ruff/mypy clean. |
+| 2026-10-01 | T4 | Done (re-verified) | Post-migration check: 19 guard tests + full suite 154 passed, ruff/mypy clean; manual `data/STOP` halt re-run and sentinel cleaned. No defect; guard wiring through browser-use intact. |
