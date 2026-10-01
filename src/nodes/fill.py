@@ -96,12 +96,18 @@ def artifact_path(
     *,
     timestamp: datetime | None = None,
     suffix: str = ARTIFACT_SUFFIX,
+    tag: str | None = None,
 ) -> Path:
-    """Build a collision-resistant, filesystem-safe screenshot path."""
+    """Build a collision-resistant, filesystem-safe screenshot path.
+
+    ``tag`` distinguishes a non-success capture (e.g. ``"failure"``) from the
+    filled-form screenshot, so both are kept for the same job.
+    """
     moment = timestamp or datetime.now()
     stamp = moment.strftime("%Y%m%dT%H%M%S")
     safe_id = re.sub(r"[^A-Za-z0-9._-]+", "_", job_id).strip("._") or "job"
-    return Path(artifacts_dir) / f"{safe_id}-{stamp}.{suffix}"
+    safe_tag = f"-{re.sub(r'[^A-Za-z0-9._-]+', '_', tag)}" if tag else ""
+    return Path(artifacts_dir) / f"{safe_id}-{stamp}{safe_tag}.{suffix}"
 
 
 def reconcile_outcome(
@@ -111,18 +117,27 @@ def reconcile_outcome(
     """Map the agent's self-report back onto the answers we gave it.
 
     An answer with no value is always flagged (``NEEDS_REVIEW``), never treated as
-    filled. An answer the agent explicitly reported unfilled is flagged too. Anything
-    else is assumed filled — the agent starts from the instruction list, so silence
-    means success, and the human still sees every value at the gate.
+    filled. An answer the agent explicitly reported unfilled is flagged too. A field
+    the agent reported unfilled that we never asked about is an unrecognized control:
+    it is surfaced for review as well, never silently dropped (observed live in the
+    2026-10-01 CP-B dry-run of job ``4473985692``, where four extra required questions
+    were reported by the agent yet vanished from the review). Anything else is assumed
+    filled — the agent starts from the instruction list, so silence means success, and
+    the human still sees every value at the gate.
     """
+    given = tuple(answers)
     unfilled = {normalize_label(label) for label in outcome.unfilled_fields}
+    known = {normalize_label(answer.field) for answer in given}
     filled: list[Answer] = []
     flagged: list[str] = []
-    for answer in answers:
+    for answer in given:
         if not answer.value or normalize_label(answer.field) in unfilled:
             flagged.append(answer.field)
         else:
             filled.append(answer)
+    for label in outcome.unfilled_fields:
+        if normalize_label(label) not in known:
+            flagged.append(label)
     return tuple(filled), tuple(flagged)
 
 
@@ -131,9 +146,11 @@ def reconcile_outcome(
 # ---------------------------------------------------------------------------
 
 
-async def capture_screenshot(browser: Any, artifacts_dir: Path, job_id: str) -> Path:
+async def capture_screenshot(
+    browser: Any, artifacts_dir: Path, job_id: str, *, tag: str | None = None
+) -> Path:
     """Save a PNG of the current form; taken for every application (criterion 12)."""
-    path = artifact_path(artifacts_dir, job_id)
+    path = artifact_path(artifacts_dir, job_id, tag=tag)
     path.parent.mkdir(parents=True, exist_ok=True)
     await browser.take_screenshot(path=str(path))
     return path
@@ -196,16 +213,26 @@ async def fill_application(
         instructions=instructions,
         resume_path=resume_path,
     )
-    result = await browser_agent.run_task(
-        task,
-        llm=llm,
-        browser=browser,
-        system_message=browser_agent.build_no_submit_system_message(_WRITE_EXTRA),
-        sensitive_data=browser_agent.sensitive_data_for(instructions),
-        available_file_paths=[resume_path] if resume_path is not None else None,
-        output_model_schema=FillOutcome,
-        guard=guard,
-    )
+    try:
+        result = await browser_agent.run_task(
+            task,
+            llm=llm,
+            browser=browser,
+            system_message=browser_agent.build_no_submit_system_message(_WRITE_EXTRA),
+            sensitive_data=browser_agent.sensitive_data_for(instructions),
+            available_file_paths=[resume_path] if resume_path is not None else None,
+            output_model_schema=FillOutcome,
+            guard=guard,
+        )
+    except Exception:
+        # A hard failure still gets a screenshot of the failing form for the human
+        # (criterion 12), then propagates so the caller marks the job `failed`
+        # (SPEC.md §9). A screenshot failure must never hide the original error.
+        try:
+            await capture_screenshot(browser, artifacts_dir, job_id, tag="failure")
+        except Exception:  # pragma: no cover - best-effort artifact
+            logger.warning("fill: could not capture failure screenshot job_id=%s", job_id)
+        raise
     raw = result.structured_output
     outcome = raw if isinstance(raw, FillOutcome) else FillOutcome()
     filled, flagged = reconcile_outcome(outcome, answers)

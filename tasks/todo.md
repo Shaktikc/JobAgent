@@ -176,7 +176,8 @@ is Task 13.
 **Acceptance criteria:**
 - [ ] Text fields are filled with the values produced by Task 6
 - [ ] The routed resume PDF is uploaded to the file input
-- [ ] A PNG of the filled form is saved to `data/artifacts/` for **every** application
+- [ ] A PNG is saved to `data/artifacts/` for **every** application — the filled form
+      on success, the failing form on a hard failure (capture, then re-raise)
 - [ ] Browser-use tasks are built as pure functions in `nodes/fill.py` and
       `tools/browser_agent.py`, never inline
 - [ ] Answers are injected via browser-use `sensitive_data`, never embedded in the
@@ -187,12 +188,13 @@ is Task 13.
 - [ ] Every action is routed through `guard`
 
 **Verification:**
-- [ ] `poetry run pytest -m "not integration" tests/unit/test_fill_agent.py tests/unit/test_browser_agent_tasks.py`
+- [ ] `poetry run pytest -m "not integration" tests/unit/test_fill_agent.py tests/unit/test_fill_read_fields.py tests/unit/test_browser_agent_tasks.py`
 - [ ] Manual: `run --url <job> --dry-run` fills a real form and stops at review
 
 **Dependencies:** Task 3, Task 6
 **Files likely touched:** `src/nodes/fill.py`, `src/tools/browser_agent.py`,
-`tests/unit/test_fill_agent.py`, `tests/unit/test_browser_agent_tasks.py`
+`tests/unit/test_fill_agent.py`, `tests/unit/test_fill_read_fields.py`,
+`tests/unit/test_browser_agent_tasks.py`
 **Estimated scope:** M
 
 ---

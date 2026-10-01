@@ -57,15 +57,24 @@ Last updated: 2026-10-01 · **Done 6 / 16 tasks** · WIP limit: 1
     (agent structured read of the modal's fields), `fill_application` (agent fills from
     the Task 6 answers injected via `sensitive_data`; the fill task carries a hard
     **no-submit** rule), and the gate-only `submit_application` (`build_submit_task`,
-    invoked only after review approval). A PNG failure screenshot is captured per
-    application; agent failures raise so the job is marked `failed`. Every agent run is
-    bracketed by `guard` (`check_stop` + paced `pause_between_actions`); unrecognized
-    widgets are left blank and flagged, never guessed. Pure task/answer builders live in
-    `tools/browser_agent.py` and are unit-tested without a browser or LLM.
-  - Verified (unit): `pytest -m "not integration" tests/unit/test_fill_agent.py
+    invoked only after review approval). A PNG is captured for **every** application:
+    the filled form on success and the failing form on a hard failure (capture, then
+    re-raise so the job is marked `failed`; a screenshot error never masks the original
+    failure). Every agent run is bracketed by `guard` (`check_stop` + paced
+    `pause_between_actions`); unrecognized widgets are left blank and flagged, never
+    guessed. Pure task/answer builders live in `tools/browser_agent.py` and are
+    unit-tested without a browser or LLM.
+  - Fix 2026-10-01 (found in the live CP-B dry-run of job `4473985692`):
+    `reconcile_outcome` dropped agent-reported `unfilled_fields` that we never asked
+    about, so four extra required questions vanished from the review. It now surfaces
+    every such unrecognized field as `NEEDS_REVIEW`, never silently dropping it
+    (regression-guarded in `test_fill_agent.py`).
+  - Verified 2026-10-01 (unit): `pytest -m "not integration" tests/unit/test_fill_agent.py
     tests/unit/test_fill_read_fields.py tests/unit/test_browser_agent_tasks.py` →
-    green · full suite → 154 passed, 3 deselected · `ruff check .` clean ·
-    `mypy src` clean.
+    green · full suite → **157 passed, 3 deselected** · `ruff check .` clean ·
+    `mypy src` 25 files clean. The failure-screenshot path is guarded by
+    `test_fill_agent.py` (captures then re-raises; a screenshot error does not mask
+    the original).
   - **Human step pending, blocked on T8:** the todo's manual check is
     `python -m src.main run --url <job> --dry-run`, which requires the T8 graph. Once
     T8 lands, run that against one real Easy Apply job and confirm the step fills and
@@ -283,3 +292,7 @@ Each checkpoint must be explicitly verified with the human before the next phase
 | 2026-10-01 | T4 | Done (re-verified) | Re-verification: 19 guard tests + full suite 154 passed, ruff/mypy clean; manual `data/STOP` halt re-run and sentinel cleaned. No defect; guard wiring through browser-use intact. |
 | 2026-10-01 | T5 | Done (re-verified) | Re-verification: 8 discovery unit tests + full suite 154 passed, ruff/mypy clean; non-Easy-Apply still refused pre-fill. Live read is env-gated and skipped here. |
 | 2026-10-01 | T17 | Review → (removed) | Owner: browser-use is native from Task 1, no migration task. Requirements folded into T3/T5/T7/T8/T12/T13; board count 17 → 16. |
+| 2026-10-01 | T7 | Review → In Progress | Re-verification vs. acceptance criteria: `fill_application` missed the failure-screenshot path ("a PNG for every application"); adding capture-then-reraise + a unit test. |
+| 2026-10-01 | T7 | In Progress → Review | Failure-screenshot path added (`artifact_path`/`capture_screenshot` `tag="failure"`; error never masks the original). 156 passed, 3 deselected; ruff/mypy clean. Manual `--dry-run` check still pending (needs T8). |
+| 2026-10-01 | T7 | Review → In Progress | Live CP-B dry-run (job `4473985692`): agent-reported unlisted required questions were dropped from the review; surfacing them as NEEDS_REVIEW. Also: shell ate `--dry-run` in the first attempt — re-running safely. |
+| 2026-10-01 | T7 | In Progress → Review | `reconcile_outcome` now flags agent-reported unrecognized fields; 157 passed, 3 deselected, ruff/mypy clean. Re-running the live dry-run slowly for owner observation. |
