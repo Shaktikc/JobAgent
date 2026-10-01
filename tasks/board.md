@@ -153,6 +153,12 @@ Last updated: 2026-09-30 · **Done 6 / 17 tasks** · WIP limit: 1
     `test_store.py`) · `ruff check .` → clean · `mypy src` → 23 files clean ·
     schema creates `jobs`, `answers`, `resume_index` idempotently with the six status
     and four provenance `CHECK` values.
+  - Re-verified 2026-10-01: fixed a time-bombed test —
+    `test_count_applied_today_counts_only_todays_applied_jobs` hardcoded
+    `date(2026, 9, 30)` while `set_job_status` stamps the real clock, so it passed only
+    on that day. It now derives `date.today()`, matching `_now_iso`'s documented
+    local-calendar-day prefix. Full unit suite → **154 passed, 3 deselected**;
+    `ruff check .` clean; `mypy src` 25 files clean.
 - **T3** — `session`: browser launch, persistent profile, `login` *(Phase 0)*
   - Implemented 2026-09-30: `tools/browser.py` (only browser entry point + `login`),
     `tools/linkedin.py` (login-state predicate), `SessionSettings`/`Viewport` in
@@ -272,3 +278,6 @@ Each checkpoint must be explicitly verified with the human before the next phase
 | 2026-09-30 | T7 | Review (re-verified) | CP-B TDD fixes from the real dry-run of job `4468706364`: field-read no longer silently returns `()` (raises `FillError`, job → `failed`); read/fill walk every modal step (was page 1 of "1/4 pages"). +10 field-agnostic tests, full suite 145 passed, ruff/mypy clean. Re-run live CP-B. |
 | 2026-10-01 | T1 | Done → In Progress | Re-verification after Playwright→browser-use: clean `poetry install` fails (`poetry.lock` stale; `python-dotenv` added in `ef56a57` without relocking). Syncing the lock. |
 | 2026-10-01 | T1 | In Progress → Done | Re-synced `poetry.lock` (content-hash only; `python-dotenv` already transitive). `poetry check`, `install --dry-run`, `--help`, `ruff`, `mypy` all green; browser-use 0.13.10 intact, no Playwright. |
+| 2026-10-01 | T2 | Done → In Progress | Reopened: `test_count_applied_today_*` hardcoded `date(2026, 9, 30)` and fails off that day; making it clock-deterministic. |
+| 2026-10-01 | T2 | In Progress → Done | Test now uses `date.today()` (matches `_now_iso`); full unit suite 154 passed, 3 deselected; ruff/mypy clean. |
+| 2026-10-01 | — | — | Untracked PII resumes per SPEC.md §8: `resumes/` and `myResumes/` PDFs removed from the index, `resumes/.gitkeep` added, both folders gitignored. |

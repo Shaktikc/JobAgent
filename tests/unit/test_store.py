@@ -153,7 +153,9 @@ def test_answer_requires_an_existing_job() -> None:
 
 def test_count_applied_today_counts_only_todays_applied_jobs() -> None:
     conn = _db()
-    today = date(2026, 9, 30)
+    # Use the store's own clock: `set_job_status` stamps `applied_at` from local now,
+    # and `_now_iso` documents that its date prefix is the local calendar day.
+    today = date.today()
     yesterday = today - timedelta(days=1)
 
     upsert_job(conn, Job(job_id="a"))
