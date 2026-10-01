@@ -200,22 +200,26 @@ Last updated: 2026-09-30 · **Done 6 / 17 tasks** · WIP limit: 1
     `check_stop` + `pause_between_actions`. Values still come from `GuardSettings`
     (cap 30, 09:00–18:00, 20–90s), and clock/sleep/rng remain injectable.
 - **T5** — `discovery` (partial): read a job, detect Easy Apply from a URL *(Phase 1)*
-  - Implemented 2026-09-30: `tools/linkedin.py` (`JobDetails`, `job_id_from_url`,
-    `detect_easy_apply`, `parse_job_page`, browser `read_job`), `nodes/discover.py`
-    (`NotEasyApplyError`, `ensure_easy_apply`, `extract_job`, `read_job`, `as_job_state`)
-    and `state.JobState` (the shared contract). Parsing uses stdlib `html.parser`
-    over read selectors — no new dependency.
-  - Corrected 2026-09-30 after a live read failed: `read_job` now waits for the
-    client-rendered description before parsing, and the parser reads LinkedIn's
-    current stable hooks (`data-view-name="job-apply-button"`,
-    `data-testid="expandable-text-box"`, `aria-label="Company, …"`, the SSR
-    `<title>`) with the old class names kept as fallback. Two Aero fixtures added.
-  - Verified 2026-09-30: `pytest -m "not integration" tests/unit/test_discover_parse.py`
-    → 19 passed · full suite → 75 passed · `ruff check .` clean · `mypy src` clean ·
-    `pytest -m integration tests/integration/test_discover_browser.py` → 1 passed
-    against a **real Easy Apply page** (`jobs/view/4468706364/`, both the canonical
-    view URL and the `search-results/?currentJobId=…` form), fields non-empty and
-    Easy Apply detected.
+  - Implemented 2026-09-30 with a stdlib `html.parser` reader; **rewritten in Task 17**
+    (ADR 0001) to the browser-use agent path. Current shape: `tools/linkedin.py` =
+    URL helpers (`job_id_from_url`, `login_state_from_url`), the `JobExtraction`
+    model, and `build_read_job_task`; `nodes/discover.py` = `NotEasyApplyError` /
+    `DiscoveryError`, `ensure_easy_apply`, `as_job_state`, and async `read_job`
+    (agent structured output → `JobState`). `state.JobState` remains the shared
+    contract. The old `JobDetails` / `detect_easy_apply` / `parse_job_page` /
+    `extract_job` symbols and the HTML parser are **gone**.
+  - Easy Apply is still refused *before* anything can fill: `read_job` calls
+    `ensure_easy_apply` before returning, and `main.py` catches `NotEasyApplyError`.
+  - **Re-verified 2026-10-01 after the migration — no code defect.** `pytest -m "not
+    integration" tests/unit/test_linkedin_agent.py tests/unit/test_discover_read_job.py`
+    → **8 passed** · full unit suite **154 passed, 3 deselected** · `ruff check .`
+    clean · `mypy src` 25 files clean. The live
+    `tests/integration/test_discover_browser.py` is env-gated
+    (`AUTOJOB_TEST_JOB_URL` + `AUTOJOB_LLM_MODEL` + a logged-in `data/profile`) and
+    **skips** here; it last passed live on 2026-09-30 against
+    `jobs/view/4468706364/`. Record corrected: the old "19 passed in
+    `test_discover_parse.py`" refers to the deleted HTML-parser suite — that file no
+    longer exists.
 - **T6** — `answering`: facts rules + provenance, no LLM *(Phase 1)*
   - Implemented 2026-09-30: `nodes/answer.py` — `match_rule` (case-insensitive
     regex over `config/facts.yaml` rules), `rule_value` (literal or
@@ -305,3 +309,4 @@ Each checkpoint must be explicitly verified with the human before the next phase
 | 2026-10-01 | T3 | Done → In Progress | Reopened: integration smoke fails on browser-use 0.13.10 — `Page.evaluate` requires `(...args) => …`; test used Playwright-style bare expressions. |
 | 2026-10-01 | T3 | In Progress → Done | Fixed arrow-function form + numeric coercion; integration 2 passed, T3 unit 10 passed, full suite 154, ruff/mypy clean. |
 | 2026-10-01 | T4 | Done (re-verified) | Post-migration check: 19 guard tests + full suite 154 passed, ruff/mypy clean; manual `data/STOP` halt re-run and sentinel cleaned. No defect; guard wiring through browser-use intact. |
+| 2026-10-01 | T5 | Done (re-verified) | Post-migration check: 8 discovery unit tests + full suite 154 passed, ruff/mypy clean; non-Easy-Apply still refused pre-fill. Corrected stale card (removed parser symbols + dead `test_discover_parse.py` reference). Live read is env-gated and skipped here. |
