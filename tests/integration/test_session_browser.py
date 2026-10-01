@@ -47,8 +47,11 @@ def test_persistent_profile_uses_the_configured_identity(tmp_path: Path) -> None
             await session.navigate_to("about:blank")
             page = await session.get_current_page()
             assert page is not None
-            assert await page.evaluate("navigator.userAgent") == "AutoJobApply-Test/1.0"
-            assert await page.evaluate("window.innerWidth") == 802
+            # browser-use 0.13.10 requires the arrow-function form. A bare
+            # expression like "navigator.userAgent" raises ValueError, and the
+            # result always comes back as a string, so numbers need coercion.
+            assert await page.evaluate("() => navigator.userAgent") == "AutoJobApply-Test/1.0"
+            assert int(await page.evaluate("() => window.innerWidth")) == 802
 
     asyncio.run(go())
     assert settings.paths.profile.is_dir()

@@ -163,12 +163,24 @@ Last updated: 2026-09-30 · **Done 6 / 17 tasks** · WIP limit: 1
   - Implemented 2026-09-30: `tools/browser.py` (only browser entry point + `login`),
     `tools/linkedin.py` (login-state predicate), `SessionSettings`/`Viewport` in
     `configuration.py`, `login` wired in `main.py`.
-  - Verified 2026-09-30: `pytest -m "not integration"` → 37 passed (11 in
-    `test_session_config.py`) · `pytest -m integration tests/integration/test_session_browser.py`
-    → 2 passed (real Chromium: configured UA/viewport, cookies survive a restart) ·
-    `ruff check .` clean · `mypy src` clean.
   - Criterion 1 (login persists; a second run reuses it) signed off by the owner on
     2026-09-30.
+  - **Re-verified 2026-10-01 after the browser-use migration.** Fixed a stale
+    integration test: `Page.evaluate` in browser-use 0.13.10 requires the
+    arrow-function form, so the Playwright-style `"navigator.userAgent"` raised
+    `ValueError`; both calls now use `() => …` and the numeric result is coerced
+    (`evaluate` returns a string). Verification: `pytest -m integration
+    tests/integration/test_session_browser.py` → **2 passed** (real Chromium on a
+    throwaway profile: configured UA/viewport applied, profile reused across two
+    sessions) · `pytest -m "not integration" tests/unit/test_session_config.py` →
+    **10 passed** · full unit suite **154 passed, 3 deselected** · `ruff check .`
+    clean · `mypy src` 25 files clean · `login` and `--help` exit 0. (Prior card
+    said 11 session tests; the real count is 10.) Note: browser-use emits a harmless
+    Windows asyncio `PytestUnraisableExceptionWarning` at teardown (exit 0).
+    Invariants hold: `tools/browser.py` is the only module constructing
+    `Browser`/`BrowserProfile` (the agent receives the injected browser); the profile
+    is `data/profile`, never the everyday Chrome profile; UA/viewport come from
+    `SessionSettings`, not hardcoded in the browser module.
 - **T4** — `guard`: pacing, daily cap, business hours, STOP sentinel *(Phase 0)*
   - Implemented 2026-09-30: `tools/guard.py` (`Guard`, `GuardHalt`,
     `detect_rate_limit_signal`) with injectable clock/sleep/rng; STOP sentinel;
@@ -281,3 +293,5 @@ Each checkpoint must be explicitly verified with the human before the next phase
 | 2026-10-01 | T2 | Done → In Progress | Reopened: `test_count_applied_today_*` hardcoded `date(2026, 9, 30)` and fails off that day; making it clock-deterministic. |
 | 2026-10-01 | T2 | In Progress → Done | Test now uses `date.today()` (matches `_now_iso`); full unit suite 154 passed, 3 deselected; ruff/mypy clean. |
 | 2026-10-01 | — | — | Untracked PII resumes per SPEC.md §8: `resumes/` and `myResumes/` PDFs removed from the index, `resumes/.gitkeep` added, both folders gitignored. |
+| 2026-10-01 | T3 | Done → In Progress | Reopened: integration smoke fails on browser-use 0.13.10 — `Page.evaluate` requires `(...args) => …`; test used Playwright-style bare expressions. |
+| 2026-10-01 | T3 | In Progress → Done | Fixed arrow-function form + numeric coercion; integration 2 passed, T3 unit 10 passed, full suite 154, ruff/mypy clean. |
