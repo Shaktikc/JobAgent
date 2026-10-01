@@ -21,3 +21,9 @@ build/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+
+# Resumes contain PII — never committed (SPEC.md §8). `resumes/` stays as the
+# canonical folder; the app auto-indexes whatever PDFs you drop in.
+resumes/*
+!resumes/.gitkeep
+myResumes/
