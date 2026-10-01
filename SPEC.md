@@ -4,8 +4,8 @@ Status: **APPROVED** 2026-09-29. Supersedes the draft of the same date.
 Source of truth for what we're building, why, and how we'll know it's done.
 Idea one-pager: `docs/ideas/auto-job-apply.md`
 
-> **Amendment 2026-09-30 (ADR 0001).** The browser layer is the **browser-use** AI
-> agent (an owner-directed migration away from Playwright, recorded in ADR 0001).
+> **Browser layer.** The browser layer is the **browser-use** AI
+> agent, the native browser driver from the first browser task.
 > This spec describes the browser-use design throughout. The non-browser
 > architecture (guard, state/SQLite, facts rules, review gate) and every safety
 > invariant are unchanged: the agent reads and fills, **never submits**; submission

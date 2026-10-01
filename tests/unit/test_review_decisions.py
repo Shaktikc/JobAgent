@@ -1,4 +1,4 @@
-"""Unit tests for `review-gate` decision logic (Task 8; async in Task 17).
+"""Unit tests for `review-gate` decision logic (Task 8).
 
 No browser and no real submission: the interactive gate takes an injectable prompt,
 output sink and async submit handler, so every approve/reject/edit/quit path is

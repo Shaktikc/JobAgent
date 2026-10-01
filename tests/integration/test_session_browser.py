@@ -1,4 +1,4 @@
-"""Integration smoke for the browser-use session (Task 3, rewritten in Task 17).
+"""Integration smoke for the browser-use session (Task 3).
 
 Marked ``integration``: launches the real browser on a throwaway persistent
 profile. Never runs in CI (SPEC.md §6). No LinkedIn login is required — the manual

@@ -1,7 +1,7 @@
 """The StateGraph builder and compiler.
 
-``langgraph.json`` points at ``build_graph`` in this module. Rewritten in Task 17
-(ADR 0001): the pipeline is the same shape (read → answer → fill → review) but is
+``langgraph.json`` points at ``build_graph`` in this module. The pipeline has the
+same shape (read → answer → fill → review) but is
 async, because browser-use is asyncio-native. Completion (full loop, checkpointing,
 crash resume) is Task 15.
 

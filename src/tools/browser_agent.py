@@ -1,7 +1,7 @@
 """`browser-use` agent integration — the AI-driven browser layer.
 
-See ``docs/decisions/0001-browser-use-migration.md`` (ADR 0001). This module owns
-everything that turns our data into a browser-use task and everything that runs the
+This module owns everything that turns our data into a browser-use task and
+everything that runs the
 agent, while preserving the project's hard safety invariants (``SPEC.md`` §8):
 
 - **The agent never submits on its own.** :func:`build_fill_task` ends with a hard
@@ -69,8 +69,7 @@ class BrowserUseNotInstalledError(RuntimeError):
     def __init__(self) -> None:
         super().__init__(
             "browser-use is not installed. Run `poetry add browser-use` and "
-            "`poetry run browser-use install` (see "
-            "docs/decisions/0001-browser-use-migration.md)."
+            "`poetry run browser-use install`."
         )
 
 

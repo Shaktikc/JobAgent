@@ -10,6 +10,10 @@ It does **not** track status — move cards on `tasks/board.md` instead.
 Order is dependency order, and Phase 1 is deliberately the risk-first walking skeleton
 (see plan.md Architecture Decision 1). Do not reorder Phase 1 after Phase 2.
 
+The browser driver is **browser-use from the very first browser task** (see plan.md
+Architecture Decision 6). Every browser task below is written against browser-use
+directly — the agent drives, there are no DOM selectors to maintain.
+
 ---
 
 ## Task 1: Project scaffold, tooling, config templates, placeholder stubs
@@ -75,6 +79,8 @@ Distinct from `src/state.py` (LangGraph channels), which Task 8 introduces.
 - [ ] The browser is launched **only** through this module
 - [ ] The everyday Chrome profile is never touched
 - [ ] User-agent/viewport come from `configuration.py`, not hardcoded
+- [ ] The driver is a browser-use `Browser` on the dedicated profile; browser-use is
+      the only browser-automation library imported anywhere
 
 **Verification:**
 - [ ] Manual: run `login` twice; second run shows a logged-in session
@@ -117,11 +123,14 @@ Criteria and status: `tasks/board.md` → **CP-A**.
 
 ## Task 5: `discovery` (partial) — read a job and detect Easy Apply
 
-**Description:** Given one job URL, extract title/company/description/URL and detect
-whether Easy Apply is available. Emits the `JobState` that later tasks consume.
+**Description:** Given one job URL, read the posting with the **browser-use agent**
+(structured output) and detect whether Easy Apply is available. Emits the `JobState`
+that later tasks consume.
 
 **Acceptance criteria:**
 - [ ] Title, company, description, and URL are read correctly for a real job page
+- [ ] The page is read by the browser-use agent's structured output
+      (`JobExtraction`), not by HTML/CSS selectors
 - [ ] Easy Apply availability is detected before any filling is attempted
 - [ ] A non-Easy-Apply job raises a clear, typed error rather than proceeding
 - [ ] Job-id and login-state helpers are unit-testable with no network
@@ -160,8 +169,9 @@ type carrying provenance and confidence. LLM comes in Task 10.
 
 ## Task 7: `filling` — single-step fields, resume upload, screenshots
 
-**Description:** Fill one Easy Apply modal step: text inputs, resume upload, and a
-screenshot for every application. Multi-step navigation is Task 13.
+**Description:** Fill one Easy Apply modal step with the **browser-use agent**: text
+inputs, resume upload, and a screenshot for every application. Multi-step navigation
+is Task 13.
 
 **Acceptance criteria:**
 - [ ] Text fields are filled with the values produced by Task 6
@@ -169,6 +179,10 @@ screenshot for every application. Multi-step navigation is Task 13.
 - [ ] A PNG of the filled form is saved to `data/artifacts/` for **every** application
 - [ ] Browser-use tasks are built as pure functions in `nodes/fill.py` and
       `tools/browser_agent.py`, never inline
+- [ ] Answers are injected via browser-use `sensitive_data`, never embedded in the
+      prompt text
+- [ ] The fill agent carries a hard **no-submit** rule; submission is a separate
+      gate-only task (`build_submit_task`), never part of the fill task
 - [ ] An unrecognized field is left blank and flagged, not guessed
 - [ ] Every action is routed through `guard`
 
@@ -185,8 +199,9 @@ screenshot for every application. Multi-step navigation is Task 13.
 
 ## Task 8: `review-gate` + minimal graph + `run --url <job> --dry-run`
 
-**Description:** The human checkpoint and the smallest LangGraph wiring that reaches it.
-Requires an explicit `--url` so the skeleton needs no search yet.
+**Description:** The human checkpoint and the smallest LangGraph wiring that reaches it,
+running on the browser-use agent. Requires an explicit `--url` so the skeleton needs no
+search yet. The graph is asyncio-native (browser-use is async).
 
 **Acceptance criteria:**
 - [ ] Review displays job title, company, URL, resume used, and every
@@ -195,6 +210,8 @@ Requires an explicit `--url` so the skeleton needs no search yet.
 - [ ] Reject ⇒ zero submissions, `status=rejected`
 - [ ] Approve (non-dry-run) ⇒ exactly one submission, confirmation captured,
       `status=applied`
+- [ ] Submission runs **only** the gate-only agent task (`build_submit_task`) after
+      approval; the read/fill agent can never submit
 - [ ] `--dry-run` never submits, regardless of approval
 - [ ] Ctrl-C mid-review leaves the application `filled` and re-offerable
 
@@ -289,11 +306,14 @@ LLM for the roles it targets, cache by file hash, and pick the best match per jo
 
 ## Task 12: `discovery` — search, filters, dedupe
 
-**Description:** Complete `discovery`: run the search from `search.yaml`, harvest jobs,
-apply filters, dedupe, and persist via `tools/store.py`.
+**Description:** Complete `discovery`: run the search from `search.yaml` with the
+**browser-use agent**, harvest jobs, apply filters, dedupe, and persist via
+`tools/store.py`.
 
 **Acceptance criteria:**
 - [ ] Search runs from `search.yaml` (keywords, location, remote, experience level)
+- [ ] Search/harvest is driven by the browser-use agent, not HTML/CSS scraping
+      selectors
 - [ ] Only Easy Apply jobs are queued
 - [ ] `posted_within_days` is enforced
 - [ ] Only `exclude_keywords` / `exclude_companies` filter postings — no built-in
@@ -319,11 +339,12 @@ Criteria and status: `tasks/board.md` → **CP-C**.
 
 ## Task 13: `filling` — multi-step navigation
 
-**Description:** Walk the Easy Apply modal through its Next/Review steps, handling
-required starred fields and per-step validation.
+**Description:** Have the **browser-use agent** walk the Easy Apply modal through its
+Next/Review steps, handling required starred fields and per-step validation.
 
 **Acceptance criteria:**
-- [ ] All steps advance until the final Submit is reached, without submitting
+- [ ] The agent advances through all steps until the final Submit is reached, without
+      ever submitting (the no-submit rule still applies)
 - [ ] Starred/required fields are filled; validation errors are not bypassed
 - [ ] Progress state survives a retry of a failed step
 - [ ] A hard failure captures a screenshot and marks the job `failed`
@@ -363,12 +384,14 @@ agent; define exactly what happens on an unrecognized required field.
 
 ## Task 15: `orchestration` — graph run loop, checkpointing, crash resume, `status`
 
-**Description:** Wire the full loop per job and make it resumable: discovery → routing →
-answering → filling → review-gate, until results are exhausted or guard halts.
+**Description:** Wire the full asyncio-native loop per job (browser-use is async) and
+make it resumable: discovery → routing → answering → filling → review-gate, until
+results are exhausted or guard halts.
 
 **Acceptance criteria:**
 - [ ] The loop processes jobs in order until exhaustion or a guard halt
-- [ ] Every network/browser action in the loop routes through `guard`
+- [ ] Every browser-use agent run is bracketed by `guard.check_stop()` and paced, so
+      STOP halts the loop
 - [ ] State is checkpointed so a restart resumes without re-applying (criterion 10)
 - [ ] `status` reports counts by status (seen/applied/rejected/skipped/failed)
 - [ ] A guard halt exits cleanly with a clear reason, leaving state consistent
@@ -411,41 +434,3 @@ and measure the trust criterion before scaling.
 **Files likely touched:** none (config values only)
 **Estimated scope:** M (calendar time, not code)
 
----
-
-## Task 17: Browser layer — migrate Playwright → browser-use (AI agent)
-
-**Description:** Owner-directed architecture change (see
-`docs/decisions/0001-browser-use-migration.md`, ADR 0001). Replace the hand-written
-Playwright browser layer with the browser-use agent. The browser-independent layers
-(`guard`, `store`, facts rules, `review-gate`) are **kept unchanged**; only the code
-that drives the browser is replaced. The human submit gate stays: the agent may read
-and fill, never submit; submission is a separate agent task run only by the review
-gate after approval.
-
-**Acceptance criteria:**
-- [ ] `tools/browser_agent.py`: pure task/answer builders + guarded agent runner;
-      answers injected via `sensitive_data`, not embedded in prompt text
-- [ ] `tools/browser.py`: browser-use `Browser` on the dedicated `data/profile`;
-      manual login preserved; everyday Chrome profile never touched
-- [ ] `nodes/fill.py`: agent-backed fill; `build_fill_task` carries a hard no-submit
-      rule; submission is a gate-only task (`build_submit_task`)
-- [ ] `nodes/discover.py` + `tools/linkedin.py`: job read via agent structured output,
-      still emitting the same `JobState`
-- [ ] Every agent run brackets `guard.check_stop()` and is paced; STOP halts it
-- [ ] A PNG screenshot is still captured for every application
-- [ ] No direct Playwright calls remain in the browser layer
-- [ ] All prior browser-independent unit tests still pass
-
-**Verification:**
-- [ ] `poetry run ruff check .` and `poetry run mypy src` clean
-- [ ] `poetry run pytest -m "not integration"` (full unit suite)
-- [ ] Manual (owner, needs OpenRouter key + browser): `run --url <job> --dry-run`
-      reaches review with **no submission** and a screenshot in `data/artifacts/`
-- [ ] Manual: `login` persists via `data/profile`
-
-**Dependencies:** Tasks 3, 5, 7 (browser layer); T9 for the LLM key
-**Files likely touched:** `src/tools/browser_agent.py`, `src/tools/browser.py`,
-`src/tools/linkedin.py`, `src/nodes/discover.py`, `src/nodes/fill.py`,
-`src/graph.py`, `src/main.py`, `pyproject.toml`, `tests/unit/test_browser_agent_tasks.py`
-**Estimated scope:** L

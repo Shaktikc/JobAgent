@@ -1,4 +1,4 @@
-"""Unit tests for the browser-use task builders (ADR 0001 / Task 17).
+"""Unit tests for the browser-use task builders.
 
 Pure only: no browser, no LLM, and no ``browser_use`` import — the live functions
 import it lazily. These tests pin the two safety-critical properties we can prove

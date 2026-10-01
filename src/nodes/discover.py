@@ -1,6 +1,6 @@
 """`discovery` — read a job posting via the browser-use agent.
 
-Rewritten in Task 17 (ADR 0001): the read is the agent's structured output against
+The read is the agent's structured output against
 ``linkedin.JobExtraction``. The node still emits the same :class:`~src.state.JobState`
 contract, and still refuses a non-Easy-Apply job *before* anything can fill it.
 

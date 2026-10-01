@@ -1,6 +1,6 @@
 """`session` — browser-use lifecycle on the dedicated persistent profile.
 
-Rewritten in Task 17 (ADR 0001): browser-use owns the browser, launched on
+browser-use owns the browser, launched on
 ``data/profile`` so a manual LinkedIn login persists across runs. The everyday
 Chrome profile is never touched (SPEC.md §8).
 

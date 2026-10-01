@@ -1,4 +1,4 @@
-"""Unit tests for LinkedIn URL helpers and the agent read task (Task 17).
+"""Unit tests for LinkedIn URL helpers and the agent read task (Task 5).
 
 Pure only: no browser, no LLM. The read itself (structured output) is exercised by
 the manual integration smoke, not here.

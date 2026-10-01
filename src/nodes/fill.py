@@ -1,7 +1,7 @@
-"""`filling` — browser-use agent fill, plus the gate-only submit (Task 17).
+"""`filling` — browser-use agent fill, plus the gate-only submit.
 
-Rewritten in ADR 0001. The hand-written selector/fill code is gone; the
-agent fills the form from a task built by :mod:`src.tools.browser_agent`. Rules:
+The agent fills the form from a task built by :mod:`src.tools.browser_agent`.
+Rules:
 
 - **The agent never submits.** :func:`fill_application` uses the no-submit system
   message; submission is :func:`submit_application`, called only by the review gate.

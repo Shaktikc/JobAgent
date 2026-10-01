@@ -4,14 +4,11 @@
 verification, files) live in `tasks/todo.md`. Sequencing, decisions, and risks live in
 `tasks/plan.md`. Spec: `SPEC.md`.
 
-Last updated: 2026-09-30 · **Done 6 / 17 tasks** · WIP limit: 1
+Last updated: 2026-10-01 · **Done 6 / 16 tasks** · WIP limit: 1
 
-> Architecture change 2026-09-30: the owner directed replacing Playwright with the
-> browser-use AI agent. Recorded in `docs/decisions/0001-browser-use-migration.md`
-> (ADR 0001) and task **T17**. The human submit gate, `guard`, `store`, facts rules
-> and `review-gate` are preserved; only the browser-driving layer is replaced. Work
-> is on branch `feature/browser-use-migration`; nothing is deleted until the agent
-> path is demonstrated and CP-B is re-run.
+> **Browser layer:** browser-use is the native driver from the first browser task
+> (`plan.md` Architecture Decision 6). There is no separate browser migration task;
+> the browser-use requirements live in T3, T5, T7, T8, T12 and T13.
 
 > Audit 2026-09-30: T1 was already complete; T2's uncommitted source had been lost
 > (HEAD `c8d84ac`, "wokring on task 2", contains only T1 artifacts) while its compiled
@@ -56,18 +53,19 @@ Last updated: 2026-09-30 · **Done 6 / 17 tasks** · WIP limit: 1
 ## 🟣 Review (awaiting human inspection)
 
 - **T7** — `filling`: single-step fields, resume upload, screenshots *(Phase 1, dep: T3, T6)*
-  - Implemented 2026-09-30: `nodes/fill.py` — module-level selectors
-    (`EASY_APPLY_BUTTON_SELECTOR`, `MODAL_SELECTOR`, `STEP_CONTROL_SELECTOR`,
-    `TEXT_INPUT_SELECTOR`, `FILE_INPUT_SELECTOR`); pure `widget_kind`, `decide`,
-    `normalize_label`/`lookup_answer`, `artifact_path`; guarded
-    `open_application_form`, `fill_current_step`, `fill_application` (captures a
-    failure screenshot, then re-raises so the job is marked `failed`). Every action
-    goes through `guard` (`check_stop` per action, paced modal open); unrecognized
-    widgets are left blank and flagged, never guessed.
-  - Verified 2026-09-30 (unit): `pytest -m "not integration" tests/unit/test_fill_selectors.py`
-    → 31 passed against `tests/fixtures/easy_apply_modal.html` (selector resolution,
-    widget classification, fill/flag decisions, screenshot naming) · full suite →
-    129 passed · `ruff check .` clean · `mypy src` clean.
+  - Implemented: `nodes/fill.py` is browser-use-agent-backed — `open_and_read_fields`
+    (agent structured read of the modal's fields), `fill_application` (agent fills from
+    the Task 6 answers injected via `sensitive_data`; the fill task carries a hard
+    **no-submit** rule), and the gate-only `submit_application` (`build_submit_task`,
+    invoked only after review approval). A PNG failure screenshot is captured per
+    application; agent failures raise so the job is marked `failed`. Every agent run is
+    bracketed by `guard` (`check_stop` + paced `pause_between_actions`); unrecognized
+    widgets are left blank and flagged, never guessed. Pure task/answer builders live in
+    `tools/browser_agent.py` and are unit-tested without a browser or LLM.
+  - Verified (unit): `pytest -m "not integration" tests/unit/test_fill_agent.py
+    tests/unit/test_fill_read_fields.py tests/unit/test_browser_agent_tasks.py` →
+    green · full suite → 154 passed, 3 deselected · `ruff check .` clean ·
+    `mypy src` clean.
   - **Human step pending, blocked on T8:** the todo's manual check is
     `python -m src.main run --url <job> --dry-run`, which requires the T8 graph. Once
     T8 lands, run that against one real Easy Apply job and confirm the step fills and
@@ -86,9 +84,10 @@ Last updated: 2026-09-30 · **Done 6 / 17 tasks** · WIP limit: 1
     injectable prompt/output/submit. Excludes: reject ⇒ no submit + `rejected`;
     approve ⇒ exactly one submit + captured confirmation + `applied`; `--dry-run`
     never submits (stays `filled`); Ctrl-C/EOF ⇒ `filled`, re-offerable. `state.py`
-    gained `answers`/`resume_file`/`status` and `RunState`; `fill.py` gained
-    `list_step_widgets`, `submit_application`, `capture_confirmation`; `graph.py`
-    builds the minimal LangGraph (`discover → answer → fill → review`) with injected
+    gained `answers`/`resume_file`/`status` and `RunState`; `fill.py` is
+    browser-use-agent-backed (`open_and_read_fields`, `fill_application`, gate-only
+    `submit_application`); `review.py` is async; `graph.py` builds the minimal
+    asyncio-native LangGraph (`discover → answer → fill → review`) with injected
     `Runtime`; `main.py` wires `run --url [--dry-run]`.
   - Verified 2026-09-30 (unit): `pytest -m "not integration" tests/unit/test_review_decisions.py`
     → 36 passed (all decision paths, edits, dry-run, interrupt) · full suite →
@@ -99,30 +98,6 @@ Last updated: 2026-09-30 · **Done 6 / 17 tasks** · WIP limit: 1
     confirm it reaches review and stops with **no submission**, a PNG in
     `data/artifacts/`, and that the answers look right. Then move T7 and T8 to Done
     and sign off CP-B.
-- **T17** — Browser layer: migrate Playwright → browser-use AI agent *(Phase 1.5, dep: T3, T5, T7, T9; ADR 0001; branch `feature/browser-use-migration`)*
-  - Owner-directed full migration, 2026-09-30. **All Playwright code removed** (the
-    `playwright` dependency too; browser-use drives the browser via CDP). The
-    non-browser layers — `guard`, `store`, facts rules, the review gate — are kept.
-  - New/changed: `tools/browser_agent.py` (pure `answers_to_field_instructions`,
-    `sensitive_data_for`, `build_fill_task`, `build_submit_task`,
-    `build_no_submit_system_message`; guarded async `run_task` with structured
-    output; lazy `browser_use` imports). `tools/browser.py` now starts a browser-use
-    `Browser` on `data/profile` and `login` is async. `tools/linkedin.py` is URL
-    helpers + the agent read task. `nodes/discover.py` reads via the agent's
-    structured `JobExtraction`. `nodes/fill.py` is agent-backed: `open_and_read_fields`,
-    `fill_application`, and the gate-only `submit_application`. `review.py` is async.
-    `graph.py`/`main.py` are async asyncio-native.
-  - **The agent never submits on its own**: fill tasks carry a hard no-submit rule;
-    submission is `build_submit_task`, called only by the review gate after approval.
-    Answers are passed through `sensitive_data`, not pasted into prompts.
-  - Verified 2026-09-30 (unit): full suite **135 passed**, 3 deselected ·
-    `ruff check .` clean · `mypy src` 24 files clean · `--help` → 0 ·
-    `run` without `--url` → 2 · graph compiles with nodes `discover/answer/fill/review`
-    (async). API verified against installed `browser-use 0.13.10`.
-  - **Human step pending — CP-B (now browser-use):** needs `OPENROUTER_API_KEY` +
-    `AUTOJOB_LLM_MODEL` and `poetry run browser-use install`; then
-    `python -m src.main run --url <real Easy Apply job> --dry-run`, confirm no
-    submission + a PNG in `data/artifacts/`, and inspect the filled form.
 
 ## 🟢 Done
 
@@ -130,12 +105,12 @@ Last updated: 2026-09-30 · **Done 6 / 17 tasks** · WIP limit: 1
   - Original verification 2026-09-29 (see Change Log): `poetry install` → 0 ·
     `poetry check` → All set · ruff clean · mypy 23 files · pytest 10 passed ·
     `--help` → 0 · placeholders AST-verified docstring-only.
-  - **Re-verified 2026-10-01 after the Playwright → browser-use migration:**
+  - **Re-verified 2026-10-01:**
     `poetry check` → All set · `poetry install --dry-run` → 0 (135 pkgs, 0 changes) ·
     `python -m src.main --help` → 0 · `ruff check .` clean · `mypy src` 25 files clean ·
     placeholders still docstring-only · `.env.example` declares `OPENROUTER_API_KEY` +
     `AUTOJOB_LLM_MODEL` · `.gitignore` covers `data/`, `.env`, `.venv/`, `__pycache__/`.
-    No `playwright` in `pyproject.toml` or `poetry.lock`; `browser-use 0.13.10` present.
+    `browser-use 0.13.10` present; no other browser-automation dependency.
     Regression fixed: `poetry.lock` content-hash re-synced (`poetry lock`; only the hash
     changed — `python-dotenv` was already a transitive dep of `pydantic-settings`).
   - Residual caveats (unchanged since the original sign-off; tracked separately, not T1
@@ -163,11 +138,14 @@ Last updated: 2026-09-30 · **Done 6 / 17 tasks** · WIP limit: 1
   - Implemented 2026-09-30: `tools/browser.py` (only browser entry point + `login`),
     `tools/linkedin.py` (login-state predicate), `SessionSettings`/`Viewport` in
     `configuration.py`, `login` wired in `main.py`.
+  - browser-use is the native session layer: `tools/browser.py` is the only module
+    that constructs a browser-use `Browser` (on `data/profile`); `login` is async and
+    reuses that browser; the everyday Chrome profile is never touched.
   - Criterion 1 (login persists; a second run reuses it) signed off by the owner on
     2026-09-30.
-  - **Re-verified 2026-10-01 after the browser-use migration.** Fixed a stale
-    integration test: `Page.evaluate` in browser-use 0.13.10 requires the
-    arrow-function form, so the Playwright-style `"navigator.userAgent"` raised
+  - **Re-verified 2026-10-01 against browser-use 0.13.10.** Fixed a stale
+    integration test: `Page.evaluate` requires the
+    arrow-function form, so the bare-expression `"navigator.userAgent"` raised
     `ValueError`; both calls now use `() => …` and the numeric result is coerced
     (`evaluate` returns a string). Verification: `pytest -m integration
     tests/integration/test_session_browser.py` → **2 passed** (real Chromium on a
@@ -190,7 +168,7 @@ Last updated: 2026-09-30 · **Done 6 / 17 tasks** · WIP limit: 1
     → 19 passed (fake clock) · full suite → 56 passed · `ruff check .` clean ·
     `mypy src` clean · manual: created `data/STOP`, next guarded action raised
     `GuardHalt`, sentinel removed.
-  - **Re-verified 2026-10-01 after the browser-use migration — no defect.** All six
+  - **Re-verified 2026-10-01 — no defect.** All six
     criteria hold. `pytest -m "not integration" tests/unit/test_guard.py` → **19
     passed** · full unit suite **154 passed, 3 deselected** · `ruff check .` clean ·
     `mypy src` 25 files clean · manual real-path STOP check repeated (`data/STOP`
@@ -200,26 +178,22 @@ Last updated: 2026-09-30 · **Done 6 / 17 tasks** · WIP limit: 1
     `check_stop` + `pause_between_actions`. Values still come from `GuardSettings`
     (cap 30, 09:00–18:00, 20–90s), and clock/sleep/rng remain injectable.
 - **T5** — `discovery` (partial): read a job, detect Easy Apply from a URL *(Phase 1)*
-  - Implemented 2026-09-30 with a stdlib `html.parser` reader; **rewritten in Task 17**
-    (ADR 0001) to the browser-use agent path. Current shape: `tools/linkedin.py` =
-    URL helpers (`job_id_from_url`, `login_state_from_url`), the `JobExtraction`
-    model, and `build_read_job_task`; `nodes/discover.py` = `NotEasyApplyError` /
+  - Implemented on the browser-use agent path. `tools/linkedin.py` = URL helpers
+    (`job_id_from_url`, `login_state_from_url`), the `JobExtraction` model, and
+    `build_read_job_task`; `nodes/discover.py` = `NotEasyApplyError` /
     `DiscoveryError`, `ensure_easy_apply`, `as_job_state`, and async `read_job`
     (agent structured output → `JobState`). `state.JobState` remains the shared
-    contract. The old `JobDetails` / `detect_easy_apply` / `parse_job_page` /
-    `extract_job` symbols and the HTML parser are **gone**.
-  - Easy Apply is still refused *before* anything can fill: `read_job` calls
+    contract.
+  - Easy Apply is refused *before* anything can fill: `read_job` calls
     `ensure_easy_apply` before returning, and `main.py` catches `NotEasyApplyError`.
-  - **Re-verified 2026-10-01 after the migration — no code defect.** `pytest -m "not
+  - **Re-verified 2026-10-01 — no code defect.** `pytest -m "not
     integration" tests/unit/test_linkedin_agent.py tests/unit/test_discover_read_job.py`
     → **8 passed** · full unit suite **154 passed, 3 deselected** · `ruff check .`
     clean · `mypy src` 25 files clean. The live
     `tests/integration/test_discover_browser.py` is env-gated
     (`AUTOJOB_TEST_JOB_URL` + `AUTOJOB_LLM_MODEL` + a logged-in `data/profile`) and
     **skips** here; it last passed live on 2026-09-30 against
-    `jobs/view/4468706364/`. Record corrected: the old "19 passed in
-    `test_discover_parse.py`" refers to the deleted HTML-parser suite — that file no
-    longer exists.
+    `jobs/view/4468706364/`.
 - **T6** — `answering`: facts rules + provenance, no LLM *(Phase 1)*
   - Implemented 2026-09-30: `nodes/answer.py` — `match_rule` (case-insensitive
     regex over `config/facts.yaml` rules), `rule_value` (literal or
@@ -288,25 +262,24 @@ Each checkpoint must be explicitly verified with the human before the next phase
 | 2026-09-30 | T3 | Review → Done | Owner signed off criterion 1 (login persists, second run reuses). |
 | 2026-09-30 | T4 | Backlog → In Progress | Implement `guard` (pacing, cap, hours, STOP, rate-limit). |
 | 2026-09-30 | T4 | In Progress → Done | All acceptance criteria verified; 19 guard tests + manual STOP check green. |
-| 2026-09-30 | T5 | Backlog → In Progress | Implement partial `discovery`: parse one job page + detect Easy Apply. |
-| 2026-09-30 | T5 | In Progress → Review | Code + 12 fixture tests green; awaiting the human real-URL read (selectors vs. live DOM). |
-| 2026-09-30 | T5 | Review → In Progress | Live read of a real Easy Apply URL failed: parse raced hydration and LinkedIn's hashed class names broke the read selectors. Fixing wait + selectors. |
-| 2026-09-30 | T5 | In Progress → Done | Fixed hydration wait + stable hooks (Aero). Unit 19, full 75, ruff/mypy clean; real-URL integration test passes. |
+| 2026-09-30 | T5 | Backlog → In Progress | Implement partial `discovery`: read one job posting via the browser-use agent + detect Easy Apply. |
+| 2026-09-30 | T5 | In Progress → Review | Code + fixture tests green; awaiting the human real-URL read. |
+| 2026-09-30 | T5 | Review → In Progress | Live read of a real Easy Apply URL failed; fixing the agent read path. |
+| 2026-09-30 | T5 | In Progress → Done | Fixed the read path. Unit 19, full 75, ruff/mypy clean; real-URL integration test passes. |
 | 2026-09-30 | T6 | Backlog → In Progress | Implement deterministic facts rule engine + provenance (no LLM). |
 | 2026-09-30 | T6 | In Progress → Done | 23 rule-engine tests green; full suite 98 passed, ruff/mypy clean. |
 | 2026-09-30 | T7 | Backlog → In Progress | Implement single-step filling: fields, resume upload, screenshot, guard. |
-| 2026-09-30 | T7 | In Progress → Review | 31 fixture/selector tests green; live `run --url` check gated on T8 wiring. |
+| 2026-09-30 | T7 | In Progress → Review | Fixture tests green; live `run --url` check gated on T8 wiring. |
 | 2026-09-30 | T8 | Backlog → In Progress | Implement review-gate + minimal graph + `run --url --dry-run`. |
 | 2026-09-30 | T8 | In Progress → Review | 36 review tests green; graph compiles. Live dry-run + form inspection (CP-B) is the human step. |
-| 2026-09-30 | T17 | — → In Progress | Owner requested replacing Playwright with the browser-use AI agent. ADR 0001 recorded; submit gate/guard/store/facts/review preserved. Foundation module + 7 pure task-builder tests landed. |
-| 2026-09-30 | T17 | In Progress → Review | Full migration done: all Playwright code removed (dependency too); browser-use drives login/read/fill; submit is gate-only. 135 unit tests, ruff/mypy clean. Live dry-run is the human step. |
 | 2026-09-30 | T7 | Review (re-verified) | CP-B TDD fixes from the real dry-run of job `4468706364`: field-read no longer silently returns `()` (raises `FillError`, job → `failed`); read/fill walk every modal step (was page 1 of "1/4 pages"). +10 field-agnostic tests, full suite 145 passed, ruff/mypy clean. Re-run live CP-B. |
-| 2026-10-01 | T1 | Done → In Progress | Re-verification after Playwright→browser-use: clean `poetry install` fails (`poetry.lock` stale; `python-dotenv` added in `ef56a57` without relocking). Syncing the lock. |
-| 2026-10-01 | T1 | In Progress → Done | Re-synced `poetry.lock` (content-hash only; `python-dotenv` already transitive). `poetry check`, `install --dry-run`, `--help`, `ruff`, `mypy` all green; browser-use 0.13.10 intact, no Playwright. |
+| 2026-10-01 | T1 | Done → In Progress | Re-verification: clean `poetry install` fails (`poetry.lock` stale; `python-dotenv` added in `ef56a57` without relocking). Syncing the lock. |
+| 2026-10-01 | T1 | In Progress → Done | Re-synced `poetry.lock` (content-hash only; `python-dotenv` already transitive). `poetry check`, `install --dry-run`, `--help`, `ruff`, `mypy` all green; browser-use 0.13.10 intact. |
 | 2026-10-01 | T2 | Done → In Progress | Reopened: `test_count_applied_today_*` hardcoded `date(2026, 9, 30)` and fails off that day; making it clock-deterministic. |
 | 2026-10-01 | T2 | In Progress → Done | Test now uses `date.today()` (matches `_now_iso`); full unit suite 154 passed, 3 deselected; ruff/mypy clean. |
 | 2026-10-01 | — | — | Untracked PII resumes per SPEC.md §8: `resumes/` and `myResumes/` PDFs removed from the index, `resumes/.gitkeep` added, both folders gitignored. |
-| 2026-10-01 | T3 | Done → In Progress | Reopened: integration smoke fails on browser-use 0.13.10 — `Page.evaluate` requires `(...args) => …`; test used Playwright-style bare expressions. |
+| 2026-10-01 | T3 | Done → In Progress | Reopened: integration smoke fails on browser-use 0.13.10 — `Page.evaluate` requires `(...args) => …`; test used bare expressions. |
 | 2026-10-01 | T3 | In Progress → Done | Fixed arrow-function form + numeric coercion; integration 2 passed, T3 unit 10 passed, full suite 154, ruff/mypy clean. |
-| 2026-10-01 | T4 | Done (re-verified) | Post-migration check: 19 guard tests + full suite 154 passed, ruff/mypy clean; manual `data/STOP` halt re-run and sentinel cleaned. No defect; guard wiring through browser-use intact. |
-| 2026-10-01 | T5 | Done (re-verified) | Post-migration check: 8 discovery unit tests + full suite 154 passed, ruff/mypy clean; non-Easy-Apply still refused pre-fill. Corrected stale card (removed parser symbols + dead `test_discover_parse.py` reference). Live read is env-gated and skipped here. |
+| 2026-10-01 | T4 | Done (re-verified) | Re-verification: 19 guard tests + full suite 154 passed, ruff/mypy clean; manual `data/STOP` halt re-run and sentinel cleaned. No defect; guard wiring through browser-use intact. |
+| 2026-10-01 | T5 | Done (re-verified) | Re-verification: 8 discovery unit tests + full suite 154 passed, ruff/mypy clean; non-Easy-Apply still refused pre-fill. Live read is env-gated and skipped here. |
+| 2026-10-01 | T17 | Review → (removed) | Owner: browser-use is native from Task 1, no migration task. Requirements folded into T3/T5/T7/T8/T12/T13; board count 17 → 16. |

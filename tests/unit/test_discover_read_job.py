@@ -1,4 +1,4 @@
-"""Unit tests for `discover.read_job`'s page-safety seam (Task 17; found in CP-B).
+"""Unit tests for `discover.read_job`'s page-safety seam (Task 5; found in CP-B).
 
 The 2026-09-30 real-browser CP-B run of job ``4468706364`` crashed in discovery
 *after* the browser-use agent had successfully read the job:

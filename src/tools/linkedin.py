@@ -1,8 +1,7 @@
 """`session` (LinkedIn operations) — URL helpers + the agent job-read task.
 
-Rewritten in Task 17 (ADR 0001): the browser half is now a browser-use agent task
-plus thin helpers over the session's current URL. The hand-written HTML parser and
-direct page reads are gone; reading is the agent's structured output.
+The browser half is a browser-use agent task plus thin helpers over the session's
+current URL. Reading is the agent's structured output.
 
 Everything here except ``wait_for_login`` is pure and unit-testable without a
 browser or an LLM.
