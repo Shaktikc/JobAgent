@@ -4,7 +4,7 @@
 verification, files) live in `tasks/todo.md`. Sequencing, decisions, and risks live in
 `tasks/plan.md`. Spec: `SPEC.md`.
 
-Last updated: 2026-10-01 · **Done 6 / 19 tasks** · WIP limit: 1
+Last updated: 2026-10-02 · **Done 8 / 19 tasks** · WIP limit: 1
 
 > **Browser layer:** browser-use is the native driver from the first browser task
 > (`plan.md` Architecture Decision 6). There is no separate browser migration task;
@@ -55,64 +55,50 @@ Last updated: 2026-10-01 · **Done 6 / 19 tasks** · WIP limit: 1
 
 ## 🟣 Review (awaiting human inspection)
 
-- **T7** — `filling`: single-step fields, resume upload, screenshots *(Phase 1, dep: T3, T6)*
-  - Implemented: `nodes/fill.py` is browser-use-agent-backed — `open_and_read_fields`
-    (agent structured read of the modal's fields), `fill_application` (agent fills from
-    the Task 6 answers injected via `sensitive_data`; the fill task carries a hard
-    **no-submit** rule), and the gate-only `submit_application` (`build_submit_task`,
-    invoked only after review approval). A PNG is captured for **every** application:
-    the filled form on success and the failing form on a hard failure (capture, then
-    re-raise so the job is marked `failed`; a screenshot error never masks the original
-    failure). Every agent run is bracketed by `guard` (`check_stop` + paced
-    `pause_between_actions`); unrecognized widgets are left blank and flagged, never
-    guessed. Pure task/answer builders live in `tools/browser_agent.py` and are
-    unit-tested without a browser or LLM.
-  - Fix 2026-10-01 (found in the live CP-B dry-run of job `4473985692`):
-    `reconcile_outcome` dropped agent-reported `unfilled_fields` that we never asked
-    about, so four extra required questions vanished from the review. It now surfaces
-    every such unrecognized field as `NEEDS_REVIEW`, never silently dropping it
-    (regression-guarded in `test_fill_agent.py`).
-  - Verified 2026-10-01 (unit): `pytest -m "not integration" tests/unit/test_fill_agent.py
-    tests/unit/test_fill_read_fields.py tests/unit/test_browser_agent_tasks.py` →
-    green · full suite → **157 passed, 3 deselected** · `ruff check .` clean ·
-    `mypy src` 25 files clean. The failure-screenshot path is guarded by
-    `test_fill_agent.py` (captures then re-raises; a screenshot error does not mask
-    the original).
-  - **Human step pending, blocked on T8:** the todo's manual check is
-    `python -m src.main run --url <job> --dry-run`, which requires the T8 graph. Once
-    T8 lands, run that against one real Easy Apply job and confirm the step fills and
-    a PNG appears in `data/artifacts/`. Then move T7 to Done.
-  - CP-B defects fixed 2026-09-30 (TDD, from the real dry-run of job `4468706364`):
-    (1) `open_and_read_fields` silently returned `()` on a failed/absent agent read,
-    hiding the bug behind "no fields"; it now raises `FillError`, and `_node_answer`
-    marks the job `failed` (mirrors `_node_fill`). (2) `READ_FORM_TASK` + the fill
-    task read/filled only the modal's first step ("1/4 pages" in the live form); both
-    now walk every step via Next/Continue and still never Submit. Regression-guarded
-    by `tests/unit/test_fill_read_fields.py` (8) + `test_browser_agent_tasks.py` (2),
-    field-agnostic (they assert behavior, not a fixed field list). Re-run CP-B live.
-- **T8** — `review-gate` + minimal graph + `run --url <job> --dry-run` *(Phase 1, dep: T2, T7)*
-  - Implemented 2026-09-30: `nodes/review.py` — pure `parse_action`, `render_review`,
-    `apply_edit`, `resolve_outcome`, and an interactive `review_application` with
-    injectable prompt/output/submit. Excludes: reject ⇒ no submit + `rejected`;
-    approve ⇒ exactly one submit + captured confirmation + `applied`; `--dry-run`
-    never submits (stays `filled`); Ctrl-C/EOF ⇒ `filled`, re-offerable. `state.py`
-    gained `answers`/`resume_file`/`status` and `RunState`; `fill.py` is
-    browser-use-agent-backed (`open_and_read_fields`, `fill_application`, gate-only
-    `submit_application`); `review.py` is async; `graph.py` builds the minimal
-    asyncio-native LangGraph (`discover → answer → fill → review`) with injected
-    `Runtime`; `main.py` wires `run --url [--dry-run]`.
-  - Verified 2026-09-30 (unit): `pytest -m "not integration" tests/unit/test_review_decisions.py`
-    → 36 passed (all decision paths, edits, dry-run, interrupt) · full suite →
-    165 passed · `ruff check .` clean · `mypy src` clean · `python -m src.main --help`
-    → 0 · `run` without `--url` → 2 · graph compiles with nodes
-    `discover/answer/fill/review`.
-  - **Human step pending — CP-B:** run `python -m src.main run --url <real Easy Apply job> --dry-run`,
-    confirm it reaches review and stops with **no submission**, a PNG in
-    `data/artifacts/`, and that the answers look right. Then move T7 and T8 to Done
-    and sign off CP-B.
+*(none)*
 
 ## 🟢 Done
 
+- **T8** — `review-gate` + minimal graph + `run --url <job> --dry-run` *(Phase 1)*
+  - Implemented: `nodes/review.py` — pure `parse_action`, `render_review`, `apply_edit`,
+    `resolve_outcome`, and an interactive async `review_application` with injectable
+    prompt/output/submit. Reject ⇒ no submit + `rejected`; approve ⇒ exactly one submit
+    + captured confirmation + `applied`; `--dry-run` never submits (stays `filled`);
+    Ctrl-C/EOF ⇒ `filled`, re-offerable. `state.py` gained `answers`/`resume_file`/
+    `status` and `RunState`; `graph.py` builds the minimal asyncio-native LangGraph
+    (`discover → answer → fill → review`) with injected `Runtime`; `main.py` wires
+    `run --url [--dry-run]`.
+  - Re-verified 2026-10-02 (unit): `pytest -m "not integration"
+    tests/unit/test_review_decisions.py` → **36 passed** · full suite → **157 passed,
+    3 deselected** · `ruff check .` clean · `mypy src` 25 files clean · `python -m
+    src.main --help` → 0 · `run` without `--url` → 2 · graph compiles with nodes
+    `discover/answer/fill/review`. All 7 acceptance criteria hold at the code level
+    except criterion 2's live half (below).
+  - **Known gap (criterion 2, "an edit updates the value before submission"):**
+    `_node_review` passes the pre-edit `job` into `fill.submit_application`, which takes
+    no answers, and the node never returns the edited `answers` to state — so an edit
+    captured by `review_application` never reaches the live form, the submission, or the
+    DB (the unit test passes only because it injects a fake `submit`). Tracked as a T8
+    follow-up; needs a re-fill/patch of the edited field before an approved submit.
+  - **Owner sign-off 2026-10-02:** owner directed the move to Done. The shared manual
+    CP-B `--dry-run` (also T7) remains unrun, so the live end-to-end behaviour is
+    recorded as owner-attested rather than machine-verified.
+- **T7** — `filling`: single-step fields, resume upload, screenshots *(Phase 1)*
+  - Implemented on the browser-use agent path: `nodes/fill.py` (`open_and_read_fields`,
+    `fill_application`, gate-only `submit_application`) and the pure task builders in
+    `tools/browser_agent.py` (`build_fill_task`/`build_submit_task`, hard no-submit
+    rule). Answers are injected via `sensitive_data`; a PNG is captured for **every**
+    application (success and hard failure, capture-then-re-raise); unrecognized fields
+    are left blank and flagged `NEEDS_REVIEW`; every agent run is bracketed by `guard`.
+  - Verified 2026-10-01 (unit): `pytest -m "not integration"
+    tests/unit/test_fill_agent.py tests/unit/test_fill_read_fields.py
+    tests/unit/test_browser_agent_tasks.py` → **27 passed** · full suite → **157 passed,
+    3 deselected** · `ruff check .` clean · `mypy src` 25 files clean.
+  - **Owner sign-off 2026-10-01:** owner directed the move to Done. The joint live
+    CP-B `--dry-run` (job `4473985692`, owner-approved temporary guard-hours override
+    00:00–23:59) was started but interrupted before completion, so the live form
+    inspection is recorded as owner-attested rather than machine-verified. T8's live
+    CP-B step remains open in Review.
 - **T1** — Project scaffold, tooling, config templates, placeholder stubs *(Phase 0)*
   - Original verification 2026-09-29 (see Change Log): `poetry install` → 0 ·
     `poetry check` → All set · ruff clean · mypy 23 files · pytest 10 passed ·
@@ -299,4 +285,8 @@ Each checkpoint must be explicitly verified with the human before the next phase
 | 2026-10-01 | T7 | In Progress → Review | Failure-screenshot path added (`artifact_path`/`capture_screenshot` `tag="failure"`; error never masks the original). 156 passed, 3 deselected; ruff/mypy clean. Manual `--dry-run` check still pending (needs T8). |
 | 2026-10-01 | T7 | Review → In Progress | Live CP-B dry-run (job `4473985692`): agent-reported unlisted required questions were dropped from the review; surfacing them as NEEDS_REVIEW. Also: shell ate `--dry-run` in the first attempt — re-running safely. |
 | 2026-10-01 | T7 | In Progress → Review | `reconcile_outcome` now flags agent-reported unrecognized fields; 157 passed, 3 deselected, ruff/mypy clean. Re-running the live dry-run slowly for owner observation. |
+| 2026-10-01 | T7 | Review (re-verified) | User-requested re-verify: 27 T7 tests + full suite 157 passed, 3 deselected; ruff/mypy clean. All code criteria hold; only the live `--dry-run` human step (shared with T8/CP-B) is open, so T7 stays in Review. |
+| 2026-10-01 | T7 | Review → In Progress | Live CP-B dry-run attempt (job `4473985692`) with owner-approved temporary guard-hours override 00:00–23:59; no files changed. |
+| 2026-10-01 | T7 | In Progress → Done | Owner-directed sign-off. Live CP-B `--dry-run` was interrupted before completion; move recorded as owner-attested. Board Done 6 → 7. T8 live CP-B step remains in Review. |
 | 2026-10-01 | T17–T19 | — → Backlog | Owner request: learned answers (ask the human when unsure, store the reply, answer similar questions from memory before asking again). Owner approved embeddings-via-OpenRouter matching. Planned in `todo.md` + `plan.md` (Decision 9); T17 is ask-first (new table + vectors + `LEARNED` provenance, SPEC §8). Board count 16 → 19. |
+| 2026-10-02 | T8 | Review → Done | Owner-directed sign-off. Re-verified: 36 T8 tests + full suite 157 passed, 3 deselected; ruff/mypy clean; graph compiles; CLI exits correct. Known edit-propagation gap recorded on the card; shared live CP-B `--dry-run` still unrun, so live behaviour is owner-attested. Board Done 7 → 8. |
