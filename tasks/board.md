@@ -127,9 +127,23 @@ Last updated: 2026-09-30 · **Done 6 / 17 tasks** · WIP limit: 1
 ## 🟢 Done
 
 - **T1** — Project scaffold, tooling, config templates, placeholder stubs *(Phase 0)*
-  - Verified 2026-09-29: `poetry install` → 0 · `poetry check` → All set · ruff → clean ·
-    mypy → 23 files clean · pytest → 10 passed · `python -m src.main --help` → 0 ·
-    placeholders AST-verified as docstring-only · Chromium downloaded.
+  - Original verification 2026-09-29 (see Change Log): `poetry install` → 0 ·
+    `poetry check` → All set · ruff clean · mypy 23 files · pytest 10 passed ·
+    `--help` → 0 · placeholders AST-verified docstring-only.
+  - **Re-verified 2026-10-01 after the Playwright → browser-use migration:**
+    `poetry check` → All set · `poetry install --dry-run` → 0 (135 pkgs, 0 changes) ·
+    `python -m src.main --help` → 0 · `ruff check .` clean · `mypy src` 25 files clean ·
+    placeholders still docstring-only · `.env.example` declares `OPENROUTER_API_KEY` +
+    `AUTOJOB_LLM_MODEL` · `.gitignore` covers `data/`, `.env`, `.venv/`, `__pycache__/`.
+    No `playwright` in `pyproject.toml` or `poetry.lock`; `browser-use 0.13.10` present.
+    Regression fixed: `poetry.lock` content-hash re-synced (`poetry lock`; only the hash
+    changed — `python-dotenv` was already a transitive dep of `pydantic-settings`).
+  - Residual caveats (unchanged since the original sign-off; tracked separately, not T1
+    blockers): SPEC §4 names `.opencode/agents.md`, `.opencode/agents/plan.md`,
+    `.opencode/agents/review.md`, which are not committed (repo has untracked
+    `.opencode/agents/autojobapply.md` + root `AGENTS.md`); `.opencode/skills/` exists
+    although SPEC §4 says it is "not created"; the SPEC §4 tree also omits the active
+    `tools/linkedin.py` and `tools/agent_hooks.py`.
 - **T2** — `state`: SQLite schema + repository (`tools/store.py`) *(Phase 0)*
   - Recovered 2026-09-30 from lost uncommitted work, via the compiled `.pyc` bytecode
     (source, tests, and schema were reconstructed; the original compiled test module
@@ -256,3 +270,5 @@ Each checkpoint must be explicitly verified with the human before the next phase
 | 2026-09-30 | T17 | — → In Progress | Owner requested replacing Playwright with the browser-use AI agent. ADR 0001 recorded; submit gate/guard/store/facts/review preserved. Foundation module + 7 pure task-builder tests landed. |
 | 2026-09-30 | T17 | In Progress → Review | Full migration done: all Playwright code removed (dependency too); browser-use drives login/read/fill; submit is gate-only. 135 unit tests, ruff/mypy clean. Live dry-run is the human step. |
 | 2026-09-30 | T7 | Review (re-verified) | CP-B TDD fixes from the real dry-run of job `4468706364`: field-read no longer silently returns `()` (raises `FillError`, job → `failed`); read/fill walk every modal step (was page 1 of "1/4 pages"). +10 field-agnostic tests, full suite 145 passed, ruff/mypy clean. Re-run live CP-B. |
+| 2026-10-01 | T1 | Done → In Progress | Re-verification after Playwright→browser-use: clean `poetry install` fails (`poetry.lock` stale; `python-dotenv` added in `ef56a57` without relocking). Syncing the lock. |
+| 2026-10-01 | T1 | In Progress → Done | Re-synced `poetry.lock` (content-hash only; `python-dotenv` already transitive). `poetry check`, `install --dry-run`, `--help`, `ruff`, `mypy` all green; browser-use 0.13.10 intact, no Playwright. |
