@@ -11,7 +11,7 @@ behavior, and cite it as `SPEC.md §N` in code comments.
 - `tasks/todo.md` — task definitions: acceptance criteria, verification, files
 - `tasks/board.md` — **single source of truth for task status**
 - `docs/decisions/` — architecture decision records
-- `.opencode/agents/autojobapply.md` — the named project agent (same rules)
+- `.opencode/agents/autojobapply.md` — the named project agent (agent-specific config only; it defers to this file)
 
 ## The board rule (non-negotiable)
 
@@ -53,10 +53,17 @@ poetry run mypy src
 3. **Route every network/browser action through `guard`.** Never disable or skip it.
 4. Every answer carries a `Provenance` value; unknown required fields are
    `NEEDS_REVIEW`, never silently guessed.
-5. Real LinkedIn submissions only with explicit human approval, deliberately slowly
+5. Browser-use tasks are built as pure functions in `src/tools/browser_agent.py` and
+   `src/nodes/fill.py` — never inline in logic; there are no DOM selectors.
+6. The template placeholders (`nodes/ingest|plan|execute|verify.py`,
+   `tools/opencode_client.py`, `tools/git_snapshot.py`, `workspace/`) are docstring-only
+   stubs by owner decision. Do not give them invented behavior.
+7. Real LinkedIn submissions only with explicit human approval, deliberately slowly
    (5–10/day for the first week).
-6. Ask before: adding a dependency, changing the DB schema, changing guard limits,
+8. Ask before: adding a dependency, changing the DB schema, changing guard limits,
    or adding any submit path.
-7. Never commit `.env`, cookies, the Chromium profile, or resumes containing PII.
+9. Never commit `.env`, cookies, the Chromium profile, or resumes containing PII.
+10. **Do not `git commit` or `git push` unless the human explicitly says to.** Leave
+    changes in the working tree and wait for explicit approval before any commit or push.
 
 Run `ruff check .` and `pytest -m "not integration"` before declaring anything done.
