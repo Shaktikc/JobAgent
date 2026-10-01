@@ -37,6 +37,16 @@ terminal review before submitting. Nine capability modules (`state`, `session`,
    docstring-only files (owner decision) and must not receive invented behavior.
 8. **Guard is not optional anywhere.** Every network/browser action routes through it;
    `data/STOP` halts within one step.
+9. **Learned answers (owner request, added 2026-10-01).** When the agent is unsure of
+   a form answer it asks the human, uses the reply, and stores it in SQLite
+   (`learned_answers`), so a similar question later is answered from memory before
+   asking again. Precedence: `FACTS_RULE` → `LEARNED` → `RESUME` → `LLM_GUESS` →
+   `NEEDS_REVIEW`. Matching is **OpenRouter embeddings + cosine similarity** (owner
+   decision), model from `AUTOJOB_EMBEDDING_MODEL`, routed through `guard`; an exact
+   normalized match skips the embedding call. No new dependency — reuse
+   `langchain-openai`. This adds a DB table (with vectors), a `Provenance` value, an
+   embedding config, and a network call during answering, so it is **ask-first**
+   (SPEC.md §8) and requires a SPEC update before implementation. Tasks T17–T19.
 
 ## Task List
 
@@ -62,6 +72,13 @@ checkboxes here.
 | T14 | `filling` — form fields + unknown handling | 3 |
 | T15 | `orchestration` — run loop, checkpointing, crash resume, `status` | 3 |
 | T16 | Guarded live validation (operational, 5–10/day) | 4 |
+| T17 | `state` — learned-answer store (`learned_answers`) + `LEARNED` provenance | 2 |
+| T18 | `answering` — learned-memory lookup (OpenRouter embeddings) before asking | 2 |
+| T19 | `review-gate` — capture + remember human answers | 3 |
+
+Task numbering is a stable identifier, not file order: T17–T19 are appended but
+execute in Phase 2/3 by dependency (they follow T10/T8). T17–T19 are the
+learned-answers feature (Architecture Decision 9); T17 is the ask-first schema slice.
 
 **Checkpoints** (criteria in `tasks/board.md`):
 
@@ -81,6 +98,7 @@ checkboxes here.
 | Review latency makes the tool abandoned | Medium | One-at-a-time review was chosen deliberately; measure take-over rate during Task 16 |
 | LangGraph state/dependency complexity | Low | Thin nodes, I/O in tools, graph wired last (Task 15) |
 | Placeholder stubs drift into invented behavior | Low | Explicit SPEC §4 note; scaffold task creates them docstring-only |
+| Learned-answer embeddings unavailable/misbehaving on OpenRouter | Medium | Verify the embeddings endpoint + a model id before T18; if unsupported, fall back to the deterministic matcher or a different provider — ask first, do not silently degrade |
 
 ## Open Questions
 

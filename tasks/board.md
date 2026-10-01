@@ -4,7 +4,7 @@
 verification, files) live in `tasks/todo.md`. Sequencing, decisions, and risks live in
 `tasks/plan.md`. Spec: `SPEC.md`.
 
-Last updated: 2026-10-01 · **Done 6 / 16 tasks** · WIP limit: 1
+Last updated: 2026-10-01 · **Done 6 / 19 tasks** · WIP limit: 1
 
 > **Browser layer:** browser-use is the native driver from the first browser task
 > (`plan.md` Architecture Decision 6). There is no separate browser migration task;
@@ -41,6 +41,9 @@ Last updated: 2026-10-01 · **Done 6 / 16 tasks** · WIP limit: 1
 - **T14** — `filling`: form fields + unknown handling *(Phase 3, dep: T13)*
 - **T15** — `orchestration`: run loop, checkpointing, crash resume, `status` *(Phase 3, dep: T2–T14)*
 - **T16** — Guarded live validation, 5–10/day *(Phase 4, dep: CP-D)*
+- **T17** — `state`: learned-answer store (`learned_answers` + embedding vectors) + `LEARNED` provenance *(Phase 2, dep: T2; ⚠️ ask-first schema/enum change)*
+- **T18** — `answering`: learned-memory lookup via OpenRouter embeddings before asking *(Phase 2, dep: T6, T9, T10, T17; ⚠️ ask-first network call + embedding config)*
+- **T19** — `review-gate`: capture + remember human answers *(Phase 3, dep: T8, T17, T18)*
 
 ## 🟡 In Progress
 
@@ -296,3 +299,4 @@ Each checkpoint must be explicitly verified with the human before the next phase
 | 2026-10-01 | T7 | In Progress → Review | Failure-screenshot path added (`artifact_path`/`capture_screenshot` `tag="failure"`; error never masks the original). 156 passed, 3 deselected; ruff/mypy clean. Manual `--dry-run` check still pending (needs T8). |
 | 2026-10-01 | T7 | Review → In Progress | Live CP-B dry-run (job `4473985692`): agent-reported unlisted required questions were dropped from the review; surfacing them as NEEDS_REVIEW. Also: shell ate `--dry-run` in the first attempt — re-running safely. |
 | 2026-10-01 | T7 | In Progress → Review | `reconcile_outcome` now flags agent-reported unrecognized fields; 157 passed, 3 deselected, ruff/mypy clean. Re-running the live dry-run slowly for owner observation. |
+| 2026-10-01 | T17–T19 | — → Backlog | Owner request: learned answers (ask the human when unsure, store the reply, answer similar questions from memory before asking again). Owner approved embeddings-via-OpenRouter matching. Planned in `todo.md` + `plan.md` (Decision 9); T17 is ask-first (new table + vectors + `LEARNED` provenance, SPEC §8). Board count 16 → 19. |

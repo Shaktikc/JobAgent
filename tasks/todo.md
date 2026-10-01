@@ -10,6 +10,13 @@ It does **not** track status — move cards on `tasks/board.md` instead.
 Order is dependency order, and Phase 1 is deliberately the risk-first walking skeleton
 (see plan.md Architecture Decision 1). Do not reorder Phase 1 after Phase 2.
 
+Task numbers are **stable identifiers**, not file order. T1–T16 are the original MVP
+plan. The learned-answers feature (T17–T19, below) is appended with the next free
+numbers but executes in Phase 2/3 per its dependencies; see `tasks/plan.md` for the
+phase index. Adding it is an **ask-first** change (new DB table + vectors, new
+`Provenance` value, embedding config, and a network call during answering —
+SPEC.md §8) and requires a SPEC update before implementation.
+
 The browser driver is **browser-use from the very first browser task** (see plan.md
 Architecture Decision 6). Every browser task below is written against browser-use
 directly — the agent drives, there are no DOM selectors to maintain.
@@ -435,4 +442,158 @@ and measure the trust criterion before scaling.
 **Dependencies:** Checkpoint D
 **Files likely touched:** none (config values only)
 **Estimated scope:** M (calendar time, not code)
+
+---
+
+## Feature: Learned answers — "ask once, remember"
+
+**Intent (owner request).** When the agent does not know, or is not sure of, the
+answer to a form question, it asks the human for the answer. The answer is used for
+the current application **and stored in the database**. On a future occurrence of a
+similar question, the agent answers from that stored data **before asking the human
+again**.
+
+**Where it plugs in.** Today an unknown field becomes `NEEDS_REVIEW` (blank) and is
+shown at the gate (`nodes/answer.py`, `nodes/review.py`). This feature adds a
+persistent memory consulted when the rules do not cover a field, so a previously
+taught question is answered without re-prompting. **Approved matching method:**
+OpenRouter embeddings + cosine similarity (owner decision 2026-10-01), so the store
+holds a vector per learned question.
+
+**Execution order.** T17 (`state`) → T18 (`answering`) → T19 (`review-gate`). Depends
+on T2/T6/T8/T9/T10; executes in Phase 2/3 and is verified under CP-C/CP-D. Task numbers
+are identifiers only.
+
+**Ask-first (SPEC.md §8).** This changes the DB schema (`learned_answers` table, now
+including an embedding vector), adds a `Provenance` value (`LEARNED`), adds an
+embedding-model config value, and adds a **network call during answering** — a
+capability not in SPEC §1. The embedding call must route through `guard`. Get explicit
+human approval and update `SPEC.md` (§1 capability map, §5 provenance, §7 precedence +
+embedding config, §9 acceptance) **before** writing code.
+
+**Precedence decision (approved).** `FACTS_RULE` → `LEARNED` → `RESUME` → `LLM_GUESS`
+→ `NEEDS_REVIEW`. Hard facts rules stay supreme; a human-verified learned answer
+outranks an auto-parsed resume value or an LLM guess.
+
+**Embedding decisions (approved).** Use OpenRouter embeddings (OpenAI-compatible via
+the already-present `langchain-openai` — no new dependency), model id from an env/config
+value (`AUTOJOB_EMBEDDING_MODEL`), routed through `guard` like every other network
+action. Vectors are cached per learned row, so an incoming question needs one embedding
+call, not one per stored row. Cosine similarity above a configurable threshold wins;
+below it, fall through to the LLM and then `NEEDS_REVIEW`. Exact/whitespace-normalized
+matches short-circuit the embedding call entirely. Question text leaves the machine to
+the embedding provider — treat it as PII and never log it.
+
+---
+
+## Task 17: `state` — learned-answer store (`learned_answers` table + `LEARNED` provenance)
+
+**Description:** Persist human-taught answers. A new `learned_answers` table is keyed
+by a normalized question key and holds the question text, the answer, provenance,
+confidence, source, timestamps, a reuse counter, and the question's embedding vector
+(plus the model id that produced it). `Provenance` gains `LEARNED`. All I/O stays in
+`tools/store.py` (SPEC.md §5). This is the ask-first schema slice.
+
+**Acceptance criteria:**
+- [ ] `learned_answers` is created idempotently by `init_db`; upserts are transactional
+      (a killed process leaves no partial row)
+- [ ] `Provenance.LEARNED` is added; the `answers` CHECK constraint accepts all five
+      provenance values
+- [ ] A `question_key` normalization (case, all internal/external whitespace,
+      punctuation) collapses trivial variants of one question to a single row
+- [ ] The table stores an embedding vector and the `embedding_model` that produced it,
+      so stale vectors are detectable when the model changes
+- [ ] Re-teaching the same `question_key` updates the answer/timestamp/vector and
+      increments the reuse counter — never inserts a duplicate
+- [ ] `get_learned_answer(conn, question_key)` returns a typed row (or `None`); a
+      `list_learned_answers` query returns all rows for similarity search; a count is
+      queryable
+- [ ] Opening an existing DB migrates without dropping or mutating `jobs`/`answers`
+      rows
+- [ ] No PII beyond the question and answer text is stored or logged
+
+**Verification:**
+- [ ] `poetry run pytest -m "not integration" tests/unit/test_store.py tests/unit/test_learned_store.py`
+- [ ] Manual: `sqlite3 data/autojobapply.db ".schema learned_answers"` and `".schema answers"`
+
+**Dependencies:** Task 2, plus explicit human approval of the schema/enum change
+**Files likely touched:** `src/tools/store.py`, `tests/unit/test_store.py`,
+`tests/unit/test_learned_store.py`
+**Estimated scope:** S
+
+---
+
+## Task 18: `answering` — learned-memory lookup (OpenRouter embeddings) before asking the human
+
+**Description:** Consult learned memory before surfacing `NEEDS_REVIEW`. An exact
+normalized match short-circuits; otherwise the question is embedded via OpenRouter and
+compared by cosine similarity against cached vectors, and the best match above a
+configurable threshold answers the field. The embedding call is the only network I/O
+and routes through `guard`. `answer_field`/`answer_fields` receive the resolved learned
+value as an injected argument so `nodes/answer.py` stays pure; the store + embedding
+lookup runs in a tool and the node/graph layer.
+
+**Acceptance criteria:**
+- [ ] `answer_field`/`answer_fields` accept an injected learned value; a match returns
+      provenance `LEARNED` at high confidence
+- [ ] Precedence is `FACTS_RULE` → `LEARNED` → `RESUME` → `LLM_GUESS` → `NEEDS_REVIEW`;
+      a rule that matches still always claims the field
+- [ ] An embedding helper calls OpenRouter through `guard`, uses the model from
+      `AUTOJOB_EMBEDDING_MODEL` (no new dependency — reuse `langchain-openai`), and
+      retries transient failures
+- [ ] Similarity is cosine distance over cached vectors; the best match at/above the
+      threshold wins, below it falls through to the LLM and then `NEEDS_REVIEW`
+- [ ] An exact/whitespace-only variant match uses T17's `question_key` and skips the
+      embedding call
+- [ ] The similarity threshold is a configurable value with a documented default
+- [ ] Embedding vectors are persisted so an incoming question costs at most one
+      embedding call, regardless of how many learned rows exist
+- [ ] Question text sent to the provider is treated as PII and never logged
+- [ ] `nodes/answer.py` remains pure — all I/O stays in `tools/` + the graph node
+- [ ] If the embedding call fails, answering degrades to exactly today's behaviour
+      (LLM → `NEEDS_REVIEW`) rather than crashing the run
+
+**Verification:**
+- [ ] `poetry run pytest -m "not integration" tests/unit/test_answer_rules.py tests/unit/test_answer_llm.py tests/unit/test_learned_answers.py` (stubbed embeddings)
+- [ ] Manual: one real OpenRouter embedding call on a fixture question
+
+**Dependencies:** Task 6, Task 9, Task 10, Task 17
+**Files likely touched:** `src/nodes/answer.py`, `src/tools/llm.py`,
+`src/configuration.py`, `src/graph.py`, `tests/unit/test_learned_answers.py`
+**Estimated scope:** M
+
+---
+
+## Task 19: `review-gate` — capture a human answer and remember it
+
+**Description:** At the gate, each `NEEDS_REVIEW` field is offered to the human
+("We don't know this — provide an answer?", Enter to skip), alongside the existing
+approve / reject / edit. A provided answer (a) fills the current application's answer
+and (b) is persisted to learned memory with `LEARNED` provenance, so the next similar
+question is answered before asking. Skipping leaves it blank/`NEEDS_REVIEW`.
+
+**Acceptance criteria:**
+- [ ] Review lists `NEEDS_REVIEW` fields and prompts for a human answer; Enter skips
+      without guessing
+- [ ] A provided answer updates the current application's answer and is written to
+      `learned_answers` via `store` in one transaction
+- [ ] The stored row records the question text, the answer, `LEARNED` provenance,
+      source/timestamp, and the question's embedding vector (computed via the
+      guard-routed helper; if embedding fails, the answer is still stored and the row
+      is back-filled on a later run)
+- [ ] Whether an edit to an already-answered field also teaches memory is decided once
+      and documented (default: yes, it is human-supplied)
+- [ ] Existing approve / reject / edit / `--dry-run` / quit behaviour and all
+      invariant tests are unchanged
+- [ ] No submit path is added; the gate remains the sole authority to submit
+
+**Verification:**
+- [ ] `poetry run pytest -m "not integration" tests/unit/test_review_decisions.py tests/unit/test_learned_answers.py`
+- [ ] Manual: `--dry-run` a job, answer a `NEEDS_REVIEW` prompt, confirm the row in
+      SQLite, then re-run a similar question and confirm it is auto-answered
+
+**Dependencies:** Task 8, Task 17, Task 18
+**Files likely touched:** `src/nodes/review.py`, `src/graph.py`,
+`tests/unit/test_review_decisions.py`, `tests/unit/test_learned_answers.py`
+**Estimated scope:** M
 
