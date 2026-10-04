@@ -1,7 +1,0 @@
-{
-  "dependencies": ["."],
-  "graphs": {
-    "autojobapply": "./src/graph.py:build_graph"
-  },
-  "env": ".env"
-}
