@@ -2,6 +2,8 @@
 
 ## Task 1 — Log in to LinkedIn, search "software engineer", select Easy Apply
 
+**Status:** ✅ Done
+
 **Goal:** Launch the browser, open the LinkedIn login page, wait for the user to
 log in successfully, search for **"software engineer"** jobs, and select the
 **Easy Apply** filter.
@@ -42,6 +44,8 @@ log in successfully, search for **"software engineer"** jobs, and select the
 ---
 
 ## Task 2 — Select Easy Apply from the job list
+
+**Status:** ✅ Done
 
 **Goal:** From the list of jobs seen after Task 1, select a job's **Easy Apply**
 button.
