@@ -100,11 +100,13 @@ Keep newest work at the bottom so the log reads chronologically.
   checkbox) with their labels.
 - Fills every field whose question is in the answer store (`data/answers.json`);
   unknown questions are recorded and left for Task 5.
-- Attaches the Task 3 resume: the matching resume already listed on the form is
-  selected directly; the file is only uploaded (over CDP `setFileInputFiles`) when
-  nothing listed matches.
-- Advances multi-step forms (Next/Continue/Review) and stops before **Submit
-  application**; Submit is never clicked.
+- Treats the form as **dynamic**: discovers each step's fields, the resume
+  control (radio list, `<select>`, file input, or an "Upload resume" button that
+  reveals one), and the navigation buttons at runtime. The matching listed resume
+  is selected directly; the file is only uploaded (over CDP `setFileInputFiles`)
+  when nothing listed matches.
+- Walks the steps until the terminal one, stopping gracefully if a step does not
+  advance, and never clicking **Submit application**.
 - Tasks 2-4 share one live browser session via an opaque `browser_run_id` (a
   `cleanup` node always closes it), so the gained Easy Apply modal is filled
   in-place without re-opening it.
