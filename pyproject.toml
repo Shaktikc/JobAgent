@@ -1,7 +1,7 @@
 [project]
 name = "autojobapply"
-version = "0.4.0"
-description = "A LangGraph agent that logs in to LinkedIn, searches jobs, and selects Easy Apply through a real browser."
+version = "0.5.0"
+description = "A LangGraph agent that logs in to LinkedIn, searches jobs, selects the Easy Apply filter, and opens a job's Easy Apply form through a real browser."
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 authors = [{ name = "AutoJobApply" }]

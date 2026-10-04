@@ -52,6 +52,9 @@ class FakePage:
         results_count: int = 0,
         filter_selected: bool = False,
         ready: str = "complete",
+        details_apply_labels: dict[int, str] | None = None,
+        modal_text: str = "Apply to Backend Engineer",
+        apply_opens_modal: bool = True,
     ) -> None:
         self.by_selector = by_selector or {}
         self.login_payload = login_payload or {"path": "/feed/", "nav": True, "loginForm": False}
@@ -61,6 +64,12 @@ class FakePage:
         self.goto_calls: list[str] = []
         self.pressed: list[str] = []
         self.current_url = DEFAULT_LOGIN_URL
+        # Task 2: the details pane shows the apply button for the selected job.
+        self.details_apply_labels = details_apply_labels or {}
+        self.selected_job: int | None = None
+        self.modal_open = False
+        self.modal_text = modal_text
+        self.apply_opens_modal = apply_opens_modal
 
     async def goto(self, url: str) -> None:
         self.goto_calls.append(url)
@@ -85,12 +94,26 @@ class FakePage:
             return json.dumps(payload)
         if "jobs-search-results" in js:
             return json.dumps({"count": self.results_count})
+        if "jobs-easy-apply-modal" in js:
+            text = self.modal_text if self.modal_open else ""
+            return json.dumps({"open": self.modal_open, "text": text})
         if "aria-pressed" in js:
             return json.dumps({"selected": self.filter_selected})
         return ""
 
     async def get_elements_by_css_selector(self, selector: str) -> list:
+        if selector == "button.jobs-apply-button":
+            return [self._apply_button()] if self.selected_job is not None else []
         return list(self.by_selector.get(selector, []))
+
+    def _apply_button(self) -> FakeElement:
+        label = self.details_apply_labels.get(self.selected_job, "Apply")
+
+        def _open_modal() -> None:
+            if self.apply_opens_modal:
+                self.modal_open = True
+
+        return FakeElement(label, on_click=_open_modal)
 
 
 class FakeSession:
@@ -121,6 +144,15 @@ def _filter_element(page: FakePage) -> FakeElement:
         page.filter_selected = True
 
     return FakeElement("Easy Apply filter.", on_click=_click)
+
+
+def _job_card(page: FakePage, index: int, title: str) -> FakeElement:
+    """A job card that selects its details pane when clicked."""
+
+    def _select() -> None:
+        page.selected_job = index
+
+    return FakeElement(title, on_click=_select)
 
 
 def _settings(tmp_path, **session) -> Settings:
@@ -226,6 +258,100 @@ async def test_open_jobs_search_falls_back_to_url_without_search_bar(tmp_path) -
     assert (found, count) == (True, 4)
     assert url == SEARCH_URL
     assert SEARCH_URL in page.goto_calls
+
+
+async def test_find_easy_apply_filter_prefers_filter_label() -> None:
+    job_button = FakeElement("Easy Apply to Backend Engineer at Acme")
+    filter_button = FakeElement("Easy Apply filter.")
+    page = FakePage(by_selector={"button[aria-label*='Easy Apply']": [job_button, filter_button]})
+    # Both match `*='Easy Apply'`; the filter must win over the job's button.
+    assert await browser_tools.find_easy_apply_filter(page) is filter_button
+
+
+async def test_read_job_cards() -> None:
+    page = FakePage()
+    cards = [_job_card(page, 0, "Backend Engineer"), _job_card(page, 1, "Data Engineer")]
+    page.by_selector = {"li.jobs-search-results__list-item": cards}
+
+    assert await browser_tools.read_job_cards(page) == cards
+    assert await browser_tools.read_job_cards(FakePage()) == []
+
+
+async def test_find_job_apply_button_reads_details_pane() -> None:
+    page = FakePage(details_apply_labels={2: "Easy Apply to Data Engineer at Acme"})
+    page.selected_job = 2
+
+    button, label = await browser_tools.find_job_apply_button(page)
+    assert button is not None
+    assert label == "Easy Apply to Data Engineer at Acme"
+
+
+async def test_find_job_apply_button_none_without_selection() -> None:
+    assert await browser_tools.find_job_apply_button(FakePage()) == (None, "")
+
+
+async def test_task2_selects_job_and_opens_form(tmp_path) -> None:
+    page = FakePage(
+        results_count=3,
+        details_apply_labels={0: "Easy Apply to Backend Engineer at Acme"},
+    )
+    page.by_selector = {
+        "li.jobs-search-results__list-item": [
+            _job_card(page, 0, "Backend Engineer"),
+            _job_card(page, 1, "Data Engineer"),
+        ]
+    }
+
+    outcome = await browser_tools._task2_on_page(
+        page, _settings(tmp_path, post_click_wait_seconds=0), lambda _m: None
+    )
+
+    assert outcome.jobs_seen == 2
+    assert outcome.job_index == 0
+    assert outcome.job_title == "Backend Engineer"
+    assert outcome.skipped_jobs == 0
+    assert outcome.easy_apply_button_found is True
+    assert outcome.easy_apply_clicked is True
+    assert outcome.application_form_opened is True
+
+
+async def test_task2_skips_jobs_without_easy_apply(tmp_path) -> None:
+    page = FakePage(
+        details_apply_labels={0: "Apply on company website", 1: "Apply"},
+    )
+    page.by_selector = {
+        "li.jobs-search-results__list-item": [
+            _job_card(page, 0, "External A"),
+            _job_card(page, 1, "External B"),
+        ]
+    }
+
+    outcome = await browser_tools._task2_on_page(
+        page, _settings(tmp_path, post_click_wait_seconds=0), lambda _m: None
+    )
+
+    assert outcome.skipped_jobs == 2
+    assert outcome.easy_apply_button_found is False
+    assert outcome.easy_apply_clicked is False
+    assert outcome.application_form_opened is False
+
+
+async def test_task2_reports_when_form_does_not_open(tmp_path) -> None:
+    page = FakePage(
+        details_apply_labels={0: "Easy Apply to Backend Engineer at Acme"},
+        apply_opens_modal=False,
+    )
+    page.by_selector = {"li.jobs-search-results__list-item": [_job_card(page, 0, "Backend")]}
+
+    outcome = await browser_tools._task2_on_page(
+        page,
+        _settings(tmp_path, post_click_wait_seconds=0, easy_apply_timeout_seconds=0.05),
+        lambda _m: None,
+    )
+
+    assert outcome.easy_apply_clicked is True
+    assert outcome.application_form_opened is False
+    assert outcome.notes
 
 
 async def test_find_easy_apply_filter_prefers_known_selector() -> None:
@@ -380,6 +506,87 @@ async def test_run_task1_captures_screenshot_when_search_is_empty(
     assert outcome.results_found is False
     assert outcome.easy_apply_filter_selected is False
     assert outcome.screenshot_path is not None
+    assert session.killed is True
+
+
+async def test_run_agent_runs_both_tasks(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    page = FakePage(
+        results_count=25,
+        details_apply_labels={0: "Easy Apply to Backend Engineer at Acme"},
+    )
+    page.by_selector = {
+        "input.jobs-search-box__keyboard-text-input": [
+            FakeElement("Search by title, skill, or company")
+        ],
+        "button.jobs-search-box__submit-button": [FakeElement("Search")],
+        "button[aria-label*='Easy Apply']": [_filter_element(page)],
+        "li.jobs-search-results__list-item": [_job_card(page, 0, "Backend Engineer")],
+    }
+    session = FakeSession(page)
+    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+
+    result = await browser_tools.run_agent(
+        DEFAULT_LOGIN_URL,
+        "software engineer",
+        _settings(tmp_path, login_timeout_seconds=5, post_click_wait_seconds=0),
+    )
+
+    assert result.task1.logged_in is True
+    assert result.task1.easy_apply_filter_selected is True
+    assert result.task2.job_title == "Backend Engineer"
+    assert result.task2.easy_apply_clicked is True
+    assert result.task2.application_form_opened is True
+    assert result.task2.screenshot_path is None
+    assert session.started is True and session.killed is True
+
+
+async def test_run_agent_skips_task2_when_task1_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    page = FakePage(login_payload={"path": "/login", "nav": False, "loginForm": True})
+    session = FakeSession(page)
+    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+
+    async def fake_wait(_page, *, timeout_seconds, poll_seconds):
+        return False
+
+    monkeypatch.setattr(browser_tools, "wait_for_login", fake_wait)
+
+    result = await browser_tools.run_agent(
+        DEFAULT_LOGIN_URL, "software engineer", _settings(tmp_path)
+    )
+
+    assert result.task1.logged_in is False
+    assert result.task2.easy_apply_clicked is False
+    assert "skipped" in result.task2.notes.lower()
+    assert result.task1.screenshot_path is not None
+    assert session.killed is True
+
+
+async def test_run_agent_captures_screenshot_when_apply_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    page = FakePage(results_count=5, details_apply_labels={0: "Apply on company website"})
+    page.by_selector = {
+        "input.jobs-search-box__keyboard-text-input": [
+            FakeElement("Search by title, skill, or company")
+        ],
+        "button.jobs-search-box__submit-button": [FakeElement("Search")],
+        "button[aria-label*='Easy Apply']": [_filter_element(page)],
+        "li.jobs-search-results__list-item": [_job_card(page, 0, "External Job")],
+    }
+    session = FakeSession(page)
+    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+
+    result = await browser_tools.run_agent(
+        DEFAULT_LOGIN_URL,
+        "software engineer",
+        _settings(tmp_path, login_timeout_seconds=5, post_click_wait_seconds=0),
+    )
+
+    assert result.task1.easy_apply_filter_selected is True
+    assert result.task2.easy_apply_clicked is False
+    assert result.task2.screenshot_path is not None
     assert session.killed is True
 
 

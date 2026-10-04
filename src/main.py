@@ -1,4 +1,4 @@
-"""Command-line entry point for a single Task 1 run."""
+"""Command-line entry point for a single agent run (Task 1 + Task 2)."""
 
 from __future__ import annotations
 
@@ -19,7 +19,10 @@ from src.state import (
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="autojob",
-        description="Log in to LinkedIn, search jobs, and select Easy Apply (Task 1).",
+        description=(
+            "Log in to LinkedIn, search jobs, select the Easy Apply filter, "
+            "and open a job's Easy Apply form (Task 1 + Task 2)."
+        ),
     )
     parser.add_argument(
         "--url",
@@ -42,29 +45,39 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--no-dry-run",
         dest="dry_run",
         action="store_false",
-        help="Launch the browser and run Task 1 (requires the `browser` extra).",
+        help="Launch the browser and run the agent (requires the `browser` extra).",
     )
     parser.add_argument("--json", action="store_true", help="Print the raw final state as JSON.")
     return parser.parse_args(argv)
 
 
 def _summary(state: ApplyState) -> str:
-    outcome = state.get("outcome")
+    task1 = state.get("task1")
+    task2 = state.get("task2")
     lines = [
         "",
         f"status      : {state.get('status', 'unknown')}",
         f"url         : {state.get('url', 'unknown')}",
         f"search      : {state.get('search_query', 'unknown')!r}",
     ]
-    if outcome is not None:
+    if task1 is not None:
         lines += [
-            f"logged in   : {outcome.logged_in} (already={outcome.already_logged_in})",
-            f"results     : found={outcome.results_found} count={outcome.results_count}",
-            f"easy apply  : selected={outcome.easy_apply_filter_selected}",
-            f"page url    : {outcome.page_url or 'unknown'}",
+            f"logged in   : {task1.logged_in} (already={task1.already_logged_in})",
+            f"results     : found={task1.results_found} count={task1.results_count}",
+            f"easy apply  : selected={task1.easy_apply_filter_selected}",
+            f"page url    : {task1.page_url or 'unknown'}",
         ]
-        if outcome.screenshot_path:
-            lines.append(f"screenshot  : {outcome.screenshot_path}")
+        if task1.screenshot_path:
+            lines.append(f"screenshot  : {task1.screenshot_path}")
+    if task2 is not None:
+        lines += [
+            f"job         : index={task2.job_index} title={task2.job_title!r} "
+            f"skipped={task2.skipped_jobs}",
+            f"apply       : clicked={task2.easy_apply_clicked} "
+            f"form_opened={task2.application_form_opened}",
+        ]
+        if task2.screenshot_path:
+            lines.append(f"screenshot  : {task2.screenshot_path}")
     for entry in state.get("log", []):
         lines.append(f"  - {entry}")
     for error in state.get("errors", []):

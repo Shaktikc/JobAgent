@@ -82,12 +82,58 @@ def looks_like_easy_apply(text: str) -> bool:
     return "easy apply" in _normalize(text)
 
 
-def pick_easy_apply_index(labels: list[str]) -> int | None:
-    """Return the index of the first label that looks like Easy Apply, if any."""
+def looks_like_easy_apply_filter(text: str) -> bool:
+    """True when ``text`` labels the results-page Easy Apply *filter* toggle.
+
+    The filter's accessible name is e.g. "Easy Apply filter.", which also matches
+    :func:`looks_like_easy_apply`; requiring "filter" tells it apart from a job's
+    Easy Apply *button* ("Easy Apply to <job> at <company>").
+    """
+    normalized = _normalize(text)
+    return "easy apply" in normalized and "filter" in normalized
+
+
+def looks_like_easy_apply_action(text: str) -> bool:
+    """True when ``text`` labels a job's Easy Apply *button* in the details pane."""
+    normalized = _normalize(text)
+    return "easy apply" in normalized and "filter" not in normalized
+
+
+def _pick_index(labels: list[str], predicate) -> int | None:
     for index, label in enumerate(labels):
-        if looks_like_easy_apply(label):
+        if predicate(label):
             return index
     return None
+
+
+def pick_easy_apply_index(labels: list[str]) -> int | None:
+    """Return the index of the first label that looks like Easy Apply, if any."""
+    return _pick_index(labels, looks_like_easy_apply)
+
+
+def pick_easy_apply_filter_index(labels: list[str]) -> int | None:
+    """Return the index of the first Easy Apply *filter* label, if any."""
+    return _pick_index(labels, looks_like_easy_apply_filter)
+
+
+def pick_easy_apply_action_index(labels: list[str]) -> int | None:
+    """Return the index of the first Easy Apply *button* label, if any."""
+    return _pick_index(labels, looks_like_easy_apply_action)
+
+
+# Phrases that appear in LinkedIn's Easy Apply application form/modal.
+_APPLY_MODAL_HINTS = (
+    "easy apply",
+    "apply to",
+    "submit application",
+    "review your application",
+)
+
+
+def looks_like_apply_modal(text: str) -> bool:
+    """True when ``text`` looks like the Easy Apply application form/modal."""
+    normalized = _normalize(text)
+    return any(hint in normalized for hint in _APPLY_MODAL_HINTS)
 
 
 # aria-label / placeholder text on the jobs search bar's keywords input.

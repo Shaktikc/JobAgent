@@ -1,7 +1,9 @@
-"""Assemble the Task 1 LangGraph state machine.
+"""Assemble the LinkedIn agent LangGraph state machine.
 
     START -> ingest -> browse -> verify -> END
 
+``browse`` runs Task 1 (log in, search, select the Easy Apply filter) and then
+Task 2 (pick a job and open its Easy Apply form) in one browser session.
 ``ingest`` can short-circuit to ``END`` when the URL or query is invalid.
 """
 

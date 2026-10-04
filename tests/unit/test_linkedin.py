@@ -7,8 +7,13 @@ from src.tools.linkedin import (
     is_linkedin_url,
     is_logged_in_path,
     is_login_path,
+    looks_like_apply_modal,
     looks_like_easy_apply,
+    looks_like_easy_apply_action,
+    looks_like_easy_apply_filter,
     looks_like_jobs_search_input,
+    pick_easy_apply_action_index,
+    pick_easy_apply_filter_index,
     pick_easy_apply_index,
 )
 
@@ -62,3 +67,30 @@ def test_looks_like_jobs_search_input() -> None:
     assert looks_like_jobs_search_input("search jobs")
     assert not looks_like_jobs_search_input("City, state, or zip code")
     assert not looks_like_jobs_search_input("")
+
+
+def test_filter_vs_action_labels_are_distinguished() -> None:
+    filter_label = "Easy Apply filter."
+    action_label = "Easy Apply to Backend Engineer at Acme"
+
+    assert looks_like_easy_apply_filter(filter_label)
+    assert not looks_like_easy_apply_filter(action_label)
+    assert looks_like_easy_apply_action(action_label)
+    assert not looks_like_easy_apply_action(filter_label)
+    assert not looks_like_easy_apply_action("Apply on company website")
+
+
+def test_pick_filter_and_action_indexes() -> None:
+    labels = ["Easy Apply filter.", "Easy Apply to Engineer at Acme"]
+    assert pick_easy_apply_filter_index(labels) == 0
+    assert pick_easy_apply_action_index(labels) == 1
+    assert pick_easy_apply_filter_index(["Easy Apply to Engineer"]) is None
+    assert pick_easy_apply_action_index(["Easy Apply filter."]) is None
+
+
+def test_looks_like_apply_modal() -> None:
+    assert looks_like_apply_modal("Apply to Backend Engineer")
+    assert looks_like_apply_modal("Easy Apply")
+    assert looks_like_apply_modal("Review your application")
+    assert not looks_like_apply_modal("Save this job")
+    assert not looks_like_apply_modal("")

@@ -1,9 +1,10 @@
 """Typed, validated configuration loaded from the environment.
 
-Task 1 only needs to drive a browser (log in, search, select the Easy Apply
-filter), so this exposes the browser session settings plus the data directory
-used for the persistent profile and debug screenshots. Variable names follow the
-flat ``AUTOJOB_*`` scheme documented in ``.env.example``.
+The agent only needs to drive a browser (log in, search, select the Easy Apply
+filter, then open a job's Easy Apply form), so this exposes the browser session
+settings plus the data directory used for the persistent profile and debug
+screenshots. Variable names follow the flat ``AUTOJOB_*`` scheme documented in
+``.env.example``.
 """
 
 from __future__ import annotations
@@ -63,6 +64,9 @@ class SessionSettings(BaseModel):
     login_poll_seconds: float = Field(default=2.0, gt=0)
     # Settle time after clicking the Easy Apply filter before verifying it.
     post_click_wait_seconds: float = Field(default=2.0, ge=0)
+    # How long to wait for the job details apply button and then the Easy Apply
+    # application form to appear.
+    easy_apply_timeout_seconds: float = Field(default=20.0, gt=0)
     # Slow-motion delay inserted between visible steps so a human can follow the
     # run. 0 disables it (the default); set it high for a watchable demo.
     step_delay_seconds: float = Field(default=0.0, ge=0)
@@ -103,6 +107,9 @@ def load_settings(env_file: Path | None = None) -> Settings:
             login_timeout_seconds=_get_int("AUTOJOB_SESSION_LOGIN_TIMEOUT_SECONDS", 300),
             login_poll_seconds=_get_float("AUTOJOB_SESSION_LOGIN_POLL_SECONDS", 2.0),
             post_click_wait_seconds=_get_float("AUTOJOB_SESSION_POST_CLICK_WAIT_SECONDS", 2.0),
+            easy_apply_timeout_seconds=_get_float(
+                "AUTOJOB_SESSION_EASY_APPLY_TIMEOUT_SECONDS", 20.0
+            ),
             step_delay_seconds=_get_float("AUTOJOB_SESSION_STEP_DELAY_SECONDS", 0.0),
         ),
         data_dir=Path(data_dir).expanduser() if data_dir else PROJECT_ROOT / "data",
