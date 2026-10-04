@@ -143,11 +143,12 @@ wheels = [
 
 [[package]]
 name = "autojobapply"
-version = "0.5.0"
+version = "0.7.0"
 source = { editable = "." }
 dependencies = [
     { name = "langgraph" },
     { name = "pydantic" },
+    { name = "pypdf" },
     { name = "python-dotenv" },
 ]
 
@@ -169,6 +170,7 @@ requires-dist = [
     { name = "browser-use", marker = "extra == 'browser'", specifier = ">=0.13,<1.0" },
     { name = "langgraph", specifier = ">=1.0,<2.0" },
     { name = "pydantic", specifier = ">=2.7" },
+    { name = "pypdf", specifier = ">=5.0" },
     { name = "python-dotenv", specifier = ">=1.0" },
 ]
 provides-extras = ["browser"]

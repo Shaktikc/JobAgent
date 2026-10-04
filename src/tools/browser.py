@@ -1,4 +1,4 @@
-"""browser-use wrapper for the LinkedIn agent (Task 1 + Task 2).
+"""browser-use wrapper for the LinkedIn agent (Tasks 1-4).
 
 Task 1 launches a Chromium session, navigates to the LinkedIn login page, waits
 for the user to log in (a human gate), then types the configured job query into
@@ -6,14 +6,26 @@ the jobs search bar and selects the **Easy Apply** filter on the results page.
 
 Task 2 continues in the *same* session: it reads the job list left open by Task
 1, opens the first job that offers Easy Apply (skipping external-apply jobs),
-clicks its **Easy Apply** button, and confirms the application form opened. The
-application is never submitted.
+clicks its **Easy Apply** button, and confirms the application form opened.
+
+Task 3 reads the open job's title, company, location, and description body from
+the details pane so the offline resume selection can run.
+
+Task 4 continues in the *same* session: it enumerates the open Easy Apply form,
+fills every field whose answer is known, attaches the resume chosen by Task 3
+(preferring a resume already listed on the form over uploading a duplicate), and
+advances through multi-step forms — stopping before **Submit application**.
 
 The interaction uses browser-use's deterministic CDP actor API (``Page`` /
 ``Element``); no LLM is involved.
 
+A live session is kept open across graph nodes via :func:`start_tasks` (which
+registers it) and :func:`fill_application` / :func:`close_run`. The state only
+carries an opaque ``browser_run_id`` string, so nothing un-serializable leaks into
+the graph.
+
 The heavy ``browser`` extra is only needed for real runs, so this module is
-imported lazily by the graph node:
+imported lazily by the graph nodes:
 
     uv sync --extra browser
     uvx playwright install chromium
@@ -25,10 +37,27 @@ import asyncio
 import contextlib
 import json
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
+from uuid import uuid4
 
 from src.configuration import Settings, load_settings
-from src.state import AgentOutcome, Task1Outcome, Task2Outcome
+from src.state import (
+    AgentOutcome,
+    FormField,
+    JobDescription,
+    Task1Outcome,
+    Task2Outcome,
+    Task4Outcome,
+)
+from src.tools.answers import load_answers, lookup_answer
+from src.tools.forms import (
+    answers_match,
+    looks_like_resume_field,
+    pick_listed_resume,
+    pick_next_button,
+)
 from src.tools.linkedin import (
     build_jobs_search_url,
     is_logged_in_path,
@@ -136,6 +165,282 @@ _APPLY_MODAL_QUERY = """
   });
 }
 """
+
+# The open job's details (Task 3): title, company, location, and description body.
+_JOB_DESCRIPTION_QUERY = """
+() => {
+  const pick = (selectors) => {
+    for (const selector of selectors) {
+      const el = document.querySelector(selector);
+      if (el && (el.innerText || '').trim()) return el.innerText.trim();
+    }
+    return '';
+  };
+  return JSON.stringify({
+    title: pick([
+      '.job-details-jobs-unified-top-card__job-title',
+      '.jobs-unified-top-card__job-title',
+      'h1.t-24', 'h1'
+    ]),
+    company: pick([
+      '.job-details-jobs-unified-top-card__company-name',
+      '.jobs-unified-top-card__company-name',
+      'a.topcard__org-name-link'
+    ]),
+    location: pick([
+      '.job-details-jobs-unified-top-card__bullet',
+      '.jobs-unified-top-card__bullet',
+      '.topcard__flavor--bullet'
+    ]),
+    body: pick([
+      '.jobs-description__content',
+      '.jobs-box__html-content',
+      '#job-details',
+      '.jobs-description'
+    ]),
+    url: location.href
+  });
+}
+"""
+
+# How many steps of a multi-step Easy Apply form to walk before stopping.
+_MAX_FORM_STEPS = 6
+
+# Enumerate the Easy Apply form's controls (Task 4). Each control gets a
+# ``data-autojob-fill`` marker so it can be resolved back to a browser-use
+# Element; radio/checkbox markers sit on the clickable label.
+_ENUMERATE_FORM_QUERY = r"""
+() => {
+  const modal = document.querySelector(
+    'div.jobs-easy-apply-modal, div[role="dialog"].artdeco-modal, '
+    + '.artdeco-modal--layer-default, div[data-test-modal-container], .artdeco-modal'
+  );
+  if (!modal) return JSON.stringify({ open: false, fields: [] });
+
+  const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+  const esc = (s) => (window.CSS && CSS.escape) ? CSS.escape(s) : s;
+
+  const ownLabel = (el) => {
+    const aria = el.getAttribute('aria-label');
+    if (aria && norm(aria)) return norm(aria);
+    if (el.placeholder && norm(el.placeholder)) return norm(el.placeholder);
+    if (el.id) {
+      const l = modal.querySelector('label[for="' + esc(el.id) + '"]');
+      if (l && norm(l.innerText)) return norm(l.innerText);
+    }
+    const wrap = el.closest('label');
+    if (wrap && norm(wrap.innerText)) return norm(wrap.innerText);
+    const box = el.closest(
+      '.fb-dash-form-element, .artdeco-text-input, .jobs-easy-apply-form-element'
+    );
+    if (box) {
+      const lab = box.querySelector(
+        'label, .fb-dash-form-element__label, .artdeco-text-input--label'
+      );
+      if (lab && norm(lab.innerText)) return norm(lab.innerText);
+    }
+    return '';
+  };
+
+  const groupLabel = (el) => {
+    const fs = el.closest('fieldset');
+    if (fs) {
+      const lg = fs.querySelector('legend');
+      if (lg && norm(lg.innerText)) return norm(lg.innerText);
+    }
+    const box = el.closest(
+      '.fb-dash-form-element, .jobs-easy-apply-form-element, .artdeco-form-element'
+    );
+    if (box) {
+      const lab = box.querySelector('legend, .fb-dash-form-element__label, label');
+      if (lab && norm(lab.innerText)) return norm(lab.innerText);
+    }
+    return '';
+  };
+
+  const clickTarget = (el) => {
+    if (el.id) {
+      const l = modal.querySelector('label[for="' + esc(el.id) + '"]');
+      if (l) return l;
+    }
+    const wrap = el.closest('label');
+    return wrap || el;
+  };
+
+  modal.querySelectorAll('[data-autojob-fill]').forEach(
+    (el) => el.removeAttribute('data-autojob-fill')
+  );
+
+  const controls = modal.querySelectorAll(
+    'input:not([type=hidden]):not([type=file]), textarea, select, '
+    + '[role="radio"], [role="checkbox"]'
+  );
+  const fields = [];
+  let i = 0;
+  controls.forEach((el) => {
+    const tag = el.tagName.toLowerCase();
+    const type = (el.getAttribute('type') || '').toLowerCase();
+    const role = (el.getAttribute('role') || '').toLowerCase();
+    let kind = 'input';
+    if (tag === 'textarea') kind = 'textarea';
+    else if (tag === 'select') kind = 'select';
+    else if (role === 'radio' || type === 'radio') kind = 'radio';
+    else if (role === 'checkbox' || type === 'checkbox') kind = 'checkbox';
+
+    const isChoice = kind === 'radio' || kind === 'checkbox';
+    const target = isChoice ? clickTarget(el) : el;
+    if (!target.getClientRects().length) return; // skip controls on a hidden step
+    const marker = 'f' + (i++);
+    target.setAttribute('data-autojob-fill', marker);
+
+    const options = [];
+    if (tag === 'select') {
+      Array.from(el.options).forEach((o) => options.push({ value: o.value, text: norm(o.text) }));
+    }
+    fields.push({
+      marker: marker,
+      kind: kind,
+      type: type || tag,
+      name: el.getAttribute('name') || '',
+      question: isChoice ? (groupLabel(el) || ownLabel(el)) : ownLabel(el),
+      option: isChoice ? ownLabel(el) : '',
+      required: !!el.required || el.getAttribute('aria-required') === 'true',
+      checked: !!el.checked || el.getAttribute('aria-checked') === 'true',
+      value: norm(el.value || ''),
+      options: options
+    });
+  });
+  return JSON.stringify({ open: true, fields: fields });
+}
+"""
+
+# Find the resume options already listed on the form plus any file input (Task 4).
+_RESUME_OPTIONS_QUERY = r"""
+() => {
+  const modal = document.querySelector(
+    'div.jobs-easy-apply-modal, div[role="dialog"].artdeco-modal, '
+    + '.artdeco-modal--layer-default, div[data-test-modal-container], .artdeco-modal'
+  );
+  if (!modal) return JSON.stringify({ options: [], fileInput: false });
+
+  const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+  const esc = (s) => (window.CSS && CSS.escape) ? CSS.escape(s) : s;
+  const ownLabel = (el) => {
+    const aria = el.getAttribute('aria-label');
+    if (aria && norm(aria)) return norm(aria);
+    if (el.id) {
+      const l = modal.querySelector('label[for="' + esc(el.id) + '"]');
+      if (l && norm(l.innerText)) return norm(l.innerText);
+    }
+    const wrap = el.closest('label');
+    if (wrap && norm(wrap.innerText)) return norm(wrap.innerText);
+    return '';
+  };
+  const clickTarget = (el) => {
+    if (el.id) {
+      const l = modal.querySelector('label[for="' + esc(el.id) + '"]');
+      if (l) return l;
+    }
+    const wrap = el.closest('label');
+    return wrap || el;
+  };
+
+  modal.querySelectorAll('[data-autojob-resume]').forEach(
+    (el) => el.removeAttribute('data-autojob-resume')
+  );
+
+  const options = [];
+  let i = 0;
+  modal.querySelectorAll('input[type="radio"], [role="radio"]').forEach((el) => {
+    const text = ownLabel(el);
+    const hay = (text + ' ' + (el.value || '') + ' ' + (el.name || '') + ' ' + (el.id || ''))
+      .toLowerCase();
+    if (/\.(pdf|docx|txt|md)\b/.test(text.toLowerCase()) || hay.includes('resume')) {
+      const target = clickTarget(el);
+      if (!target.getClientRects().length) return; // skip hidden steps
+      const marker = 'r' + (i++);
+      target.setAttribute('data-autojob-resume', marker);
+      options.push({
+        marker: marker,
+        label: text,
+        value: el.value || '',
+        checked: !!el.checked || el.getAttribute('aria-checked') === 'true'
+      });
+    }
+  });
+
+  const file = modal.querySelector('input[type="file"]');
+  if (file) file.setAttribute('data-autojob-file', '1');
+  return JSON.stringify({ options: options, fileInput: !!file });
+}
+"""
+
+# List the modal's buttons so the agent can advance a form (never submit).
+_FORM_BUTTONS_QUERY = r"""
+() => {
+  const modal = document.querySelector(
+    'div.jobs-easy-apply-modal, div[role="dialog"].artdeco-modal, '
+    + '.artdeco-modal--layer-default, div[data-test-modal-container], .artdeco-modal'
+  );
+  if (!modal) return JSON.stringify({ buttons: [] });
+
+  const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+  modal.querySelectorAll('[data-autojob-btn]').forEach(
+    (el) => el.removeAttribute('data-autojob-btn')
+  );
+
+  const buttons = [];
+  let i = 0;
+  modal.querySelectorAll('footer button, .artdeco-modal__actionbar button, button').forEach(
+    (el) => {
+      if (!el.getClientRects().length) return; // skip buttons from a hidden step
+      const text = norm(el.innerText) || norm(el.getAttribute('aria-label'));
+      if (!text) return;
+      const marker = 'b' + (i++);
+      el.setAttribute('data-autojob-btn', marker);
+      buttons.push({ marker: marker, text: text, disabled: !!el.disabled });
+    }
+  );
+  return JSON.stringify({ buttons: buttons });
+}
+"""
+
+# Set a text/textarea value the way React expects (native setter + events).
+_FILL_INPUT_JS = r"""
+(value) => {
+  const proto = this.tagName === 'TEXTAREA'
+    ? window.HTMLTextAreaElement.prototype
+    : window.HTMLInputElement.prototype;
+  const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+  setter.call(this, value);
+  this.dispatchEvent(new Event('input', { bubbles: true }));
+  this.dispatchEvent(new Event('change', { bubbles: true }));
+  return this.value;
+}
+"""
+
+# Set a <select> value and fire the change event.
+_FILL_SELECT_JS = r"""
+(value) => {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
+  setter.call(this, value);
+  this.dispatchEvent(new Event('change', { bubbles: true }));
+  return this.value;
+}
+"""
+
+
+@dataclass
+class _Run:
+    """A live browser session kept open across graph nodes."""
+
+    session: object
+    page: object
+
+
+# run_id -> live session, so Tasks 2-4 can share one browser window without
+# putting the (un-serializable) session object into the graph state.
+_ACTIVE_RUNS: dict[str, _Run] = {}
 
 
 def _require_browser_use():
@@ -438,6 +743,232 @@ async def wait_for_easy_apply_modal(page, settings: Settings) -> tuple[bool, str
     return opened, text
 
 
+async def read_job_description(page) -> JobDescription:
+    """Read the open job's title, company, location, and description (Task 3)."""
+    payload = _loads(await _safe(page.evaluate(_JOB_DESCRIPTION_QUERY), ""))
+    return JobDescription(
+        title=(payload.get("title") or "").strip(),
+        company=(payload.get("company") or "").strip(),
+        location=(payload.get("location") or "").strip(),
+        body=(payload.get("body") or "").strip(),
+        page_url=payload.get("url") or None,
+    )
+
+
+def _append_note(existing: str, extra: str) -> str:
+    return f"{existing}; {extra}" if existing else extra
+
+
+async def enumerate_form_fields(page) -> tuple[bool, list[dict]]:
+    """Return ``(form_open, fields)`` for the open Easy Apply form (Task 4)."""
+    payload = _loads(await _safe(page.evaluate(_ENUMERATE_FORM_QUERY), ""))
+    return bool(payload.get("open")), list(payload.get("fields") or [])
+
+
+async def read_resume_options(page) -> tuple[list[dict], bool]:
+    """Return ``(listed_resume_options, file_input_present)`` for the form (Task 4)."""
+    payload = _loads(await _safe(page.evaluate(_RESUME_OPTIONS_QUERY), ""))
+    return list(payload.get("options") or []), bool(payload.get("fileInput"))
+
+
+async def read_form_buttons(page) -> list[dict]:
+    """Return the Easy Apply modal's buttons (Task 4)."""
+    payload = _loads(await _safe(page.evaluate(_FORM_BUTTONS_QUERY), ""))
+    return list(payload.get("buttons") or [])
+
+
+async def _marker_element(page, attribute: str, marker: str):
+    return await _first_element(page, [f'[{attribute}="{marker}"]'])
+
+
+async def _fill_field(element, field: dict, answer: str) -> tuple[bool, str]:
+    """Fill one known field with the right control action; return ``(ok, error)``."""
+    kind = field.get("kind")
+    try:
+        await _safe(element.evaluate("() => this.scrollIntoView({block: 'center'})"))
+        if kind == "select":
+            await element.evaluate(_FILL_SELECT_JS, str(answer))
+        elif kind == "checkbox":
+            if str(answer).strip().lower() in {"yes", "true", "1", "on"}:
+                await element.check()
+        elif kind == "radio":
+            await element.click()
+        else:
+            await element.evaluate(_FILL_INPUT_JS, str(answer))
+        return True, ""
+    except Exception as exc:  # noqa: BLE001 - one bad field must not stop the run
+        return False, f"{type(exc).__name__}: {exc}"
+
+
+async def _fill_step(
+    page, fields: list[dict], answers: dict[str, str], settings: Settings
+) -> tuple[int, int, list[str], list[FormField]]:
+    """Fill the known fields of one form step; leave the rest unknown."""
+    known = filled = 0
+    unknown: list[str] = []
+    records: list[FormField] = []
+
+    radio_groups: dict[str, list[dict]] = {}
+    others: list[dict] = []
+    for field in fields:
+        if field.get("kind") == "radio":
+            key = field.get("name") or field.get("question") or field.get("marker")
+            radio_groups.setdefault(key, []).append(field)
+        else:
+            others.append(field)
+
+    async def _apply(record: FormField, field: dict, answer: str) -> None:
+        nonlocal known, filled
+        record.known = True
+        record.value = answer
+        element = await _marker_element(page, "data-autojob-fill", field["marker"])
+        if element is None:
+            record.error = "field element not found"
+        else:
+            ok, error = await _fill_field(element, field, answer)
+            record.filled = ok
+            record.error = error
+        known += 1
+        filled += 1 if record.filled else 0
+        records.append(record)
+
+    for key, group in radio_groups.items():
+        question = next((g.get("question") for g in group if g.get("question")), "") or key
+        options = [g.get("option", "") for g in group if g.get("option")]
+        if looks_like_resume_field(question, options):
+            continue  # the resume control is handled by _attach_resume
+        record = FormField(
+            question=question,
+            field_type="radio",
+            name=key,
+            required=any(g.get("required") for g in group),
+            options=options,
+        )
+        found = lookup_answer(answers, [question, key])
+        if found is None:
+            unknown.append(question)
+            records.append(record)
+            continue
+        _, answer = found
+        option = next((g for g in group if answers_match(g.get("option", ""), answer)), None)
+        if option is None:
+            record.known = True
+            record.value = answer
+            record.error = "no option matched the stored answer"
+            known += 1
+            records.append(record)
+            continue
+        await _apply(record, option, answer)
+
+    for field in others:
+        question = field.get("question") or field.get("name") or f"field {field.get('marker')}"
+        record = FormField(
+            question=question,
+            option=field.get("option", ""),
+            field_type=field.get("type", ""),
+            name=field.get("name", ""),
+            required=bool(field.get("required")),
+            options=[option.get("text", "") for option in field.get("options", [])],
+        )
+        found = lookup_answer(answers, [question, field.get("name", "")])
+        if found is None:
+            unknown.append(question)
+            records.append(record)
+            continue
+        _, answer = found
+        if field.get("kind") == "checkbox" and str(answer).strip().lower() in {
+            "no",
+            "false",
+            "0",
+            "off",
+        }:
+            record.known = True
+            record.value = answer
+            record.filled = True
+            known += 1
+            filled += 1
+            records.append(record)
+            continue
+        await _apply(record, field, answer)
+
+    await _pace(settings)
+    return known, filled, unknown, records
+
+
+async def upload_file_via_cdp(session, page, selector: str, file_path: str) -> None:
+    """Attach ``file_path`` to the file input matching ``selector`` over CDP.
+
+    Uses the page's own CDP session (``page.session_id``) so the element is
+    resolved in the tab we are driving, and ``Runtime.evaluate`` to obtain the
+    element's object id for ``DOM.setFileInputFiles``.
+    """
+    if not Path(file_path).is_file():
+        raise RuntimeError(f"resume file does not exist: {file_path}")
+    client = session.cdp_client
+    session_id = await page.session_id
+    await client.send.DOM.enable(session_id=session_id)
+    expression = f"document.querySelector({json.dumps(selector)})"
+    found = await client.send.Runtime.evaluate(
+        params={"expression": expression, "returnByValue": False}, session_id=session_id
+    )
+    object_id = (found.get("result") or {}).get("objectId")
+    if not object_id:
+        raise RuntimeError(f"file input not found: {selector}")
+    await client.send.DOM.setFileInputFiles(
+        params={"files": [file_path], "objectId": object_id}, session_id=session_id
+    )
+
+
+async def _attach_resume(
+    page,
+    session,
+    resume_path: str,
+    settings: Settings,
+    outcome: Task4Outcome,
+    notify,
+) -> None:
+    """Attach the Task 3 resume: prefer a listed match, else upload (Task 4)."""
+    options, _file_input = await read_resume_options(page)
+    matched = pick_listed_resume(resume_path, [option.get("label", "") for option in options])
+
+    if matched:
+        option = next((o for o in options if o.get("label") == matched), None)
+        element = (
+            await _marker_element(page, "data-autojob-resume", option["marker"])
+            if option is not None
+            else None
+        )
+        if element is not None:
+            await _safe(element.click())
+            if settings.session.post_click_wait_seconds:
+                await asyncio.sleep(settings.session.post_click_wait_seconds)
+            outcome.resume_attached = True
+            outcome.resume_selection = "listed"
+            outcome.resume_listed_name = matched
+            notify(f"Task 4: selected the listed resume {matched!r}.")
+            return
+
+    if await _first_element(page, ['[data-autojob-file="1"]']) is not None:
+        selector = '[data-autojob-file="1"]'
+    elif await _first_element(page, ['input[type="file"]']) is not None:
+        selector = 'input[type="file"]'
+    else:
+        outcome.notes = _append_note(outcome.notes, "no resume control found on the form")
+        return
+
+    outcome.upload_attempted = True
+    try:
+        await upload_file_via_cdp(session, page, selector, resume_path)
+    except Exception as exc:  # noqa: BLE001 - report and continue
+        outcome.notes = _append_note(outcome.notes, f"resume upload failed: {exc}")
+        return
+    if settings.session.post_click_wait_seconds:
+        await asyncio.sleep(settings.session.post_click_wait_seconds)
+    outcome.resume_attached = True
+    outcome.resume_selection = "uploaded"
+    notify(f"Task 4: uploaded resume {Path(resume_path).name!r}.")
+
+
 async def capture_failure_screenshot(
     session, settings: Settings, name: str = "task1"
 ) -> str | None:
@@ -560,6 +1091,64 @@ async def _task2_on_page(page, settings: Settings, notify) -> Task2Outcome:
     return outcome
 
 
+async def _task4_on_page(
+    page,
+    session,
+    resume_path: str | None,
+    answers: dict[str, str],
+    settings: Settings,
+    notify,
+) -> Task4Outcome:
+    """Fill the open Easy Apply form and attach the resume, without submitting."""
+    outcome = Task4Outcome(resume_path=resume_path or "")
+
+    for step in range(_MAX_FORM_STEPS):
+        opened, fields = await enumerate_form_fields(page)
+        if not opened:
+            if step == 0:
+                outcome.notes = _append_note(outcome.notes, "Easy Apply form was not found")
+            break
+
+        outcome.form_open = True
+        outcome.fields_enumerated += len(fields)
+        known, filled, unknown, records = await _fill_step(page, fields, answers, settings)
+        outcome.known_fields += known
+        outcome.filled_fields += filled
+        outcome.unknown_fields.extend(unknown)
+        outcome.fields.extend(records)
+
+        if resume_path and not outcome.resume_attached:
+            await _attach_resume(page, session, resume_path, settings, outcome, notify)
+
+        if step >= _MAX_FORM_STEPS - 1:
+            break
+
+        button = pick_next_button(await read_form_buttons(page))
+        if button is None:
+            break  # only a submit (never clicked) or nothing left to advance
+        element = await _marker_element(page, "data-autojob-btn", button["marker"])
+        if element is None:
+            break
+        notify(f"Task 4: advancing form step via {button.get('text')!r}.")
+        await _safe(element.click())
+        outcome.steps_advanced += 1
+        if settings.session.post_click_wait_seconds:
+            await asyncio.sleep(settings.session.post_click_wait_seconds)
+        await _pace(settings)
+
+    outcome.page_url = await _safe(page.get_url(), None)
+    return outcome
+
+
+def _task4_ok(outcome: Task4Outcome) -> bool:
+    return bool(
+        outcome.form_open
+        and outcome.resume_attached
+        and outcome.filled_fields == outcome.known_fields
+        and not outcome.submitted
+    )
+
+
 def _task1_ok(outcome: Task1Outcome) -> bool:
     return bool(outcome.logged_in and outcome.results_found and outcome.easy_apply_filter_selected)
 
@@ -590,36 +1179,136 @@ async def run_task1(
             await session.kill()
 
 
-async def run_agent(
+async def start_tasks(
     url: str,
     search_query: str,
     settings: Settings | None = None,
     progress=None,
-) -> AgentOutcome:
-    """Run Task 1 then Task 2 in one browser session.
+) -> tuple[AgentOutcome, str | None]:
+    """Open one browser session and run Tasks 1-3's interactive steps.
 
-    Task 2 has no inputs of its own: it acts on the job list Task 1 leaves open,
-    so both run against the same page. Task 2 is skipped when Task 1 fails.
+    Returns ``(outcome, run_id)``. When Tasks 1-2 succeed the session is **kept
+    open** and registered under ``run_id`` so Task 4 can fill the same Easy Apply
+    form; otherwise the session is closed and ``run_id`` is ``None``.
     """
     settings = settings or load_settings()
     notify = progress or (lambda _message: None)
     session = build_browser(settings)
     task1 = Task1Outcome(start_url=url, search_query=search_query)
     task2 = Task2Outcome()
+    job_description = JobDescription()
+    run_id: str | None = None
+    await session.start()
     try:
-        await session.start()
         page = await session.new_page()
 
         task1 = await _task1_on_page(page, url, search_query, settings, notify)
         if not _task1_ok(task1):
-            notify("Task 1 did not complete; skipping Task 2.")
-            task2.notes = "Task 1 did not complete; Task 2 was skipped."
+            notify("Task 1 did not complete; skipping Tasks 2-4.")
+            task2.notes = "Task 1 did not complete; Tasks 2-4 were skipped."
             task1.screenshot_path = await capture_failure_screenshot(session, settings, "task1")
         else:
             task2 = await _task2_on_page(page, settings, notify)
             if not _task2_ok(task2):
                 task2.screenshot_path = await capture_failure_screenshot(session, settings, "task2")
-        return AgentOutcome(task1=task1, task2=task2)
+            else:
+                job_description = await read_job_description(page)
+                notify(
+                    "Task 3: read job description "
+                    f"(title={job_description.title or '(untitled)'!r}, "
+                    f"{len(job_description.body)} description chars)."
+                )
+                run_id = uuid4().hex
+                _ACTIVE_RUNS[run_id] = _Run(session=session, page=page)
+        return AgentOutcome(task1=task1, task2=task2, job_description=job_description), run_id
     finally:
-        with contextlib.suppress(Exception):
-            await session.kill()
+        if run_id is None:
+            with contextlib.suppress(Exception):
+                await session.kill()
+
+
+def get_run(run_id: str | None) -> _Run | None:
+    """Return the registered live session for ``run_id``, if any."""
+    return _ACTIVE_RUNS.get(run_id) if run_id else None
+
+
+async def close_run(run_id: str | None) -> None:
+    """Kill and forget the session registered under ``run_id`` (idempotent)."""
+    if not run_id:
+        return
+    run = _ACTIVE_RUNS.pop(run_id, None)
+    if run is None:
+        return
+    with contextlib.suppress(Exception):
+        await run.session.kill()
+
+
+async def fill_application(
+    run_id: str | None,
+    resume_path: str | None,
+    settings: Settings | None = None,
+    progress=None,
+) -> Task4Outcome:
+    """Fill the open Easy Apply form in the session registered under ``run_id``.
+
+    The session is left open; the caller closes it (the graph's ``cleanup`` node
+    or :func:`run_full_agent`), so an in-flight session can still be screenshotted
+    on failure.
+    """
+    settings = settings or load_settings()
+    notify = progress or (lambda _message: None)
+    run = get_run(run_id)
+    if run is None:
+        return Task4Outcome(
+            resume_path=resume_path or "",
+            notes="browser session is no longer available",
+        )
+
+    answers = load_answers(settings.answers_file)
+    outcome = await _task4_on_page(run.page, run.session, resume_path, answers, settings, notify)
+    if not _task4_ok(outcome):
+        outcome.screenshot_path = await capture_failure_screenshot(run.session, settings, "task4")
+    return outcome
+
+
+async def run_agent(
+    url: str,
+    search_query: str,
+    settings: Settings | None = None,
+    progress=None,
+) -> AgentOutcome:
+    """Run Tasks 1-3 (log in, search, filter, open Easy Apply, read description).
+
+    Task 2 has no inputs of its own: it acts on the job list Task 1 leaves open,
+    so both run against the same page. Task 3 then reads the open job's
+    description (the resume selection that follows is offline). Each task is
+    skipped when the previous one fails. The session is closed at the end.
+    """
+    settings = settings or load_settings()
+    outcome, run_id = await start_tasks(url, search_query, settings, progress)
+    await close_run(run_id)
+    return outcome
+
+
+async def run_full_agent(
+    url: str,
+    search_query: str,
+    settings: Settings | None = None,
+    progress=None,
+) -> AgentOutcome:
+    """Run Tasks 1-4 end-to-end in one browser session (nothing is submitted)."""
+    from src.tools.resumes import select_best_resume  # local import keeps this light
+
+    settings = settings or load_settings()
+    outcome, run_id = await start_tasks(url, search_query, settings, progress)
+    if run_id is None:
+        return outcome
+    try:
+        outcome.task3 = select_best_resume(outcome.job_description, settings.resumes_dir)
+        if outcome.task3.selected_path:
+            outcome.task4 = await fill_application(
+                run_id, outcome.task3.selected_path, settings, progress
+            )
+    finally:
+        await close_run(run_id)
+    return outcome

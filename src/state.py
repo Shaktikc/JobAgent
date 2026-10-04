@@ -1,8 +1,10 @@
-"""The graph's shared state for the LinkedIn agent (Task 1 + Task 2).
+"""The graph's shared state for the LinkedIn agent (Tasks 1-4).
 
-Task 1 logs in, searches jobs, and selects the **Easy Apply** filter. Task 2 then
-picks a job from those results and clicks its **Easy Apply** button, confirming
-the application form opens (nothing is submitted).
+Task 1 logs in, searches jobs, and selects the **Easy Apply** filter. Task 2 picks
+a job from those results and clicks its **Easy Apply** button, confirming the
+application form opens. Task 3 reads the open job's description and chooses the
+best-matching resume from the ``resumes/`` folder. Task 4 fills the open Easy
+Apply form with known answers and attaches that resume — without submitting.
 
 The state is a plain ``TypedDict`` so LangGraph can pass partial updates between
 nodes. The ``log``/``errors`` channels use ``operator.add`` so every node can
@@ -61,11 +63,102 @@ class Task2Outcome(BaseModel):
     notes: str = ""
 
 
+class JobDescription(BaseModel):
+    """The job details read from the open job's details pane (Task 3)."""
+
+    title: str = ""
+    company: str = ""
+    location: str = ""
+    body: str = ""
+    page_url: str | None = None
+
+    @property
+    def is_read(self) -> bool:
+        """True when at least a title or a description body was captured."""
+        return bool(self.title.strip() or self.body.strip())
+
+    @property
+    def full_text(self) -> str:
+        """Title + company + location + body joined into one searchable blob."""
+        parts = (self.title, self.company, self.location, self.body)
+        return " ".join(part for part in parts if part)
+
+
+class ResumeCandidate(BaseModel):
+    """A resume file that was considered, with its fit score."""
+
+    path: str
+    score: float = 0.0
+    matched_keywords: list[str] = Field(default_factory=list)
+    rationale: str = ""
+    extracted: bool = False
+    error: str = ""
+
+
+class Task3Outcome(BaseModel):
+    """The resume the agent chose and why (Task 3)."""
+
+    job_description: JobDescription = Field(default_factory=JobDescription)
+    resumes_dir: str = ""
+    resumes_found: int = 0
+    candidates: list[ResumeCandidate] = Field(default_factory=list)
+    selected_path: str | None = None
+    selected_score: float | None = None
+    rationale: str = ""
+    tie_break: str = ""
+    notes: str = ""
+
+
+class FormField(BaseModel):
+    """One question encountered on the Easy Apply form (Task 4)."""
+
+    question: str = ""
+    option: str = ""
+    field_type: str = ""
+    name: str = ""
+    known: bool = False
+    filled: bool = False
+    value: str = ""
+    options: list[str] = Field(default_factory=list)
+    required: bool = False
+    error: str = ""
+
+
+class Task4Outcome(BaseModel):
+    """What happened while filling the Easy Apply form (Task 4).
+
+    Known questions are answered from the answer store; unknown ones are left for
+    Task 5 and recorded in ``unknown_fields``. The chosen resume is preferred from
+    the form's own resume list; it is only uploaded when nothing listed matches.
+    The application is never submitted.
+    """
+
+    form_open: bool = False
+    steps_advanced: int = 0
+    fields: list[FormField] = Field(default_factory=list)
+    fields_enumerated: int = 0
+    known_fields: int = 0
+    filled_fields: int = 0
+    unknown_fields: list[str] = Field(default_factory=list)
+    resume_attached: bool = False
+    resume_selection: str = ""  # "listed" or "uploaded"
+    resume_listed_name: str = ""
+    resume_path: str = ""
+    upload_attempted: bool = False
+    submitted: bool = False
+    screenshot_path: str | None = None
+    page_url: str | None = None
+    notes: str = ""
+
+
 class AgentOutcome(BaseModel):
-    """Both task outcomes produced by a single browser run."""
+    """What a single browser run produced (Tasks 1-4)."""
 
     task1: Task1Outcome = Field(default_factory=Task1Outcome)
     task2: Task2Outcome = Field(default_factory=Task2Outcome)
+    job_description: JobDescription = Field(default_factory=JobDescription)
+    task3: Task3Outcome = Field(default_factory=Task3Outcome)
+    task4: Task4Outcome = Field(default_factory=Task4Outcome)
 
 
 class ApplyState(TypedDict, total=False):
@@ -75,10 +168,17 @@ class ApplyState(TypedDict, total=False):
     url: str
     search_query: str
     dry_run: bool
+    resumes_dir: str
 
     # --- results ---
     task1: Task1Outcome
     task2: Task2Outcome
+    job_description: JobDescription
+    task3: Task3Outcome
+    task4: Task4Outcome
+
+    # --- live browser session handle (Tasks 2-4 share one session) ---
+    browser_run_id: str
 
     # --- control flow ---
     status: str
@@ -93,12 +193,14 @@ def new_state(
     *,
     search_query: str = DEFAULT_SEARCH_QUERY,
     dry_run: bool = True,
+    resumes_dir: str = "",
 ) -> ApplyState:
     """Build a well-formed initial state for a single agent run."""
     return ApplyState(
         url=url,
         search_query=search_query,
         dry_run=dry_run,
+        resumes_dir=resumes_dir,
         status="pending",
         log=[],
         errors=[],

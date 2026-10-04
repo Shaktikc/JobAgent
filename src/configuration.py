@@ -1,9 +1,10 @@
 """Typed, validated configuration loaded from the environment.
 
-The agent only needs to drive a browser (log in, search, select the Easy Apply
-filter, then open a job's Easy Apply form), so this exposes the browser session
-settings plus the data directory used for the persistent profile and debug
-screenshots. Variable names follow the flat ``AUTOJOB_*`` scheme documented in
+The agent drives a browser (log in, search, select the Easy Apply filter, open a
+job's Easy Apply form, read the job description) and then matches resumes
+offline, so this exposes the browser session settings, the resumes folder, and
+the data directory used for the persistent profile and debug screenshots.
+Variable names follow the flat ``AUTOJOB_*`` scheme documented in
 ``.env.example``.
 """
 
@@ -81,6 +82,8 @@ class Settings(BaseModel):
 
     session: SessionSettings = Field(default_factory=SessionSettings)
     data_dir: Path = PROJECT_ROOT / "data"
+    resumes_dir: Path = PROJECT_ROOT / "resumes"
+    answers_path: Path | None = None
 
     @property
     def profile_dir(self) -> Path:
@@ -92,11 +95,18 @@ class Settings(BaseModel):
         """Where failure screenshots are written."""
         return self.data_dir / "debug"
 
+    @property
+    def answers_file(self) -> Path:
+        """Question → answer store used by Tasks 4-5."""
+        return self.answers_path or (self.data_dir / "answers.json")
+
 
 def load_settings(env_file: Path | None = None) -> Settings:
     """Read settings from ``.env`` and the process environment."""
     _load_env_file(env_file)
     data_dir = _get_str("AUTOJOB_DATA_DIR")
+    resumes_dir = _get_str("AUTOJOB_RESUMES_DIR")
+    answers_path = _get_str("AUTOJOB_ANSWERS_FILE")
     return Settings(
         session=SessionSettings(
             headless=_get_bool("AUTOJOB_SESSION_HEADLESS", False),
@@ -113,4 +123,6 @@ def load_settings(env_file: Path | None = None) -> Settings:
             step_delay_seconds=_get_float("AUTOJOB_SESSION_STEP_DELAY_SECONDS", 0.0),
         ),
         data_dir=Path(data_dir).expanduser() if data_dir else PROJECT_ROOT / "data",
+        resumes_dir=(Path(resumes_dir).expanduser() if resumes_dir else PROJECT_ROOT / "resumes"),
+        answers_path=Path(answers_path).expanduser() if answers_path else None,
     )

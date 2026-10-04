@@ -69,6 +69,22 @@ def test_default_dirs_are_under_data_dir() -> None:
     assert settings.debug_dir == settings.data_dir / "debug"
 
 
+def test_resumes_dir_default_and_override(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    assert load_settings().resumes_dir.name == "resumes"
+
+    monkeypatch.setenv("AUTOJOB_RESUMES_DIR", str(tmp_path))
+    assert load_settings().resumes_dir == tmp_path
+
+
+def test_answers_file_default_and_override(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    settings = load_settings()
+    assert settings.answers_file == settings.data_dir / "answers.json"
+
+    custom = tmp_path / "custom-answers.json"
+    monkeypatch.setenv("AUTOJOB_ANSWERS_FILE", str(custom))
+    assert load_settings().answers_file == custom
+
+
 def test_invalid_values_are_rejected() -> None:
     from pydantic import ValidationError
 

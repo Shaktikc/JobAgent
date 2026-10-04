@@ -1,3 +1,3 @@
-"""AutoJobApply: a LangGraph agent for LinkedIn Easy Apply (Task 1 + Task 2)."""
+"""AutoJobApply: a LangGraph agent for LinkedIn Easy Apply (Tasks 1-4)."""
 
-__version__ = "0.5.0"
+__version__ = "0.7.0"

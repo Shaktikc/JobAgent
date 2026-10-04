@@ -26,10 +26,10 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-async def test_agent_logs_in_searches_and_opens_easy_apply() -> None:
-    from src.tools.browser import run_agent
+async def test_agent_runs_tasks_1_to_4_without_submitting() -> None:
+    from src.tools.browser import run_full_agent
 
-    result = await run_agent(LIVE_URL, "software engineer", progress=print)
+    result = await run_full_agent(LIVE_URL, "software engineer", progress=print)
 
     assert result.task1.logged_in, "login was not completed"
     assert result.task1.results_found, f"no search results (url={result.task1.page_url})"
@@ -39,3 +39,10 @@ async def test_agent_logs_in_searches_and_opens_easy_apply() -> None:
         f"no Easy Apply button was clicked (url={result.task2.page_url})"
     )
     assert result.task2.application_form_opened, "Easy Apply form did not open"
+
+    assert result.job_description.is_read, "job description was not read"
+
+    # Task 3/4 depend on the local resumes/ and answers store; the form must at
+    # least be found and the application must never be submitted.
+    assert result.task4.form_open, "Easy Apply form fields were not found"
+    assert result.task4.submitted is False, "the application must never be submitted"

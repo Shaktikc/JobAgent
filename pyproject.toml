@@ -1,7 +1,7 @@
 [project]
 name = "autojobapply"
-version = "0.5.0"
-description = "A LangGraph agent that logs in to LinkedIn, searches jobs, selects the Easy Apply filter, and opens a job's Easy Apply form through a real browser."
+version = "0.7.0"
+description = "A LangGraph agent that logs in to LinkedIn, searches jobs, selects the Easy Apply filter, opens a job's Easy Apply form, picks the best-matching resume, and fills the form through a real browser."
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 authors = [{ name = "AutoJobApply" }]
@@ -10,6 +10,7 @@ dependencies = [
     "langgraph>=1.0,<2.0",
     "pydantic>=2.7",
     "python-dotenv>=1.0",
+    "pypdf>=5.0",
 ]
 
 [project.scripts]

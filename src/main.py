@@ -1,4 +1,4 @@
-"""Command-line entry point for a single agent run (Task 1 + Task 2)."""
+"""Command-line entry point for a single agent run (Tasks 1-4)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import asyncio
 import json
 import sys
 
+from src.configuration import load_settings
 from src.graph import graph
 from src.state import (
     DEFAULT_LOGIN_URL,
@@ -21,7 +22,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         prog="autojob",
         description=(
             "Log in to LinkedIn, search jobs, select the Easy Apply filter, "
-            "and open a job's Easy Apply form (Task 1 + Task 2)."
+            "open a job's Easy Apply form, pick the best-matching resume, and "
+            "start filling the form (Tasks 1-4). The application is never submitted."
         ),
     )
     parser.add_argument(
@@ -33,6 +35,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--query",
         default=DEFAULT_SEARCH_QUERY,
         help=f"Job search query (default: {DEFAULT_SEARCH_QUERY!r})",
+    )
+    parser.add_argument(
+        "--resumes-dir",
+        default=None,
+        help="Folder of resumes to choose from (default: AUTOJOB_RESUMES_DIR or ./resumes)",
     )
     parser.add_argument(
         "--dry-run",
@@ -54,6 +61,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def _summary(state: ApplyState) -> str:
     task1 = state.get("task1")
     task2 = state.get("task2")
+    description = state.get("job_description")
+    task3 = state.get("task3")
+    task4 = state.get("task4")
     lines = [
         "",
         f"status      : {state.get('status', 'unknown')}",
@@ -78,6 +88,31 @@ def _summary(state: ApplyState) -> str:
         ]
         if task2.screenshot_path:
             lines.append(f"screenshot  : {task2.screenshot_path}")
+    if description is not None:
+        lines.append(
+            f"description : title={description.title!r} company={description.company!r} "
+            f"chars={len(description.body)}"
+        )
+    if task3 is not None:
+        lines += [
+            f"resumes     : dir={task3.resumes_dir} found={task3.resumes_found}",
+            f"best resume : {task3.selected_path} (score={task3.selected_score})",
+            f"why         : {task3.rationale or '(none)'}",
+        ]
+        if task3.tie_break:
+            lines.append(f"tie         : {task3.tie_break}")
+    if task4 is not None:
+        lines += [
+            f"form        : open={task4.form_open} fields={task4.fields_enumerated} "
+            f"known={task4.known_fields} filled={task4.filled_fields}",
+            f"resume use  : {task4.resume_selection or 'none'}"
+            + (f" ({task4.resume_listed_name})" if task4.resume_listed_name else ""),
+            f"submitted   : {task4.submitted}",
+        ]
+        if task4.unknown_fields:
+            lines.append(f"unknown     : {task4.unknown_fields}")
+        if task4.screenshot_path:
+            lines.append(f"screenshot  : {task4.screenshot_path}")
     for entry in state.get("log", []):
         lines.append(f"  - {entry}")
     for error in state.get("errors", []):
@@ -86,7 +121,15 @@ def _summary(state: ApplyState) -> str:
 
 
 async def _run(args: argparse.Namespace) -> ApplyState:
-    state = new_state(args.url, search_query=args.query, dry_run=args.dry_run)
+    resumes_dir = args.resumes_dir
+    if resumes_dir is None:
+        resumes_dir = str(load_settings().resumes_dir)
+    state = new_state(
+        args.url,
+        search_query=args.query,
+        dry_run=args.dry_run,
+        resumes_dir=resumes_dir,
+    )
     return await graph.ainvoke(state)
 
 

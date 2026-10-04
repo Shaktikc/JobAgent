@@ -1,9 +1,11 @@
-"""Drive the browser: Task 1 (log in, search, filter) then Task 2 (select Easy Apply).
+"""Drive the browser: Tasks 1-4's interactive steps in one session.
 
-The real work is delegated to :func:`src.tools.browser.run_agent`, which is
+The real work is delegated to :func:`src.tools.browser.start_tasks`, which is
 imported lazily so the heavy ``browser`` extra stays optional. That single call
-owns one browser session for the whole flow, including the human login gate, so
-the login cookies and the job list carry from Task 1 into Task 2.
+owns one browser session for the whole flow, including the human login gate; on
+success it is left **open** (registered under an opaque ``browser_run_id``) so
+Task 3's resume selection and Task 4's form filling can continue in the same open
+Easy Apply modal without passing a live session through graph state.
 """
 
 from __future__ import annotations
@@ -19,10 +21,10 @@ async def browse(state: ApplyState) -> ApplyState:
             "log": ["browse: dry-run, browser not launched"],
         }
 
-    from src.tools.browser import run_agent  # lazy: needs the `browser` extra
+    from src.tools.browser import start_tasks  # lazy: needs the `browser` extra
 
     try:
-        result = await run_agent(
+        result, run_id = await start_tasks(
             state["url"],
             state.get("search_query") or "",
             progress=print,
@@ -35,6 +37,7 @@ async def browse(state: ApplyState) -> ApplyState:
         }
 
     task1, task2 = result.task1, result.task2
+    description = result.job_description
     log = [
         "browse: task1 "
         f"logged_in={task1.logged_in} "
@@ -47,13 +50,26 @@ async def browse(state: ApplyState) -> ApplyState:
         f"easy_apply_clicked={task2.easy_apply_clicked} "
         f"form_opened={task2.application_form_opened} "
         f"skipped={task2.skipped_jobs}",
+        "browse: task3 "
+        f"job_title={description.title!r} "
+        f"company={description.company!r} "
+        f"description_chars={len(description.body)}",
     ]
     if task1.notes:
         log.append(f"browse: {task1.notes}")
     if task2.notes:
         log.append(f"browse: {task2.notes}")
 
-    update: ApplyState = {"task1": task1, "task2": task2, "status": "applied", "log": log}
+    update: ApplyState = {
+        "task1": task1,
+        "task2": task2,
+        "job_description": description,
+        "status": "applied",
+        "log": log,
+    }
+    if run_id:
+        # Keep the live session open so Task 4 can fill the same Easy Apply form.
+        update["browser_run_id"] = run_id
 
     errors: list[str] = []
     if not task1.logged_in:
