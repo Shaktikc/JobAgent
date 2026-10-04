@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from src.graph import (
     _route_after_browse,
     _route_after_ingest,
@@ -23,6 +25,7 @@ from src.state import (
     Task2Outcome,
     Task3Outcome,
     Task4Outcome,
+    Task5Outcome,
     new_state,
 )
 
@@ -75,6 +78,10 @@ def _task4_ok() -> Task4Outcome:
         resume_selection="listed",
         resume_path="resumes/a.pdf",
     )
+
+
+def _task5_ok() -> Task5Outcome:
+    return Task5Outcome(enabled=True, asked=1, answered=1, answered_questions=["City"])
 
 
 def test_new_state_defaults_match_task_inputs() -> None:
@@ -244,6 +251,32 @@ def test_verify_reports_errors_first() -> None:
     assert verify(state)["status"] == "failed"
 
 
+def test_verify_passes_when_human_questions_were_resolved() -> None:
+    state = ApplyState(
+        dry_run=False,
+        task1=_task1_ok(),
+        task2=_task2_ok(),
+        task3=_task3_ok(),
+        task4=_task4_ok(),
+        task5=_task5_ok(),
+    )
+    assert verify(state)["status"] == "done"
+
+
+def test_verify_fails_when_a_human_question_is_unresolved() -> None:
+    # asked=2 but only one resolved answer/skip/timeout: Task 5 is incomplete.
+    task5 = Task5Outcome(enabled=True, asked=2, answered=1)
+    state = ApplyState(
+        dry_run=False,
+        task1=_task1_ok(),
+        task2=_task2_ok(),
+        task3=_task3_ok(),
+        task4=_task4_ok(),
+        task5=task5,
+    )
+    assert verify(state)["status"] == "failed"
+
+
 def test_match_node_selects_best_resume(tmp_path) -> None:
     (tmp_path / "python.txt").write_text(
         "Senior Software Engineer. Python, AWS, Docker, Kubernetes, 8 years.", encoding="utf-8"
@@ -301,6 +334,25 @@ def test_fill_node_fails_without_session_or_resume() -> None:
     result = asyncio.run(fill(ApplyState(dry_run=False)))
     assert result["status"] == "failed"
     assert result["errors"]
+
+
+def test_fill_node_records_task5(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The fill node stores the Task 5 outcome returned with the Task 4 fill."""
+    import src.tools.browser as browser_tools
+
+    async def fake_fill(run_id, resume_path, settings=None, progress=None):
+        return _task4_ok(), _task5_ok()
+
+    monkeypatch.setattr(browser_tools, "fill_application", fake_fill)
+    state = ApplyState(dry_run=False, browser_run_id="run-1", task3=_task3_ok())
+
+    result = asyncio.run(fill(state))
+
+    assert result["status"] == "filled"
+    assert result["task4"].form_open is True
+    assert result["task5"].answered == 1
+    assert result["task5"].answered_questions == ["City"]
+    assert any("task5" in entry for entry in result["log"])
 
 
 def test_cleanup_node_is_noop_without_a_run() -> None:

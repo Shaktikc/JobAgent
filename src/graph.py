@@ -5,9 +5,10 @@
 ``browse`` runs the browser steps in one session (Task 1 log in/search/filter,
 Task 2 open Easy Apply, Task 3 read the job description) and keeps that session
 open. ``match`` selects the best resume offline, ``fill`` fills the still-open
-Easy Apply form (Task 4), and ``cleanup`` closes the browser. Failure paths skip
-straight to ``cleanup`` (or ``verify`` for a dry run) so the session is always
-released.
+Easy Apply form (Task 4) and, inside it, asks the human in the browser about
+unknown questions and remembers their answers (Task 5), and ``cleanup`` closes the
+browser. Failure paths skip straight to ``cleanup`` (or ``verify`` for a dry run)
+so the session is always released.
 """
 
 from __future__ import annotations

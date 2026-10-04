@@ -71,6 +71,15 @@ class SessionSettings(BaseModel):
     # Slow-motion delay inserted between visible steps so a human can follow the
     # run. 0 disables it (the default); set it high for a watchable demo.
     step_delay_seconds: float = Field(default=0.0, ge=0)
+    # Task 5: pause and ask the human (via a browser banner) when the form asks a
+    # question the answer store cannot answer. Off means unknown questions are
+    # just left for a later run.
+    ask_human: bool = True
+    ask_timeout_seconds: float = Field(default=300.0, gt=0)
+    ask_poll_seconds: float = Field(default=1.0, gt=0)
+    # Before launching, close any leftover browser still holding the profile
+    # (e.g. from an interrupted run) and clear its single-instance lock files.
+    clean_stale_profile: bool = True
 
     @property
     def viewport(self) -> dict[str, int]:
@@ -121,6 +130,10 @@ def load_settings(env_file: Path | None = None) -> Settings:
                 "AUTOJOB_SESSION_EASY_APPLY_TIMEOUT_SECONDS", 20.0
             ),
             step_delay_seconds=_get_float("AUTOJOB_SESSION_STEP_DELAY_SECONDS", 0.0),
+            ask_human=_get_bool("AUTOJOB_SESSION_ASK_HUMAN", True),
+            ask_timeout_seconds=_get_float("AUTOJOB_SESSION_ASK_TIMEOUT_SECONDS", 300.0),
+            ask_poll_seconds=_get_float("AUTOJOB_SESSION_ASK_POLL_SECONDS", 1.0),
+            clean_stale_profile=_get_bool("AUTOJOB_SESSION_CLEAN_STALE_PROFILE", True),
         ),
         data_dir=Path(data_dir).expanduser() if data_dir else PROJECT_ROOT / "data",
         resumes_dir=(Path(resumes_dir).expanduser() if resumes_dir else PROJECT_ROOT / "resumes"),

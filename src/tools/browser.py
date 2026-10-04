@@ -1,4 +1,4 @@
-"""browser-use wrapper for the LinkedIn agent (Tasks 1-4).
+"""browser-use wrapper for the LinkedIn agent (Tasks 1-5).
 
 Task 1 launches a Chromium session, navigates to the LinkedIn login page, waits
 for the user to log in (a human gate), then types the configured job query into
@@ -15,6 +15,11 @@ Task 4 continues in the *same* session: it enumerates the open Easy Apply form,
 fills every field whose answer is known, attaches the resume chosen by Task 3
 (preferring a resume already listed on the form over uploading a duplicate), and
 advances through multi-step forms — stopping before **Submit application**.
+
+Task 5 rides along with Task 4: when a question is unknown, a visible browser
+banner says the agent does not know the answer and the run pauses for the human.
+The answer is remembered in the answer store so the same (normalized) question is
+filled automatically next time.
 
 The interaction uses browser-use's deterministic CDP actor API (``Page`` /
 ``Element``); no LLM is involved.
@@ -36,6 +41,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
+import signal
+import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -50,8 +59,9 @@ from src.state import (
     Task1Outcome,
     Task2Outcome,
     Task4Outcome,
+    Task5Outcome,
 )
-from src.tools.answers import load_answers, lookup_answer
+from src.tools.answers import load_answers, lookup_answer, normalize_question, save_answer
 from src.tools.forms import (
     answers_match,
     looks_like_next,
@@ -481,6 +491,109 @@ _FILL_SELECT_JS = r"""
 }
 """
 
+# Task 5: a visible banner that tells the human the agent cannot answer a
+# question and lets them type the answer (or skip). The question text is set via
+# ``textContent`` so page content can never inject markup. The banner records its
+# state in ``data-autojob-state`` (``pending`` / ``submitted`` / ``skipped``) so
+# the agent can poll it without blocking the page.
+_SHOW_UNKNOWN_JS = r"""
+(question, hint) => {
+  let box = document.getElementById('autojob-unknown');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'autojob-unknown';
+    box.setAttribute('role', 'alertdialog');
+    box.setAttribute('aria-label', 'AutoJobApply needs an answer');
+    box.style.cssText = [
+      'position:fixed', 'right:24px', 'bottom:24px', 'z-index:2147483647',
+      'max-width:420px', 'background:#ffffff', 'color:#1a1a1a',
+      'border:2px solid #b24020', 'border-radius:8px',
+      'box-shadow:0 8px 24px rgba(0,0,0,.35)', 'padding:16px',
+      "font:14px/1.4 -apple-system,'Segoe UI',Roboto,Arial,sans-serif"
+    ].join(';');
+    const heading = document.createElement('div');
+    heading.textContent = 'AutoJobApply does not know this answer';
+    heading.style.cssText = 'font-weight:600;color:#b24020;margin-bottom:8px';
+    const q = document.createElement('div');
+    q.id = 'autojob-unknown-question';
+    q.style.cssText = 'margin-bottom:8px';
+    const hintEl = document.createElement('div');
+    hintEl.id = 'autojob-unknown-hint';
+    hintEl.style.cssText = 'margin-bottom:8px;color:#555;font-size:13px';
+    const input = document.createElement('input');
+    input.id = 'autojob-unknown-input';
+    input.type = 'text';
+    input.placeholder = 'Type your answer\u2026';
+    input.style.cssText =
+      'width:100%;box-sizing:border-box;padding:8px;border:1px solid #999;border-radius:4px';
+    const row = document.createElement('div');
+    row.style.cssText = 'margin-top:8px;display:flex;gap:8px;justify-content:flex-end';
+    const skip = document.createElement('button');
+    skip.id = 'autojob-unknown-skip';
+    skip.type = 'button';
+    skip.textContent = 'Skip';
+    skip.style.cssText = 'padding:6px 12px;border:1px solid #666;border-radius:4px;cursor:pointer';
+    const submit = document.createElement('button');
+    submit.id = 'autojob-unknown-submit';
+    submit.type = 'button';
+    submit.textContent = 'Use answer';
+    submit.style.cssText =
+      'padding:6px 12px;border:0;border-radius:4px;background:#0a66c2;color:#fff;cursor:pointer';
+    row.appendChild(skip);
+    row.appendChild(submit);
+    box.appendChild(heading);
+    box.appendChild(q);
+    box.appendChild(hintEl);
+    box.appendChild(input);
+    box.appendChild(row);
+    document.body.appendChild(box);
+    const finish = (state) => box.setAttribute('data-autojob-state', state);
+    submit.addEventListener('click', () => finish('submitted'));
+    skip.addEventListener('click', () => finish('skipped'));
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') finish('submitted');
+    });
+  }
+  box.setAttribute('data-autojob-state', 'pending');
+  const q = document.getElementById('autojob-unknown-question');
+  if (q) q.textContent = question || 'this question';
+  const hintEl = document.getElementById('autojob-unknown-hint');
+  if (hintEl) {
+    hintEl.textContent = hint || '';
+    hintEl.style.display = hint ? 'block' : 'none';
+  }
+  const input = document.getElementById('autojob-unknown-input');
+  if (input) {
+    input.value = '';
+    try { input.focus(); } catch (err) {}
+  }
+  return true;
+}
+"""
+
+# Read the banner's current state (and whatever the human has typed so far).
+_READ_UNKNOWN_JS = r"""
+() => {
+  const box = document.getElementById('autojob-unknown');
+  if (!box) return JSON.stringify({ present: false });
+  const input = document.getElementById('autojob-unknown-input');
+  return JSON.stringify({
+    present: true,
+    state: box.getAttribute('data-autojob-state') || 'pending',
+    answer: input ? input.value : ''
+  });
+}
+"""
+
+# Remove the banner once the question is resolved.
+_HIDE_UNKNOWN_JS = r"""
+() => {
+  const box = document.getElementById('autojob-unknown');
+  if (box) box.remove();
+  return true;
+}
+"""
+
 
 @dataclass
 class _Run:
@@ -541,10 +654,98 @@ def _first_line(text: str) -> str:
     return ""
 
 
+# Chromium single-instance files left in the user-data-dir. While a browser owns
+# the profile it holds a lock; a crashed/interrupted run can leave both the files
+# and the process behind.
+_PROFILE_LOCK_FILES = ("SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile")
+
+
+def _profile_is_locked(profile_dir: Path) -> bool:
+    """True when the profile looks owned by a browser (or a crashed one)."""
+    return any((profile_dir / name).exists() for name in _PROFILE_LOCK_FILES)
+
+
+def _clear_profile_locks(profile_dir: Path) -> None:
+    """Remove Chromium's single-instance files so a fresh launch can take over."""
+    for name in _PROFILE_LOCK_FILES:
+        with contextlib.suppress(OSError):
+            path = profile_dir / name
+            if path.is_symlink() or path.exists():
+                path.unlink()
+
+
+def _profile_browser_pids(profile_dir: Path) -> list[int]:
+    """Best-effort PIDs of chrome/chromium processes using this exact profile."""
+    target = str(profile_dir)
+    if sys.platform == "win32":
+        script = (
+            "$ErrorActionPreference='SilentlyContinue';"
+            "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+            "Where-Object { $_.CommandLine -like ('*' + $env:AUTOJOB_PROFILE + '*') } | "
+            "ForEach-Object { $_.ProcessId }"
+        )
+        cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command", script]
+        env = {**os.environ, "AUTOJOB_PROFILE": target}
+    else:
+        cmd = ["pgrep", "-f", target]
+        env = None
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=20, env=env, check=False
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [int(line) for line in result.stdout.splitlines() if line.strip().isdigit()]
+
+
+def terminate_profile_browsers(profile_dir: Path) -> int:
+    """Kill leftover browsers still holding ``profile_dir``; return how many.
+
+    An interrupted run can leave Chromium owning the profile's process singleton.
+    A new launch then hands its command line to that instance and exits without
+    ever opening its own CDP port — surfacing as "Browser process ... exited
+    before CDP became available". Only processes whose command line references
+    this dedicated profile are touched, so a normal Chrome is never affected.
+    """
+    pids = _profile_browser_pids(profile_dir)
+    for pid in pids:
+        if sys.platform == "win32":
+            with contextlib.suppress(OSError, subprocess.SubprocessError):
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                    check=False,
+                )
+        else:
+            with contextlib.suppress(OSError):
+                os.kill(pid, signal.SIGKILL)
+    return len(pids)
+
+
+def clean_profile(settings: Settings) -> int:
+    """Close leftover browsers using the profile and clear its lock files."""
+    settings.profile_dir.mkdir(parents=True, exist_ok=True)
+    killed = terminate_profile_browsers(settings.profile_dir)
+    _clear_profile_locks(settings.profile_dir)
+    return killed
+
+
 def build_browser(settings: Settings):
     """Build a Chromium session that persists logins in ``data/profile``."""
     Browser = _require_browser_use()
     settings.profile_dir.mkdir(parents=True, exist_ok=True)
+    if settings.session.clean_stale_profile and _profile_is_locked(settings.profile_dir):
+        # A previous run left the profile locked (usually a browser still open);
+        # clear it so this launch can open its own CDP port instead of handing off.
+        killed = terminate_profile_browsers(settings.profile_dir)
+        if killed:
+            print(
+                f"AutoJobApply: closed {killed} leftover browser process(es) using "
+                f"{settings.profile_dir}"
+            )
+        _clear_profile_locks(settings.profile_dir)
     return Browser(
         headless=settings.session.headless,
         user_data_dir=str(settings.profile_dir),
@@ -858,6 +1059,156 @@ async def _marker_element(page, attribute: str, marker: str):
     return await _first_element(page, [f'[{attribute}="{marker}"]'])
 
 
+# Placeholder values a <select> may show before a real choice is made. A select
+# holding one of these is still unanswered; anything else is treated as answered.
+_SELECT_PLACEHOLDERS = {
+    "",
+    "select",
+    "select...",
+    "select an option",
+    "select one",
+    "select option",
+    "choose",
+    "choose an option",
+    "choose one",
+    "none",
+}
+
+
+def _control_already_answered(field: dict) -> bool:
+    """True when a form control already holds a real (non-placeholder) value.
+
+    LinkedIn pre-fills controls from the profile (e.g. the "Email address" and
+    "Phone country code" ``<select>``s). Those are already answered, so the agent
+    must not ask the human about them or overwrite them with a guess.
+    """
+    kind = field.get("kind")
+    if kind in {"radio", "checkbox"}:
+        return bool(field.get("checked"))
+    value = str(field.get("value") or "").strip()
+    if not value:
+        return False
+    if kind == "select":
+        return value.lower() not in _SELECT_PLACEHOLDERS
+    return True
+
+
+def _choice_hint(field: dict) -> str:
+    """Human-readable list of a control's allowed options, for the banner."""
+    choices = field.get("options") or []
+    labels: list[str] = []
+    for choice in choices:
+        if isinstance(choice, dict):
+            label = str(choice.get("text") or choice.get("value") or "").strip()
+        else:
+            label = str(choice).strip()
+        if label:
+            labels.append(label)
+    if not labels:
+        return ""
+    return "One of: " + ", ".join(labels)
+
+
+def _select_value_for(answer: str, options: list[dict]) -> str | None:
+    """Resolve an answer to a ``<select>`` option value (matching text or value)."""
+    for option in options:
+        text = str(option.get("text") or "")
+        value = str(option.get("value") or "")
+        if answers_match(text, answer) or answers_match(value, answer):
+            return value or text
+    return None
+
+
+async def ask_human_for_answer(
+    page,
+    question: str,
+    field_type: str,
+    hint: str,
+    settings: Settings,
+    notify,
+    human: Task5Outcome | None = None,
+) -> str | None:
+    """Task 5: show a browser banner and wait for the human to answer.
+
+    Returns the typed answer, or ``None`` when the human skipped or the wait timed
+    out. The run pauses here (polling the banner) instead of guessing. The banner
+    plainly states the agent does not know the answer and, for a choice field,
+    lists the allowed options (``hint``).
+    """
+    human = human if human is not None else Task5Outcome()
+    human.enabled = True
+    human.asked += 1
+    shown = await _safe(page.evaluate(_SHOW_UNKNOWN_JS, question, hint or ""))
+    if not shown:
+        human.timed_out += 1
+        human.notes = _append_note(
+            human.notes, f"could not show the answer banner for {question!r}"
+        )
+        return None
+
+    kind = f" ({field_type})" if field_type else ""
+    notify(
+        f"Task 5: I do not know {question!r}{kind}; waiting for you to answer it "
+        "in the browser banner."
+    )
+    deadline = time.monotonic() + settings.session.ask_timeout_seconds
+    while time.monotonic() < deadline:
+        payload = _loads(await _safe(page.evaluate(_READ_UNKNOWN_JS), ""))
+        state = str(payload.get("state") or "")
+        if state == "submitted":
+            answer = str(payload.get("answer") or "").strip()
+            await _safe(page.evaluate(_HIDE_UNKNOWN_JS))
+            if not answer:
+                human.skipped += 1
+                notify(f"Task 5: the answer for {question!r} was empty; leaving it unknown.")
+                return None
+            human.answered += 1
+            if question not in human.answered_questions:
+                human.answered_questions.append(question)
+            notify(f"Task 5: got an answer for {question!r}.")
+            return answer
+        if state == "skipped":
+            await _safe(page.evaluate(_HIDE_UNKNOWN_JS))
+            human.skipped += 1
+            notify(f"Task 5: you skipped {question!r}; leaving it unknown.")
+            return None
+        await asyncio.sleep(settings.session.ask_poll_seconds)
+
+    await _safe(page.evaluate(_HIDE_UNKNOWN_JS))
+    human.timed_out += 1
+    human.notes = _append_note(
+        human.notes, f"timed out waiting for an answer to {question!r}"
+    )
+    notify(f"Task 5: timed out waiting for an answer to {question!r}.")
+    return None
+
+
+def _remember_answer(
+    settings: Settings,
+    answers: dict[str, str],
+    human: Task5Outcome | None,
+    question: str,
+    answer: str,
+) -> None:
+    """Persist a human answer and update the in-memory store for this run.
+
+    An existing mapping is only replaced when the human supplies a new answer here;
+    the update is recorded explicitly in the Task 5 notes rather than silently.
+    """
+    key = normalize_question(question)
+    previous = answers.get(key)
+    answers[key] = answer
+    try:
+        save_answer(settings.answers_file, question, answer)
+    except OSError as exc:  # noqa: BLE001 - a failed write must not stop the fill
+        if human is not None:
+            human.notes = _append_note(human.notes, f"could not save {question!r}: {exc}")
+        return
+    if human is not None:
+        action = "updated the stored answer" if previous and previous != answer else "remembered"
+        human.notes = _append_note(human.notes, f"{action} the answer for {question!r}")
+
+
 async def _fill_field(element, field: dict, answer: str) -> tuple[bool, str]:
     """Fill one known field with the right control action; return ``(ok, error)``."""
     kind = field.get("kind")
@@ -878,9 +1229,20 @@ async def _fill_field(element, field: dict, answer: str) -> tuple[bool, str]:
 
 
 async def _fill_step(
-    page, fields: list[dict], answers: dict[str, str], settings: Settings
+    page,
+    fields: list[dict],
+    answers: dict[str, str],
+    settings: Settings,
+    ask=None,
+    human: Task5Outcome | None = None,
 ) -> tuple[int, int, list[str], list[FormField]]:
-    """Fill the known fields of one form step; leave the rest unknown."""
+    """Fill the known fields of one form step; leave the rest unknown.
+
+    ``ask`` is Task 5's optional async ``(question, field) -> answer | None``
+    callable. When the store cannot answer a question (or a stored radio answer
+    matches none of the step's options), it is used to ask the human; a returned
+    answer is filled, remembered in the store, and reused for later occurrences.
+    """
     known = filled = 0
     unknown: list[str] = []
     records: list[FormField] = []
@@ -894,10 +1256,11 @@ async def _fill_step(
         else:
             others.append(field)
 
-    async def _apply(record: FormField, field: dict, answer: str) -> None:
+    async def _apply(record: FormField, field: dict, answer: str, source: str) -> None:
         nonlocal known, filled
         record.known = True
         record.value = answer
+        record.answered_by = source
         element = await _marker_element(page, "data-autojob-fill", field["marker"])
         if element is None:
             record.error = "field element not found"
@@ -921,21 +1284,48 @@ async def _fill_step(
             required=any(g.get("required") for g in group),
             options=options,
         )
+        checked = next((g for g in group if g.get("checked")), None)
+        if checked is not None:
+            # Already selected on the form (e.g. a pre-filled choice): leave it be.
+            record.known = True
+            record.filled = True
+            record.value = checked.get("option", "")
+            record.answered_by = "form"
+            known += 1
+            filled += 1
+            records.append(record)
+            continue
         found = lookup_answer(answers, [question, key])
-        if found is None:
+        answer = found[1] if found else None
+        source = "store" if found else "human"
+        option = (
+            next((g for g in group if answers_match(g.get("option", ""), answer)), None)
+            if answer is not None
+            else None
+        )
+        # Ask the human only when we have no usable answer: nothing stored, or a
+        # stored answer that matches none of this step's options.
+        if option is None and ask is not None:
+            answered = await ask(question, {"type": "radio", "options": options})
+            if answered is not None:
+                _remember_answer(settings, answers, human, question, answered)
+                answer, source = answered, "human"
+                option = next(
+                    (g for g in group if answers_match(g.get("option", ""), answered)), None
+                )
+        if option is not None:
+            await _apply(record, option, answer, source)
+            continue
+        if answer is None:
             unknown.append(question)
             records.append(record)
             continue
-        _, answer = found
-        option = next((g for g in group if answers_match(g.get("option", ""), answer)), None)
-        if option is None:
-            record.known = True
-            record.value = answer
-            record.error = "no option matched the stored answer"
-            known += 1
-            records.append(record)
-            continue
-        await _apply(record, option, answer)
+        record.known = True
+        record.value = answer
+        record.answered_by = source
+        record.error = "no option matched the answer"
+        known += 1
+        records.append(record)
 
     for field in others:
         question = field.get("question") or field.get("name") or f"field {field.get('marker')}"
@@ -947,12 +1337,39 @@ async def _fill_step(
             required=bool(field.get("required")),
             options=[option.get("text", "") for option in field.get("options", [])],
         )
+        if _control_already_answered(field):
+            # The form already holds a real value (e.g. a pre-filled select): keep it.
+            record.known = True
+            record.filled = True
+            record.value = str(field.get("value") or "")
+            record.answered_by = "form"
+            known += 1
+            filled += 1
+            records.append(record)
+            continue
         found = lookup_answer(answers, [question, field.get("name", "")])
-        if found is None:
+        answer = found[1] if found else None
+        source = "store" if found else "human"
+        if answer is None and ask is not None:
+            answered = await ask(question, field)
+            if answered is not None:
+                _remember_answer(settings, answers, human, question, answered)
+                answer, source = answered, "human"
+        if answer is None:
             unknown.append(question)
             records.append(record)
             continue
-        _, answer = found
+        if field.get("kind") == "select":
+            # A <select> only accepts one of its option values, so map the answer
+            # (which may be the visible option text) to the real value.
+            resolved = _select_value_for(answer, field.get("options") or [])
+            if resolved is None and field.get("options"):
+                record.error = "the answer did not match any option"
+                unknown.append(question)
+                records.append(record)
+                continue
+            if resolved is not None:
+                answer = resolved
         if field.get("kind") == "checkbox" and str(answer).strip().lower() in {
             "no",
             "false",
@@ -962,11 +1379,12 @@ async def _fill_step(
             record.known = True
             record.value = answer
             record.filled = True
+            record.answered_by = source
             known += 1
             filled += 1
             records.append(record)
             continue
-        await _apply(record, field, answer)
+        await _apply(record, field, answer, source)
 
     await _pace(settings)
     return known, filled, unknown, records
@@ -1253,6 +1671,7 @@ async def _task4_on_page(
     answers: dict[str, str],
     settings: Settings,
     notify,
+    human: Task5Outcome | None = None,
 ) -> Task4Outcome:
     """Fill the open Easy Apply form and attach the resume, without submitting.
 
@@ -1260,8 +1679,32 @@ async def _task4_on_page(
     ``<select>``, file input, or an upload button that reveals one) are
     discovered at runtime rather than assumed. The walk stops at the terminal
     step (only Submit is left), or as soon as a step fails to advance.
+
+    Task 5 rides along: when a question is unknown and ``ask_human`` is on, the
+    run pauses on a browser banner for the human. Answers are remembered so the
+    same question is filled automatically next time. The optional ``human``
+    tracker records the questions asked, answered, skipped, and timed out.
     """
     outcome = Task4Outcome(resume_path=resume_path or "")
+    human = human if human is not None else Task5Outcome()
+    human.enabled = bool(settings.session.ask_human)
+
+    asker = None
+    if human.enabled:
+
+        async def _ask_question(question: str, field: dict) -> str | None:
+            return await ask_human_for_answer(
+                page,
+                question,
+                field.get("type", ""),
+                _choice_hint(field),
+                settings,
+                notify,
+                human,
+            )
+
+        asker = _ask_question
+
     previous: str | None = None
     pending_advance = False
     blocking: list[str] = []
@@ -1288,7 +1731,9 @@ async def _task4_on_page(
 
         outcome.form_open = True
         outcome.fields_enumerated += len(fields)
-        known, filled, unknown, records = await _fill_step(page, fields, answers, settings)
+        known, filled, unknown, records = await _fill_step(
+            page, fields, answers, settings, ask=asker, human=human
+        )
         outcome.known_fields += known
         outcome.filled_fields += filled
         outcome.unknown_fields.extend(unknown)
@@ -1441,27 +1886,33 @@ async def fill_application(
     resume_path: str | None,
     settings: Settings | None = None,
     progress=None,
-) -> Task4Outcome:
+) -> tuple[Task4Outcome, Task5Outcome]:
     """Fill the open Easy Apply form in the session registered under ``run_id``.
 
-    The session is left open; the caller closes it (the graph's ``cleanup`` node
-    or :func:`run_full_agent`), so an in-flight session can still be screenshotted
-    on failure.
+    Returns ``(task4, task5)``. The session is left open; the caller closes it (the
+    graph's ``cleanup`` node or :func:`run_full_agent`), so an in-flight session
+    can still be screenshotted on failure.
     """
     settings = settings or load_settings()
     notify = progress or (lambda _message: None)
+    human = Task5Outcome()
     run = get_run(run_id)
     if run is None:
-        return Task4Outcome(
-            resume_path=resume_path or "",
-            notes="browser session is no longer available",
+        return (
+            Task4Outcome(
+                resume_path=resume_path or "",
+                notes="browser session is no longer available",
+            ),
+            human,
         )
 
     answers = load_answers(settings.answers_file)
-    outcome = await _task4_on_page(run.page, run.session, resume_path, answers, settings, notify)
+    outcome = await _task4_on_page(
+        run.page, run.session, resume_path, answers, settings, notify, human=human
+    )
     if not _task4_ok(outcome):
         outcome.screenshot_path = await capture_failure_screenshot(run.session, settings, "task4")
-    return outcome
+    return outcome, human
 
 
 async def run_agent(
@@ -1499,7 +1950,7 @@ async def run_full_agent(
     try:
         outcome.task3 = select_best_resume(outcome.job_description, settings.resumes_dir)
         if outcome.task3.selected_path:
-            outcome.task4 = await fill_application(
+            outcome.task4, outcome.task5 = await fill_application(
                 run_id, outcome.task3.selected_path, settings, progress
             )
     finally:

@@ -6,11 +6,12 @@ LinkedIn, searches for jobs, selects the **Easy Apply** filter, opens a job's
 filling the form — all through a real browser (via
 [browser-use](https://github.com/browser-use/browser-use)).
 
-> Status: **Tasks 1-4** — log in, search `"software engineer"`, select the Easy
+> Status: **Tasks 1-5** — log in, search `"software engineer"`, select the Easy
 > Apply filter, open a job's Easy Apply form, read the job description, select the
-> best-matching resume, and fill known fields + attach the resume. The graph runs
-> end-to-end in **dry-run** mode (no browser, no network); the browser layer is
-> wired but opt-in. **No application is ever submitted.**
+> best-matching resume, fill known fields + attach the resume, and ask you in the
+> browser about any question it cannot answer, remembering your answer for next
+> time. The graph runs end-to-end in **dry-run** mode (no browser, no network);
+> the browser layer is wired but opt-in. **No application is ever submitted.**
 
 ## Behaviour
 
@@ -39,8 +40,18 @@ The graph is `START -> ingest -> browse -> match -> fill -> cleanup -> verify ->
    question it already knows from the answer store (`data/answers.json`), attaches
    the chosen resume — preferring a resume already listed on the form over
    uploading a duplicate — and advances multi-step forms. It **stops before
-   Submit application** and never clicks it. Unknown questions are recorded and
-   left for Task 5.
+   Submit application** and never clicks it.
+   - **Task 5 (inside fill):** when a question is not in the store, the agent shows
+     a banner in the browser window saying it does not know the answer, **pauses
+     for you to type it**, fills the field, and saves the normalized question →
+     answer mapping. The same question is answered automatically next run. Choice
+     fields (selects/radios) list their allowed options in the banner, and an
+     answer that matches a visible option label is mapped to the right value.
+     Controls the form has **already filled** (e.g. LinkedIn's pre-filled *Email
+     address* / *Phone country code* selects) are left as-is and never asked
+     about. Set `AUTOJOB_SESSION_ASK_HUMAN=false` to leave unknown questions
+     unanswered instead of prompting. Questions you skip or leave unanswered are
+     recorded and can be answered on a later run.
 5. **cleanup** — closes the shared browser session on every path.
 6. **verify** — passes only when all of the above succeeded. Otherwise the run
    fails and a full-page screenshot plus the page URL are recorded under
@@ -66,7 +77,9 @@ cp .env.example .env           # optional; defaults are safe
 Put one or more resumes in `resumes/` (supported: `.pdf`, `.docx`, `.txt`, `.md`).
 
 To answer form questions automatically, add them to the answer store
-`data/answers.json` (keys are normalized automatically), for example:
+`data/answers.json` (keys are normalized automatically). Task 5 also writes to
+this file when it asks you a new question in the browser, so answers persist
+across runs. For example:
 
 ```json
 {
@@ -121,6 +134,7 @@ src/
     verify.py        Confirm every task's acceptance criteria
   tools/
     browser.py       browser-use session wrapper (opt-in); run_agent / run_full_agent
+                     and Task 5's ask-the-human browser banner
     linkedin.py      Pure LinkedIn URL/text helpers
     matching.py      Pure resume-to-job scoring (explainable, deterministic)
     resumes.py       Resume discovery, text extraction, and selection
@@ -133,13 +147,31 @@ tests/
   integration/       Opt-in live browser / real-resume tests
 ```
 
+## Troubleshooting
+
+- **"Browser process … exited before CDP became available"** — a previous run
+  left a Chromium still holding `data/profile` (its single-instance lock makes the
+  new launch hand off and exit before opening a debug port). The agent clears this
+  automatically on the next launch; you can also do it explicitly:
+
+  ```bash
+  uv run autojob --clean-profile
+  ```
+
+  This only closes browser processes whose command line references the dedicated
+  `data/profile`, so your normal Chrome is untouched. Set
+  `AUTOJOB_SESSION_CLEAN_STALE_PROFILE=false` to disable the automatic cleanup.
+
 ## Safety rails
 
 - The browser is **opt-in**: `--no-dry-run` is required to launch it.
 - **Login gate:** a real run pauses until you log in; it never types credentials.
 - Task 4 fills **known** answers only, attaches the chosen resume, and **never
   clicks Submit application** — submission stays a manual human step.
-- Unknown questions are left for Task 5 rather than guessed.
+- Task 5 never guesses: an unknown question pauses on a browser banner and waits
+  for you. Answers are stored in `data/answers.json` (no credentials) and reused.
+- Unknown questions that you skip or leave unanswered are recorded rather than
+  guessed.
 - Task 3 only **reads** resumes — it never renames, moves, or edits them.
 - On failure the page URL and a screenshot are saved for debugging.
 - The Chromium profile under `data/profile` persists logins and is gitignored.

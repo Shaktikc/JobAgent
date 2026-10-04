@@ -48,6 +48,19 @@ def _task4_succeeded(state: ApplyState) -> bool:
     )
 
 
+def _task5_succeeded(state: ApplyState) -> bool:
+    """Task 5 passes when every question it asked was resolved, or when it was off.
+
+    The human may answer, skip, or time out — all are acceptable — but a question
+    must not be left in limbo with no recorded outcome (which would mean the run
+    stopped without noticing).
+    """
+    outcome = state.get("task5")
+    if outcome is None or not outcome.enabled:
+        return True
+    return outcome.asked == outcome.answered + outcome.skipped + outcome.timed_out
+
+
 def verify(state: ApplyState) -> ApplyState:
     """Decide the terminal status from what the browser and matcher observed."""
     if state.get("errors"):
@@ -61,6 +74,7 @@ def verify(state: ApplyState) -> ApplyState:
         and _task2_succeeded(state)
         and _task3_succeeded(state)
         and _task4_succeeded(state)
+        and _task5_succeeded(state)
     ):
         return {
             "status": "done",

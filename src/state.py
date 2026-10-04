@@ -1,10 +1,12 @@
-"""The graph's shared state for the LinkedIn agent (Tasks 1-4).
+"""The graph's shared state for the LinkedIn agent (Tasks 1-5).
 
 Task 1 logs in, searches jobs, and selects the **Easy Apply** filter. Task 2 picks
 a job from those results and clicks its **Easy Apply** button, confirming the
 application form opens. Task 3 reads the open job's description and chooses the
 best-matching resume from the ``resumes/`` folder. Task 4 fills the open Easy
 Apply form with known answers and attaches that resume — without submitting.
+Task 5 runs inside that fill: when a question is unknown it pauses for the human
+(in the browser), remembers the answer, and reuses it next time.
 
 The state is a plain ``TypedDict`` so LangGraph can pass partial updates between
 nodes. The ``log``/``errors`` channels use ``operator.add`` so every node can
@@ -121,6 +123,7 @@ class FormField(BaseModel):
     value: str = ""
     options: list[str] = Field(default_factory=list)
     required: bool = False
+    answered_by: str = ""  # "store" (already known) or "human" (Task 5)
     error: str = ""
 
 
@@ -151,14 +154,33 @@ class Task4Outcome(BaseModel):
     notes: str = ""
 
 
+class Task5Outcome(BaseModel):
+    """What happened while asking the human about unknown questions (Task 5).
+
+    Task 5 runs inside the Task 4 fill: an unknown question pauses the run, shows
+    a browser banner explaining the agent does not know the answer, and waits for
+    the human. The answer is remembered in the answer store so the same
+    (normalized) question is answered automatically next time.
+    """
+
+    enabled: bool = False
+    asked: int = 0
+    answered: int = 0
+    skipped: int = 0
+    timed_out: int = 0
+    answered_questions: list[str] = Field(default_factory=list)
+    notes: str = ""
+
+
 class AgentOutcome(BaseModel):
-    """What a single browser run produced (Tasks 1-4)."""
+    """What a single browser run produced (Tasks 1-5)."""
 
     task1: Task1Outcome = Field(default_factory=Task1Outcome)
     task2: Task2Outcome = Field(default_factory=Task2Outcome)
     job_description: JobDescription = Field(default_factory=JobDescription)
     task3: Task3Outcome = Field(default_factory=Task3Outcome)
     task4: Task4Outcome = Field(default_factory=Task4Outcome)
+    task5: Task5Outcome = Field(default_factory=Task5Outcome)
 
 
 class ApplyState(TypedDict, total=False):
@@ -176,6 +198,7 @@ class ApplyState(TypedDict, total=False):
     job_description: JobDescription
     task3: Task3Outcome
     task4: Task4Outcome
+    task5: Task5Outcome
 
     # --- live browser session handle (Tasks 2-4 share one session) ---
     browser_run_id: str

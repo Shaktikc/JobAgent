@@ -1,4 +1,4 @@
-"""Command-line entry point for a single agent run (Tasks 1-4)."""
+"""Command-line entry point for a single agent run (Tasks 1-5)."""
 
 from __future__ import annotations
 
@@ -23,7 +23,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description=(
             "Log in to LinkedIn, search jobs, select the Easy Apply filter, "
             "open a job's Easy Apply form, pick the best-matching resume, and "
-            "start filling the form (Tasks 1-4). The application is never submitted."
+            "start filling the form (Tasks 1-4), asking the human in the browser "
+            "about unknown questions and remembering the answers (Task 5). The "
+            "application is never submitted."
         ),
     )
     parser.add_argument(
@@ -55,6 +57,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Launch the browser and run the agent (requires the `browser` extra).",
     )
     parser.add_argument("--json", action="store_true", help="Print the raw final state as JSON.")
+    parser.add_argument(
+        "--clean-profile",
+        action="store_true",
+        help=(
+            "Close leftover AutoJobApply browser processes still holding the profile "
+            "(e.g. after an interrupted run) and exit."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -113,6 +123,14 @@ def _summary(state: ApplyState) -> str:
             lines.append(f"unknown     : {task4.unknown_fields}")
         if task4.screenshot_path:
             lines.append(f"screenshot  : {task4.screenshot_path}")
+    task5 = state.get("task5")
+    if task5 is not None:
+        lines.append(
+            f"human help  : enabled={task5.enabled} asked={task5.asked} "
+            f"answered={task5.answered} skipped={task5.skipped} timed_out={task5.timed_out}"
+        )
+        if task5.answered_questions:
+            lines.append(f"remembered  : {task5.answered_questions}")
     for entry in state.get("log", []):
         lines.append(f"  - {entry}")
     for error in state.get("errors", []):
@@ -133,8 +151,26 @@ async def _run(args: argparse.Namespace) -> ApplyState:
     return await graph.ainvoke(state)
 
 
+def _clean_profile() -> int:
+    """Kill leftover browsers using the profile and clear its lock files."""
+    from src.tools.browser import clean_profile  # lazy: browser-use stays optional
+
+    settings = load_settings()
+    try:
+        killed = clean_profile(settings)
+    except Exception as exc:  # noqa: BLE001 - surface a clean CLI error
+        print(f"error: could not clean the profile: {exc}", file=sys.stderr)
+        return 1
+    print(f"profile     : {settings.profile_dir}")
+    print(f"leftover    : closed {killed} browser process(es), cleared lock files")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
+    if args.clean_profile:
+        return _clean_profile()
+
     try:
         state = asyncio.run(_run(args))
     except Exception as exc:  # noqa: BLE001 - surface a clean CLI error

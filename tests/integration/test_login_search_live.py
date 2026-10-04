@@ -27,9 +27,13 @@ pytestmark = pytest.mark.skipif(
 
 
 async def test_agent_runs_tasks_1_to_4_without_submitting() -> None:
+    from src.configuration import SessionSettings, Settings
     from src.tools.browser import run_full_agent
 
-    result = await run_full_agent(LIVE_URL, "software engineer", progress=print)
+    # This test is about Tasks 1-4; keep it deterministic by not waiting on the
+    # interactive Task 5 banner (that path is covered by test_fill_form_live.py).
+    settings = Settings(session=SessionSettings(ask_human=False))
+    result = await run_full_agent(LIVE_URL, "software engineer", settings, progress=print)
 
     assert result.task1.logged_in, "login was not completed"
     assert result.task1.results_found, f"no search results (url={result.task1.page_url})"

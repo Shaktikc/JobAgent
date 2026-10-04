@@ -14,7 +14,7 @@ Keep newest work at the bottom so the log reads chronologically.
 | 2 | Select Easy Apply from the job list | ✅ Done | 2026-10-04 |
 | 3 | Read the job description and pick the best-matching resume | ✅ Done | 2026-10-04 |
 | 4 | Open Easy Apply and start filling the application form | ✅ Done | 2026-10-04 |
-| 5 | Ask the human for unknown answers, remember them, and show UI feedback | ⬜ Not started | — |
+| 5 | Ask the human for unknown answers, remember them, and show UI feedback | ✅ Done | 2026-10-04 |
 
 ---
 
@@ -128,6 +128,71 @@ Keep newest work at the bottom so the log reads chronologically.
   selected with no upload, a non-listed resume uploaded (`files == 1`), one step
   advanced, and Submit never clicked. Runnable in slow motion with
   `AUTOJOB_SESSION_HEADLESS=false` and `AUTOJOB_FILL_TEST_STEP_DELAY=1.5`.
+
+---
+
+## Task 5 — Ask the human for unknown answers, remember them, and show UI feedback
+
+**Status:** ✅ Done
+**Completed:** 2026-10-04
+
+**What was done**
+- The Task 4 fill now detects a question the answer store cannot answer and, when
+  `AUTOJOB_SESSION_ASK_HUMAN` is on (default), **pauses** the run instead of
+  guessing.
+- A visible banner is injected into the browser window ("AutoJobApply does not
+  know this answer") with the question, a text box, **Use answer**, and **Skip**;
+  the run polls the banner until the human answers, skips, or the wait times out.
+- The human's answer is filled (text/select/checkbox/radio, matching the right
+  option), then saved to `data/answers.json` under the normalized question key, so
+  the same question is answered automatically on later steps and later runs.
+- Unknown radio groups that a stored answer cannot satisfy are re-asked, and the
+  changed mapping is recorded explicitly ("updated the stored answer …").
+- The answer store is updated in memory as well as on disk, so a repeated question
+  within the same run is filled with no second prompt. Answers the human skips or
+  leaves blank stay flagged as unknown.
+- **Fix (found in a real LinkedIn run):** controls the form has already filled are
+  no longer treated as unknown. LinkedIn pre-fills its *Email address* and *Phone
+  country code* `<select>`s from the profile, and the agent used to pause on them
+  (and could not set the select from free text). Now a pre-filled select/radio/
+  text control is accepted as-is (no prompt, no overwrite), a `<select>` answer is
+  matched to the option's value by its visible text as well as its value, and the
+  banner shows the allowed choices so the human can pick one.
+- **Fix (interrupted-run browser leftovers):** an interrupted run can leave a
+  Chromium owning `data/profile`; a new launch then hands its command line to that
+  instance and exits before opening its own CDP port ("Browser process … exited
+  before CDP became available"). `build_browser` now detects a locked profile,
+  closes only the browser processes whose command line references our dedicated
+  profile, and clears the single-instance lock files before launching. A manual
+  `uv run autojob --clean-profile` does the same on demand.
+- Task 5 runs inside the Task 4 fill (no new graph node); the outcome is recorded
+  in a new `Task5Outcome` (`asked` / `answered` / `skipped` / `timed_out` /
+  `answered_questions`) on `AgentOutcome.task5` and `ApplyState.task5`, surfaced in
+  the CLI summary and checked by `verify` (`_task5_succeeded`). The application is
+  still never submitted.
+
+**Evidence**
+- `src/tools/browser.py` — `ask_human_for_answer`, `_remember_answer`, the
+  `_SHOW_UNKNOWN_JS` / `_READ_UNKNOWN_JS` / `_HIDE_UNKNOWN_JS` banner, and the
+  Task 5 wiring in `_fill_step` / `_task4_on_page` / `fill_application`.
+- `src/state.py` — `Task5Outcome`, `FormField.answered_by`, `AgentOutcome.task5`.
+- `src/configuration.py` — `ask_human`, `ask_timeout_seconds`, `ask_poll_seconds`
+  (`AUTOJOB_SESSION_ASK_*`).
+- `src/nodes/fill.py` — stores `task5`; `src/nodes/verify.py` — `_task5_succeeded`;
+  `src/main.py` — the human-help summary lines and the `--clean-profile` command.
+- `src/tools/browser.py` — `terminate_profile_browsers` / `clear`-profile lock
+  helpers used by `build_browser`; `src/configuration.py` —
+  `clean_stale_profile` (`AUTOJOB_SESSION_CLEAN_STALE_PROFILE`).
+- Tests: `tests/unit/test_browser_tools.py` (asks once and reuses the stored
+  answer, skip, disabled, radio group, **pre-filled control skipped**, **select
+  label mapped to option value**), `tests/unit/test_configuration.py`,
+  `tests/unit/test_graph.py` (fill node propagation + verify gate).
+- Live browser test: `tests/integration/test_fill_form_live.py::test_task5_pauses_for_the_human_and_remembers`
+  drives real Chromium: the banner appears ("does not know" + the question), the
+  test types the answer and submits it, the field is filled, the banner is removed,
+  and the answer is persisted to the store. (`AUTOJOB_FILL_LIVE=1`)
+- `uv run pytest` → 133 passed, 4 skipped; `uv run ruff check .` → clean;
+  `uv run autojob --dry-run` → exit 0.
 
 ---
 
