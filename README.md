@@ -49,9 +49,11 @@ The graph is `START -> ingest -> browse -> match -> fill -> cleanup -> verify ->
      answer that matches a visible option label is mapped to the right value.
      Controls the form has **already filled** (e.g. LinkedIn's pre-filled *Email
      address* / *Phone country code* selects) are left as-is and never asked
-     about. Set `AUTOJOB_SESSION_ASK_HUMAN=false` to leave unknown questions
-     unanswered instead of prompting. Questions you skip or leave unanswered are
-     recorded and can be answered on a later run.
+     about. Clicking **Use answer** with an empty box re-prompts instead of
+     skipping; use **Skip** to skip on purpose. Set
+     `AUTOJOB_SESSION_ASK_HUMAN=false` to leave unknown questions unanswered
+     instead of prompting. Questions you skip or leave unanswered are recorded and
+     can be answered on a later run.
 5. **cleanup** — closes the shared browser session on every path.
 6. **verify** — passes only when all of the above succeeded. Otherwise the run
    fails and a full-page screenshot plus the page URL are recorded under
@@ -161,6 +163,10 @@ tests/
   This only closes browser processes whose command line references the dedicated
   `data/profile`, so your normal Chrome is untouched. Set
   `AUTOJOB_SESSION_CLEAN_STALE_PROFILE=false` to disable the automatic cleanup.
+
+- **`Exception ignored in: … I/O operation on closed pipe` after a run** — a
+  harmless Windows `asyncio` shutdown artifact from the browser subprocess. The
+  CLI filters exactly that message, so it no longer clutters the output.
 
 ## Safety rails
 

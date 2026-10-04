@@ -166,7 +166,30 @@ def _clean_profile() -> int:
     return 0
 
 
+def _silence_windows_pipe_noise() -> None:
+    """Suppress a harmless Windows shutdown artifact from the browser subprocess.
+
+    On Windows, browser-use's Chrome subprocess can leave an asyncio pipe transport
+    alive when the event loop closes. Its ``__del__`` then formats a
+    ``ResourceWarning`` and raises "I/O operation on closed pipe", which Python
+    prints as an unraisable exception *after* a successful run. Filter exactly
+    that message so the CLI output stays clean; everything else is untouched.
+    """
+    if sys.platform != "win32":
+        return
+    original = sys.unraisablehook
+
+    def hook(unraisable) -> None:  # pragma: no cover - shutdown-time only
+        exc = unraisable.exc_value
+        if isinstance(exc, ValueError) and "I/O operation on closed pipe" in str(exc):
+            return
+        original(unraisable)
+
+    sys.unraisablehook = hook
+
+
 def main(argv: list[str] | None = None) -> int:
+    _silence_windows_pipe_noise()
     args = _parse_args(argv)
     if args.clean_profile:
         return _clean_profile()

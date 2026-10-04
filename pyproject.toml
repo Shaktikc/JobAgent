@@ -1,6 +1,6 @@
 [project]
 name = "autojobapply"
-version = "0.8.1"
+version = "0.8.2"
 description = "A LangGraph agent that logs in to LinkedIn, searches jobs, selects the Easy Apply filter, opens a job's Easy Apply form, picks the best-matching resume, fills the form through a real browser, and asks the human about unknown questions it then remembers."
 readme = "README.md"
 requires-python = ">=3.11,<3.13"

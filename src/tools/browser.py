@@ -1152,16 +1152,25 @@ async def ask_human_for_answer(
         "in the browser banner."
     )
     deadline = time.monotonic() + settings.session.ask_timeout_seconds
+    hinted_empty = False
     while time.monotonic() < deadline:
         payload = _loads(await _safe(page.evaluate(_READ_UNKNOWN_JS), ""))
         state = str(payload.get("state") or "")
         if state == "submitted":
             answer = str(payload.get("answer") or "").strip()
-            await _safe(page.evaluate(_HIDE_UNKNOWN_JS))
             if not answer:
-                human.skipped += 1
-                notify(f"Task 5: the answer for {question!r} was empty; leaving it unknown.")
-                return None
+                # An empty submit is almost always a slip: keep the banner open and
+                # ask again rather than silently treating it as a skip. "Skip" is
+                # still there for an intentional skip.
+                if not hinted_empty:
+                    notify(
+                        f"Task 5: please type an answer for {question!r}, or click Skip."
+                    )
+                    hinted_empty = True
+                await _safe(page.evaluate(_SHOW_UNKNOWN_JS, question, hint or ""))
+                await asyncio.sleep(settings.session.ask_poll_seconds)
+                continue
+            await _safe(page.evaluate(_HIDE_UNKNOWN_JS))
             human.answered += 1
             if question not in human.answered_questions:
                 human.answered_questions.append(question)

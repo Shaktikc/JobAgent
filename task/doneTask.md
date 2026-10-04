@@ -158,6 +158,12 @@ Keep newest work at the bottom so the log reads chronologically.
   text control is accepted as-is (no prompt, no overwrite), a `<select>` answer is
   matched to the option's value by its visible text as well as its value, and the
   banner shows the allowed choices so the human can pick one.
+- **Fix (accidental skips):** clicking **Use answer** with an empty box no longer
+  silently marks the question skipped; the banner stays open and re-prompts (the
+  **Skip** button is still there for an intentional skip).
+- **Fix (noisy shutdown):** the harmless Windows `asyncio` "I/O operation on
+  closed pipe" unraisable traceback printed after a run is now filtered by the
+  CLI, so a successful run ends with clean output.
 - **Fix (interrupted-run browser leftovers):** an interrupted run can leave a
   Chromium owning `data/profile`; a new launch then hands its command line to that
   instance and exits before opening its own CDP port ("Browser process … exited

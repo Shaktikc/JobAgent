@@ -354,6 +354,13 @@ async def test_task5_pauses_for_the_human_and_remembers(tmp_path: Path) -> None:
         assert "does not know" in banner_text
         assert "Notice period" in banner_text
 
+        # An accidental empty "Use answer" must not silently skip the question:
+        # the banner stays open and waits for a real answer.
+        await page.evaluate(_ANSWER_BANNER_JS, "")
+        await asyncio.sleep(0.4)
+        still_open = json.loads(await page.evaluate(browser_tools._READ_UNKNOWN_JS))
+        assert still_open["present"] is True
+
         await page.evaluate(_ANSWER_BANNER_JS, "4 weeks")
         outcome = await asyncio.wait_for(fill_task, timeout=30)
 
@@ -368,6 +375,7 @@ async def test_task5_pauses_for_the_human_and_remembers(tmp_path: Path) -> None:
         assert human.enabled is True
         assert human.asked == 1
         assert human.answered == 1
+        assert human.skipped == 0
         assert human.answered_questions == ["Notice period"]
         stored = browser_tools.load_answers(settings.answers_file)
         assert stored["notice period"] == "4 weeks"
