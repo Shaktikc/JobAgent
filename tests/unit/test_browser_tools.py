@@ -1382,6 +1382,85 @@ async def test_task5_select_answer_matches_option_text(
     assert browser_tools.load_answers(settings.answers_file)["preferred contact method"] == "Phone"
 
 
+class _Task5BannerPage:
+    """A minimal page that plays the Task 5 banner and the form-answer watcher."""
+
+    def __init__(self, *, answer: str = "", done: bool = True, skip: bool = False) -> None:
+        self.answer = answer
+        self.done = done
+        self.skip = skip
+        self.shown = False
+        self.hidden = False
+
+    async def evaluate(self, js: str, *args):
+        if "autojob-unknown" in js:
+            if "getAttribute" in js:
+                state = "skipped" if self.skip else "pending"
+                return json.dumps({"present": True, "state": state})
+            if "box.remove()" in js:
+                self.hidden = True
+                return True
+            self.shown = True
+            return True
+        if "__autojobFormAnswer" in js and "addEventListener" in js:
+            return True
+        if "__autojobFormAnswer" in js:
+            return json.dumps({"value": self.answer, "done": self.done})
+        return ""
+
+
+async def test_task5_reads_the_answer_typed_into_the_form(tmp_path) -> None:
+    """The banner has no input: the answer is read from the form field the human edits."""
+    page = _Task5BannerPage(answer="Sydney", done=True)
+    notes: list[str] = []
+    human = Task5Outcome()
+    settings = _settings(tmp_path, ask_human=True, ask_poll_seconds=0.01)
+
+    answer = await browser_tools.ask_human_for_answer(
+        page, "City", "text", "", settings, notes.append, human
+    )
+
+    assert answer == "Sydney"
+    assert page.shown is True
+    assert page.hidden is True
+    assert human.asked == 1
+    assert human.answered == 1
+    assert human.answered_questions == ["City"]
+    assert any("City" in note for note in notes)
+
+
+async def test_task5_empty_form_edit_keeps_waiting(tmp_path) -> None:
+    """An empty edit never counts as an answer; the wait times out instead."""
+    page = _Task5BannerPage(answer="", done=True)
+    human = Task5Outcome()
+    settings = _settings(
+        tmp_path, ask_human=True, ask_timeout_seconds=0.05, ask_poll_seconds=0.01
+    )
+
+    answer = await browser_tools.ask_human_for_answer(
+        page, "City", "text", "", settings, lambda _m: None, human
+    )
+
+    assert answer is None
+    assert human.answered == 0
+    assert human.timed_out == 1
+
+
+async def test_task5_skip_still_leaves_the_question_unknown(tmp_path) -> None:
+    """The banner keeps a Skip button; skipping returns no answer."""
+    page = _Task5BannerPage(skip=True)
+    human = Task5Outcome()
+    settings = _settings(tmp_path, ask_human=True, ask_poll_seconds=0.01)
+
+    answer = await browser_tools.ask_human_for_answer(
+        page, "City", "text", "", settings, lambda _m: None, human
+    )
+
+    assert answer is None
+    assert human.skipped == 1
+    assert human.answered == 0
+
+
 async def test_run_agent_registers_and_closes_the_session(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:

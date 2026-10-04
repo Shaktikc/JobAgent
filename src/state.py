@@ -159,8 +159,9 @@ class Task5Outcome(BaseModel):
 
     Task 5 runs inside the Task 4 fill: an unknown question pauses the run, shows
     a browser banner explaining the agent does not know the answer, and waits for
-    the human. The answer is remembered in the answer store so the same
-    (normalized) question is answered automatically next time.
+    the human to type the answer into the form field. The answer is remembered in
+    the answer store so the same (normalized) question is answered automatically
+    next time.
     """
 
     enabled: bool = False

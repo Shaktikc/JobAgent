@@ -17,9 +17,9 @@ fills every field whose answer is known, attaches the resume chosen by Task 3
 advances through multi-step forms — stopping before **Submit application**.
 
 Task 5 rides along with Task 4: when a question is unknown, a visible browser
-banner says the agent does not know the answer and the run pauses for the human.
-The answer is remembered in the answer store so the same (normalized) question is
-filled automatically next time.
+banner says the agent does not know the answer and the run pauses for the human
+to type the answer into the form field itself. The answer is remembered in the
+answer store so the same (normalized) question is filled automatically next time.
 
 The interaction uses browser-use's deterministic CDP actor API (``Page`` /
 ``Element``); no LLM is involved.
@@ -492,10 +492,11 @@ _FILL_SELECT_JS = r"""
 """
 
 # Task 5: a visible banner that tells the human the agent cannot answer a
-# question and lets them type the answer (or skip). The question text is set via
-# ``textContent`` so page content can never inject markup. The banner records its
-# state in ``data-autojob-state`` (``pending`` / ``submitted`` / ``skipped``) so
-# the agent can poll it without blocking the page.
+# question and asks them to type the answer into the form field itself. The
+# question text is set via ``textContent`` so page content can never inject
+# markup. The banner records its state in ``data-autojob-state`` (``pending`` /
+# ``skipped``) so the agent can poll it without blocking the page. There is no
+# input in the banner: the answer is read from the form control the human edits.
 _SHOW_UNKNOWN_JS = r"""
 (question, hint) => {
   let box = document.getElementById('autojob-unknown');
@@ -520,39 +521,26 @@ _SHOW_UNKNOWN_JS = r"""
     const hintEl = document.createElement('div');
     hintEl.id = 'autojob-unknown-hint';
     hintEl.style.cssText = 'margin-bottom:8px;color:#555;font-size:13px';
-    const input = document.createElement('input');
-    input.id = 'autojob-unknown-input';
-    input.type = 'text';
-    input.placeholder = 'Type your answer\u2026';
-    input.style.cssText =
-      'width:100%;box-sizing:border-box;padding:8px;border:1px solid #999;border-radius:4px';
+    const instruction = document.createElement('div');
+    instruction.id = 'autojob-unknown-instruction';
+    instruction.textContent =
+      'Type your answer in the form field on the page, then click away to confirm.';
+    instruction.style.cssText = 'margin-bottom:8px;color:#555;font-size:13px';
     const row = document.createElement('div');
-    row.style.cssText = 'margin-top:8px;display:flex;gap:8px;justify-content:flex-end';
+    row.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
     const skip = document.createElement('button');
     skip.id = 'autojob-unknown-skip';
     skip.type = 'button';
     skip.textContent = 'Skip';
     skip.style.cssText = 'padding:6px 12px;border:1px solid #666;border-radius:4px;cursor:pointer';
-    const submit = document.createElement('button');
-    submit.id = 'autojob-unknown-submit';
-    submit.type = 'button';
-    submit.textContent = 'Use answer';
-    submit.style.cssText =
-      'padding:6px 12px;border:0;border-radius:4px;background:#0a66c2;color:#fff;cursor:pointer';
     row.appendChild(skip);
-    row.appendChild(submit);
     box.appendChild(heading);
     box.appendChild(q);
     box.appendChild(hintEl);
-    box.appendChild(input);
+    box.appendChild(instruction);
     box.appendChild(row);
     document.body.appendChild(box);
-    const finish = (state) => box.setAttribute('data-autojob-state', state);
-    submit.addEventListener('click', () => finish('submitted'));
-    skip.addEventListener('click', () => finish('skipped'));
-    input.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') finish('submitted');
-    });
+    skip.addEventListener('click', () => box.setAttribute('data-autojob-state', 'skipped'));
   }
   box.setAttribute('data-autojob-state', 'pending');
   const q = document.getElementById('autojob-unknown-question');
@@ -562,34 +550,109 @@ _SHOW_UNKNOWN_JS = r"""
     hintEl.textContent = hint || '';
     hintEl.style.display = hint ? 'block' : 'none';
   }
-  const input = document.getElementById('autojob-unknown-input');
-  if (input) {
-    input.value = '';
-    try { input.focus(); } catch (err) {}
-  }
   return true;
 }
 """
 
-# Read the banner's current state (and whatever the human has typed so far).
+# Task 5: watch the form for the human's answer. The banner has no input, so the
+# human types into the actual form control; this records the edited value on the
+# page and flags when the edit is finished (a change/blur or Enter). A single
+# document-level listener is installed once and reset for each question, so the
+# agent can poll the value without blocking.
+_WATCH_FORM_ANSWER_JS = r"""
+() => {
+  const KEY = '__autojobFormAnswer';
+  const previous = window[KEY];
+  if (previous && previous.installed) {
+    previous.value = '';
+    previous.done = false;
+    return true;
+  }
+  const state = { installed: true, value: '', done: false };
+  window[KEY] = state;
+
+  const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+  const esc = (s) => (window.CSS && CSS.escape) ? CSS.escape(s) : s;
+
+  const isControl = (el) => {
+    if (!el || !el.tagName) return false;
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+    const role = (el.getAttribute('role') || '').toLowerCase();
+    return role === 'radio' || role === 'checkbox';
+  };
+
+  const labelText = (el) => {
+    if (el.id) {
+      const l = document.querySelector('label[for="' + esc(el.id) + '"]');
+      if (l && norm(l.innerText)) return norm(l.innerText);
+    }
+    const wrap = el.closest('label');
+    if (wrap && norm(wrap.innerText)) return norm(wrap.innerText);
+    return '';
+  };
+
+  const readValue = (el) => {
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'select') {
+      const opt = el.options ? el.options[el.selectedIndex] : null;
+      return opt ? norm(opt.text || opt.value) : '';
+    }
+    const type = (el.getAttribute('type') || '').toLowerCase();
+    if (type === 'checkbox') return el.checked ? 'Yes' : '';
+    if (type === 'radio') return el.checked ? (labelText(el) || norm(el.value)) : '';
+    return norm(el.value);
+  };
+
+  const record = (el, finished) => {
+    if (!isControl(el)) return;
+    const value = readValue(el);
+    if (!value) return;  // ignore empty edits and unrelated blur events
+    state.value = value;
+    if (finished) state.done = true;
+  };
+
+  document.addEventListener('input', (e) => record(e.target, false), true);
+  document.addEventListener('change', (e) => record(e.target, true), true);
+  document.addEventListener('focusout', (e) => record(e.target, true), true);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') record(e.target, true);
+  }, true);
+  return true;
+}
+"""
+
+# Read the answer the human typed into the form (value + whether the edit is done).
+_READ_FORM_ANSWER_JS = r"""
+() => {
+  const state = window.__autojobFormAnswer;
+  if (!state) return JSON.stringify({ value: '', done: false });
+  return JSON.stringify({ value: state.value || '', done: !!state.done });
+}
+"""
+
+# Read the banner's current state (``pending`` / ``skipped``).
 _READ_UNKNOWN_JS = r"""
 () => {
   const box = document.getElementById('autojob-unknown');
   if (!box) return JSON.stringify({ present: false });
-  const input = document.getElementById('autojob-unknown-input');
   return JSON.stringify({
     present: true,
-    state: box.getAttribute('data-autojob-state') || 'pending',
-    answer: input ? input.value : ''
+    state: box.getAttribute('data-autojob-state') || 'pending'
   });
 }
 """
 
-# Remove the banner once the question is resolved.
+# Remove the banner and reset the watcher once the question is resolved.
 _HIDE_UNKNOWN_JS = r"""
 () => {
   const box = document.getElementById('autojob-unknown');
   if (box) box.remove();
+  const state = window.__autojobFormAnswer;
+  if (state) {
+    state.value = '';
+    state.done = false;
+  }
   return true;
 }
 """
@@ -1128,16 +1191,18 @@ async def ask_human_for_answer(
     notify,
     human: Task5Outcome | None = None,
 ) -> str | None:
-    """Task 5: show a browser banner and wait for the human to answer.
+    """Task 5: show a browser banner and read the human's answer from the form.
 
-    Returns the typed answer, or ``None`` when the human skipped or the wait timed
-    out. The run pauses here (polling the banner) instead of guessing. The banner
-    plainly states the agent does not know the answer and, for a choice field,
-    lists the allowed options (``hint``).
+    Returns the answer the human typed into the form control, or ``None`` when the
+    human skipped or the wait timed out. The run pauses here (polling the page)
+    instead of guessing. The banner plainly states the agent does not know the
+    answer and, for a choice field, lists the allowed options (``hint``). The
+    banner has no input: the human edits the real form field and this reads it.
     """
     human = human if human is not None else Task5Outcome()
     human.enabled = True
     human.asked += 1
+    await _safe(page.evaluate(_WATCH_FORM_ANSWER_JS))
     shown = await _safe(page.evaluate(_SHOW_UNKNOWN_JS, question, hint or ""))
     if not shown:
         human.timed_out += 1
@@ -1148,39 +1213,26 @@ async def ask_human_for_answer(
 
     kind = f" ({field_type})" if field_type else ""
     notify(
-        f"Task 5: I do not know {question!r}{kind}; waiting for you to answer it "
-        "in the browser banner."
+        f"Task 5: I do not know {question!r}{kind}; type the answer in the form "
+        "field in the browser."
     )
     deadline = time.monotonic() + settings.session.ask_timeout_seconds
-    hinted_empty = False
     while time.monotonic() < deadline:
         payload = _loads(await _safe(page.evaluate(_READ_UNKNOWN_JS), ""))
-        state = str(payload.get("state") or "")
-        if state == "submitted":
-            answer = str(payload.get("answer") or "").strip()
-            if not answer:
-                # An empty submit is almost always a slip: keep the banner open and
-                # ask again rather than silently treating it as a skip. "Skip" is
-                # still there for an intentional skip.
-                if not hinted_empty:
-                    notify(
-                        f"Task 5: please type an answer for {question!r}, or click Skip."
-                    )
-                    hinted_empty = True
-                await _safe(page.evaluate(_SHOW_UNKNOWN_JS, question, hint or ""))
-                await asyncio.sleep(settings.session.ask_poll_seconds)
-                continue
-            await _safe(page.evaluate(_HIDE_UNKNOWN_JS))
-            human.answered += 1
-            if question not in human.answered_questions:
-                human.answered_questions.append(question)
-            notify(f"Task 5: got an answer for {question!r}.")
-            return answer
-        if state == "skipped":
+        if str(payload.get("state") or "") == "skipped":
             await _safe(page.evaluate(_HIDE_UNKNOWN_JS))
             human.skipped += 1
             notify(f"Task 5: you skipped {question!r}; leaving it unknown.")
             return None
+        answer_payload = _loads(await _safe(page.evaluate(_READ_FORM_ANSWER_JS), ""))
+        answer = str(answer_payload.get("value") or "").strip()
+        if answer and answer_payload.get("done"):
+            await _safe(page.evaluate(_HIDE_UNKNOWN_JS))
+            human.answered += 1
+            if question not in human.answered_questions:
+                human.answered_questions.append(question)
+            notify(f"Task 5: got an answer for {question!r} from the form.")
+            return answer
         await asyncio.sleep(settings.session.ask_poll_seconds)
 
     await _safe(page.evaluate(_HIDE_UNKNOWN_JS))
@@ -1690,9 +1742,10 @@ async def _task4_on_page(
     step (only Submit is left), or as soon as a step fails to advance.
 
     Task 5 rides along: when a question is unknown and ``ask_human`` is on, the
-    run pauses on a browser banner for the human. Answers are remembered so the
-    same question is filled automatically next time. The optional ``human``
-    tracker records the questions asked, answered, skipped, and timed out.
+    run pauses on a browser banner and reads the answer the human types into the
+    form field. Answers are remembered so the same question is filled
+    automatically next time. The optional ``human`` tracker records the questions
+    asked, answered, skipped, and timed out.
     """
     outcome = Task4Outcome(resume_path=resume_path or "")
     human = human if human is not None else Task5Outcome()

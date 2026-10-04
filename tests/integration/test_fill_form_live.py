@@ -286,12 +286,19 @@ _TASK5_FORM_HTML = """<!doctype html>
 </body></html>
 """
 
-# Play the human: type into the banner and click "Use answer".
-_ANSWER_BANNER_JS = """(answer) => {
-  const box = document.getElementById('autojob-unknown');
-  if (!box) return false;
-  document.getElementById('autojob-unknown-input').value = answer;
-  document.getElementById('autojob-unknown-submit').click();
+# Play the human: type the answer into the real form field (the banner has no
+# input) and fire the events a real edit would, so the agent picks it up.
+_ANSWER_IN_FORM_JS = """(answer) => {
+  const el = document.getElementById('notice');
+  if (!el) return false;
+  el.focus();
+  const setter = Object.getOwnPropertyDescriptor(
+    window.HTMLInputElement.prototype, 'value'
+  ).set;
+  setter.call(el, answer);
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+  el.blur();
   return true;
 }"""
 
@@ -353,15 +360,21 @@ async def test_task5_pauses_for_the_human_and_remembers(tmp_path: Path) -> None:
         )
         assert "does not know" in banner_text
         assert "Notice period" in banner_text
+        # The banner only explains the problem: it has no answer input of its own.
+        has_input = await page.evaluate(
+            "() => !!document.getElementById('autojob-unknown-input')"
+        )
+        assert str(has_input).lower() == "false"
 
-        # An accidental empty "Use answer" must not silently skip the question:
-        # the banner stays open and waits for a real answer.
-        await page.evaluate(_ANSWER_BANNER_JS, "")
+        # An empty edit must not silently skip the question: the banner stays open
+        # and waits for a real answer typed into the form.
+        await page.evaluate(_ANSWER_IN_FORM_JS, "")
         await asyncio.sleep(0.4)
         still_open = json.loads(await page.evaluate(browser_tools._READ_UNKNOWN_JS))
         assert still_open["present"] is True
 
-        await page.evaluate(_ANSWER_BANNER_JS, "4 weeks")
+        # Typing into the real form field is what the agent reads.
+        await page.evaluate(_ANSWER_IN_FORM_JS, "4 weeks")
         outcome = await asyncio.wait_for(fill_task, timeout=30)
 
         observed = json.loads(await page.evaluate(_READ_TASK5_JS))

@@ -43,15 +43,15 @@ The graph is `START -> ingest -> browse -> match -> fill -> cleanup -> verify ->
    Submit application** and never clicks it.
    - **Task 5 (inside fill):** when a question is not in the store, the agent shows
      a banner in the browser window saying it does not know the answer, **pauses
-     for you to type it**, fills the field, and saves the normalized question →
-     answer mapping. The same question is answered automatically next run. Choice
-     fields (selects/radios) list their allowed options in the banner, and an
-     answer that matches a visible option label is mapped to the right value.
-     Controls the form has **already filled** (e.g. LinkedIn's pre-filled *Email
-     address* / *Phone country code* selects) are left as-is and never asked
-     about. Clicking **Use answer** with an empty box re-prompts instead of
-     skipping; use **Skip** to skip on purpose. Set
-     `AUTOJOB_SESSION_ASK_HUMAN=false` to leave unknown questions unanswered
+     for you to type it into the form field on the page** (the banner has no input
+     of its own), reads the value you enter, fills the field, and saves the
+     normalized question → answer mapping. The same question is answered
+     automatically next run. Choice fields (selects/radios) list their allowed
+     options in the banner, and an answer that matches a visible option label is
+     mapped to the right value. Controls the form has **already filled** (e.g.
+     LinkedIn's pre-filled *Email address* / *Phone country code* selects) are left
+     as-is and never asked about. Click **Skip** in the banner to skip on purpose.
+     Set `AUTOJOB_SESSION_ASK_HUMAN=false` to leave unknown questions unanswered
      instead of prompting. Questions you skip or leave unanswered are recorded and
      can be answered on a later run.
 5. **cleanup** — closes the shared browser session on every path.
@@ -175,7 +175,8 @@ tests/
 - Task 4 fills **known** answers only, attaches the chosen resume, and **never
   clicks Submit application** — submission stays a manual human step.
 - Task 5 never guesses: an unknown question pauses on a browser banner and waits
-  for you. Answers are stored in `data/answers.json` (no credentials) and reused.
+  for you to type the answer into the form field. Answers are stored in
+  `data/answers.json` (no credentials) and reused.
 - Unknown questions that you skip or leave unanswered are recorded rather than
   guessed.
 - Task 3 only **reads** resumes — it never renames, moves, or edits them.
