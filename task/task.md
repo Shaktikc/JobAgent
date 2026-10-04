@@ -77,7 +77,7 @@ button.
 
 ## Task 3 — Read the job description and pick the best-matching resume
 
-**Status:** ⬜ Not started
+**Status:** ✅ Done
 
 **Goal:** Read the description of the job that is open in the details pane, then
 choose the resume from the `resumes/` folder that best fits that description.
@@ -85,8 +85,7 @@ choose the resume from the `resumes/` folder that best fits that description.
 **Preconditions**
 - Task 2 is complete: a job is open and its **Easy Apply** form has been reached.
 - The `resumes/` folder contains one or more candidate resumes (supported
-  formats: `.pdf`, `.docx`, `.txt`, `.md`). The folder is currently empty, so it
-  must be populated before this task can succeed.
+  formats: `.pdf`, `.docx`, `.txt`, `.md`).
 
 **Inputs**
 - `resumes_dir` — path to the resumes folder (default `resumes/`).
@@ -120,7 +119,7 @@ choose the resume from the `resumes/` folder that best fits that description.
 
 ## Task 4 — Open Easy Apply and start filling the application form
 
-**Status:** ⬜ Not started
+**Status:** ✅ Done
 
 **Goal:** Open the Easy Apply form and begin filling it: attach the resume chosen
 in Task 3 and populate every field whose answer is already known. Do **not**
@@ -141,19 +140,30 @@ submit the application.
    checkboxes, date pickers, and the resume upload control).
 2. For each field, determine whether the answer is already known.
 3. Fill the fields whose answers are known.
-4. Upload the resume chosen in Task 3 through the resume/attachment control.
+4. Attach the resume chosen in Task 3:
+   a. Check the resume options already listed on the form (e.g. LinkedIn's
+      "Select a resume" list).
+   b. **If the chosen resume's name matches one already listed on the form,**
+      select that listed resume directly — do **not** upload the file again.
+   c. Otherwise, upload the resume file through the resume/attachment control.
 5. Advance through multi-step forms as needed, continuing to fill known fields.
 6. Stop before the final **Submit application** action.
 
 **Acceptance criteria**
 - The Easy Apply form is open and its fields are enumerated.
-- The resume from Task 3 is attached.
+- The resume from Task 3 is attached: either selected from the form's existing
+  resume list when its name matches, or uploaded when it is not already listed.
+- The matching listed resume is preferred over uploading a duplicate.
 - Every field with a known answer is filled.
 - Unknown fields are left for Task 5 (or flagged) rather than guessed.
 - The application is **not** submitted.
 
 **Notes**
 - Never type credentials; the login gate remains human.
+- Resume matching is by name: compare the Task 3 file name (without extension,
+  normalized) against the names shown in the form's resume list. When a match is
+  found, select it instead of uploading, so no duplicate resume is created.
+- Only upload the file when no listed resume matches.
 - If a field cannot be found or filled, capture a screenshot and the page URL for
   debugging.
 - Never click **Submit application** — submission stays a manual human step.
