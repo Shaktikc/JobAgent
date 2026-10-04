@@ -54,6 +54,7 @@ from src.state import (
 from src.tools.answers import load_answers, lookup_answer
 from src.tools.forms import (
     answers_match,
+    looks_like_next,
     looks_like_resume_field,
     pick_listed_resume,
     pick_next_button,
@@ -203,8 +204,10 @@ _JOB_DESCRIPTION_QUERY = """
 }
 """
 
-# How many steps of a multi-step Easy Apply form to walk before stopping.
-_MAX_FORM_STEPS = 6
+# How many steps of a multi-step Easy Apply form to walk before stopping. The
+# form is dynamic, so this is only a safety cap: the walk stops as soon as there
+# is no Next button or the step stops changing.
+_MAX_FORM_STEPS = 10
 
 # Enumerate the Easy Apply form's controls (Task 4). Each control gets a
 # ``data-autojob-fill`` marker so it can be resolved back to a browser-use
@@ -215,9 +218,11 @@ _ENUMERATE_FORM_QUERY = r"""
     'div.jobs-easy-apply-modal, div[role="dialog"].artdeco-modal, '
     + '.artdeco-modal--layer-default, div[data-test-modal-container], .artdeco-modal'
   );
-  if (!modal) return JSON.stringify({ open: false, fields: [] });
+  if (!modal) return JSON.stringify({ open: false, title: '', fields: [] });
 
   const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+  const titleEl = modal.querySelector('h3');
+  const title = titleEl ? norm(titleEl.innerText) : '';
   const esc = (s) => (window.CSS && CSS.escape) ? CSS.escape(s) : s;
 
   const ownLabel = (el) => {
@@ -310,18 +315,24 @@ _ENUMERATE_FORM_QUERY = r"""
       options: options
     });
   });
-  return JSON.stringify({ open: true, fields: fields });
+  return JSON.stringify({ open: true, title: title, fields: fields });
 }
 """
 
 # Find the resume options already listed on the form plus any file input (Task 4).
+# The resume control is dynamic: it may be a radio list, a ``<select>``, a file
+# input, or an "Upload resume" button that reveals the file input only on click.
 _RESUME_OPTIONS_QUERY = r"""
 () => {
   const modal = document.querySelector(
     'div.jobs-easy-apply-modal, div[role="dialog"].artdeco-modal, '
     + '.artdeco-modal--layer-default, div[data-test-modal-container], .artdeco-modal'
   );
-  if (!modal) return JSON.stringify({ options: [], fileInput: false });
+  if (!modal) {
+    return JSON.stringify({
+      options: [], fileInput: false, select: null, uploadButton: null
+    });
+  }
 
   const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
   const esc = (s) => (window.CSS && CSS.escape) ? CSS.escape(s) : s;
@@ -345,8 +356,12 @@ _RESUME_OPTIONS_QUERY = r"""
     return wrap || el;
   };
 
-  modal.querySelectorAll('[data-autojob-resume]').forEach(
-    (el) => el.removeAttribute('data-autojob-resume')
+  ['data-autojob-resume', 'data-autojob-resume-select', 'data-autojob-resume-upload']
+    .forEach((attr) => modal.querySelectorAll('[' + attr + ']').forEach(
+      (el) => el.removeAttribute(attr)
+    ));
+  modal.querySelectorAll('[data-autojob-file]').forEach(
+    (el) => el.removeAttribute('data-autojob-file')
   );
 
   const options = [];
@@ -369,9 +384,46 @@ _RESUME_OPTIONS_QUERY = r"""
     }
   });
 
+  // A resume chooser rendered as a <select>.
+  let select = null;
+  modal.querySelectorAll('select').forEach((el) => {
+    if (select) return;
+    const label = ownLabel(el);
+    const hay = (label + ' ' + (el.name || '') + ' ' + (el.id || '')).toLowerCase();
+    const choices = Array.from(el.options).map(
+      (o) => ({ value: o.value, text: norm(o.text) })
+    );
+    const looksLikeResume = hay.includes('resume')
+      || choices.some((o) => /\.(pdf|docx|txt|md)\b/i.test(o.text));
+    if (looksLikeResume && el.getClientRects().length) {
+      const marker = 's' + (i++);
+      el.setAttribute('data-autojob-resume-select', marker);
+      select = { marker: marker, label: label, options: choices };
+    }
+  });
+
   const file = modal.querySelector('input[type="file"]');
   if (file) file.setAttribute('data-autojob-file', '1');
-  return JSON.stringify({ options: options, fileInput: !!file });
+
+  // A button that reveals the file input (e.g. "Upload resume").
+  let uploadButton = null;
+  modal.querySelectorAll('button, [role="button"]').forEach((el) => {
+    if (uploadButton) return;
+    const text = norm(el.innerText) || norm(el.getAttribute('aria-label'));
+    if (/upload|add resume|attach resume|choose file/i.test(text)
+        && el.getClientRects().length) {
+      const marker = 'u' + (i++);
+      el.setAttribute('data-autojob-resume-upload', marker);
+      uploadButton = { marker: marker, label: text };
+    }
+  });
+
+  return JSON.stringify({
+    options: options,
+    fileInput: !!file,
+    select: select,
+    uploadButton: uploadButton
+  });
 }
 """
 
@@ -759,16 +811,41 @@ def _append_note(existing: str, extra: str) -> str:
     return f"{existing}; {extra}" if existing else extra
 
 
+async def read_form(page) -> tuple[bool, str, list[dict]]:
+    """Return ``(form_open, step_title, fields)`` for the open form (Task 4)."""
+    payload = _loads(await _safe(page.evaluate(_ENUMERATE_FORM_QUERY), ""))
+    return (
+        bool(payload.get("open")),
+        str(payload.get("title") or ""),
+        list(payload.get("fields") or []),
+    )
+
+
 async def enumerate_form_fields(page) -> tuple[bool, list[dict]]:
     """Return ``(form_open, fields)`` for the open Easy Apply form (Task 4)."""
-    payload = _loads(await _safe(page.evaluate(_ENUMERATE_FORM_QUERY), ""))
-    return bool(payload.get("open")), list(payload.get("fields") or [])
+    opened, _title, fields = await read_form(page)
+    return opened, fields
+
+
+async def read_resume_info(page) -> dict:
+    """Return the resume controls: ``options``, ``fileInput``, ``select``, ``uploadButton``.
+
+    The form is dynamic, so the resume control may be a radio list, a
+    ``<select>``, a file input, or an upload button that reveals the file input.
+    """
+    payload = _loads(await _safe(page.evaluate(_RESUME_OPTIONS_QUERY), ""))
+    return {
+        "options": list(payload.get("options") or []),
+        "fileInput": bool(payload.get("fileInput")),
+        "select": payload.get("select") or None,
+        "uploadButton": payload.get("uploadButton") or None,
+    }
 
 
 async def read_resume_options(page) -> tuple[list[dict], bool]:
     """Return ``(listed_resume_options, file_input_present)`` for the form (Task 4)."""
-    payload = _loads(await _safe(page.evaluate(_RESUME_OPTIONS_QUERY), ""))
-    return list(payload.get("options") or []), bool(payload.get("fileInput"))
+    info = await read_resume_info(page)
+    return info["options"], info["fileInput"]
 
 
 async def read_form_buttons(page) -> list[dict]:
@@ -919,6 +996,24 @@ async def upload_file_via_cdp(session, page, selector: str, file_path: str) -> N
     )
 
 
+async def _resume_file_selector(page) -> str | None:
+    """CSS selector for the form's file input, if one is present on this step."""
+    if await _first_element(page, ['[data-autojob-file="1"]']) is not None:
+        return '[data-autojob-file="1"]'
+    if await _first_element(page, ['input[type="file"]']) is not None:
+        return 'input[type="file"]'
+    return None
+
+
+def _resume_listed_names(info: dict) -> list[str]:
+    """Every resume name the form already lists (radio options and select choices)."""
+    names = [option.get("label", "") for option in info.get("options", [])]
+    select = info.get("select")
+    if select:
+        names += [choice.get("text", "") for choice in select.get("options", [])]
+    return names
+
+
 async def _attach_resume(
     page,
     session,
@@ -927,33 +1022,63 @@ async def _attach_resume(
     outcome: Task4Outcome,
     notify,
 ) -> None:
-    """Attach the Task 3 resume: prefer a listed match, else upload (Task 4)."""
-    options, _file_input = await read_resume_options(page)
-    matched = pick_listed_resume(resume_path, [option.get("label", "") for option in options])
+    """Attach the Task 3 resume wherever it is on the dynamic form (Task 4).
+
+    Prefers a resume already listed on the current step (a radio option or a
+    ``<select>`` choice); otherwise uploads the file, clicking an "Upload
+    resume" button first when that is what reveals the file input.
+    """
+    info = await read_resume_info(page)
+    matched = pick_listed_resume(resume_path, _resume_listed_names(info))
 
     if matched:
-        option = next((o for o in options if o.get("label") == matched), None)
-        element = (
-            await _marker_element(page, "data-autojob-resume", option["marker"])
-            if option is not None
+        option = next((o for o in info.get("options", []) if o.get("label") == matched), None)
+        if option is not None:
+            element = await _marker_element(page, "data-autojob-resume", option["marker"])
+            if element is not None:
+                await _safe(element.click())
+                if settings.session.post_click_wait_seconds:
+                    await asyncio.sleep(settings.session.post_click_wait_seconds)
+                outcome.resume_attached = True
+                outcome.resume_selection = "listed"
+                outcome.resume_listed_name = matched
+                notify(f"Task 4: selected the listed resume {matched!r}.")
+                return
+
+        select = info.get("select")
+        choice = (
+            next((c for c in select["options"] if c.get("text") == matched), None)
+            if select
             else None
         )
+        if select is not None and choice is not None:
+            element = await _marker_element(page, "data-autojob-resume-select", select["marker"])
+            if element is not None:
+                await element.evaluate(_FILL_SELECT_JS, str(choice["value"]))
+                if settings.session.post_click_wait_seconds:
+                    await asyncio.sleep(settings.session.post_click_wait_seconds)
+                outcome.resume_attached = True
+                outcome.resume_selection = "listed"
+                outcome.resume_listed_name = matched
+                notify(f"Task 4: selected the listed resume {matched!r}.")
+                return
+
+    selector = await _resume_file_selector(page)
+    if selector is None and info.get("uploadButton"):
+        upload = info["uploadButton"]
+        element = await _marker_element(page, "data-autojob-resume-upload", upload["marker"])
         if element is not None:
             await _safe(element.click())
             if settings.session.post_click_wait_seconds:
                 await asyncio.sleep(settings.session.post_click_wait_seconds)
-            outcome.resume_attached = True
-            outcome.resume_selection = "listed"
-            outcome.resume_listed_name = matched
-            notify(f"Task 4: selected the listed resume {matched!r}.")
-            return
+            selector = await _resume_file_selector(page)
 
-    if await _first_element(page, ['[data-autojob-file="1"]']) is not None:
-        selector = '[data-autojob-file="1"]'
-    elif await _first_element(page, ['input[type="file"]']) is not None:
-        selector = 'input[type="file"]'
-    else:
-        outcome.notes = _append_note(outcome.notes, "no resume control found on the form")
+    if selector is None:
+        # The form is dynamic, so the resume control may appear on a later step;
+        # record it once (not on every step) but keep looking on subsequent steps.
+        note = "no resume control found on this form step"
+        if note not in outcome.notes:
+            outcome.notes = _append_note(outcome.notes, note)
         return
 
     outcome.upload_attempted = True
@@ -1091,6 +1216,36 @@ async def _task2_on_page(page, settings: Settings, notify) -> Task2Outcome:
     return outcome
 
 
+def _form_signature(title: str, fields: list[dict]) -> str:
+    """A stable fingerprint of a form step, to detect that Next did not advance."""
+    parts = [title or ""]
+    for field in fields:
+        parts.append(
+            "|".join(str(field.get(key, "")) for key in ("kind", "question", "name", "option"))
+        )
+    return "\n".join(parts)
+
+
+def _blocking_questions(records: list[FormField]) -> list[str]:
+    """Required questions on a step that are still unanswered (they block Next)."""
+    blocking: list[str] = []
+    for record in records:
+        if record.required and not record.known and record.question not in blocking:
+            blocking.append(record.question)
+    return blocking
+
+
+def _blocked_note(prefix: str, blocking: list[str]) -> str:
+    """A clear "why the form stopped" note, naming the required unknown answers."""
+    if blocking:
+        return (
+            f"{prefix}; required questions are unanswered: "
+            + ", ".join(blocking)
+            + " - stopping before Submit"
+        )
+    return f"{prefix}; stopping before Submit"
+
+
 async def _task4_on_page(
     page,
     session,
@@ -1099,15 +1254,37 @@ async def _task4_on_page(
     settings: Settings,
     notify,
 ) -> Task4Outcome:
-    """Fill the open Easy Apply form and attach the resume, without submitting."""
+    """Fill the open Easy Apply form and attach the resume, without submitting.
+
+    The form is dynamic: its steps, fields, and resume control (radio list,
+    ``<select>``, file input, or an upload button that reveals one) are
+    discovered at runtime rather than assumed. The walk stops at the terminal
+    step (only Submit is left), or as soon as a step fails to advance.
+    """
     outcome = Task4Outcome(resume_path=resume_path or "")
+    previous: str | None = None
+    pending_advance = False
+    blocking: list[str] = []
 
     for step in range(_MAX_FORM_STEPS):
-        opened, fields = await enumerate_form_fields(page)
+        opened, title, fields = await read_form(page)
         if not opened:
             if step == 0:
                 outcome.notes = _append_note(outcome.notes, "Easy Apply form was not found")
             break
+
+        signature = _form_signature(title, fields)
+        if pending_advance:
+            if signature == previous:
+                # The click did not move to a new step: stop instead of retrying
+                # blindly, naming the required answers that are still unknown.
+                outcome.notes = _append_note(
+                    outcome.notes, _blocked_note("form did not advance to a new step", blocking)
+                )
+                break
+            outcome.steps_advanced += 1
+            pending_advance = False
+        previous = signature
 
         outcome.form_open = True
         outcome.fields_enumerated += len(fields)
@@ -1120,18 +1297,34 @@ async def _task4_on_page(
         if resume_path and not outcome.resume_attached:
             await _attach_resume(page, session, resume_path, settings, outcome, notify)
 
-        if step >= _MAX_FORM_STEPS - 1:
+        buttons = await read_form_buttons(page)
+        button = pick_next_button(buttons)
+        if button is None:
+            # No enabled Next/Continue on this step. Say *why* we stopped: a
+            # disabled navigation button usually means a required answer is
+            # missing, otherwise this is the terminal step (only Submit remains).
+            blocking = _blocking_questions(records)
+            if any(looks_like_next(b.get("text", "")) for b in buttons):
+                outcome.notes = _append_note(
+                    outcome.notes, _blocked_note("the only navigation button is disabled", blocking)
+                )
+            else:
+                outcome.notes = _append_note(
+                    outcome.notes, "reached the last step (only Submit remains)"
+                )
             break
 
-        button = pick_next_button(await read_form_buttons(page))
-        if button is None:
-            break  # only a submit (never clicked) or nothing left to advance
         element = await _marker_element(page, "data-autojob-btn", button["marker"])
         if element is None:
+            outcome.notes = _append_note(
+                outcome.notes, "navigation button disappeared before it could be clicked"
+            )
             break
+
+        blocking = _blocking_questions(records)
         notify(f"Task 4: advancing form step via {button.get('text')!r}.")
         await _safe(element.click())
-        outcome.steps_advanced += 1
+        pending_advance = True
         if settings.session.post_click_wait_seconds:
             await asyncio.sleep(settings.session.post_click_wait_seconds)
         await _pace(settings)

@@ -107,6 +107,8 @@ class FakePage:
         self.fill_elements: dict[str, FakeElement] = {}
         self.button_elements: dict[str, FakeElement] = {}
         self.resume_elements: dict[str, FakeElement] = {}
+        self.select_elements: dict[str, FakeElement] = {}
+        self.upload_elements: dict[str, FakeElement] = {}
         self.file_element: FakeElement | None = None
 
     async def goto(self, url: str) -> None:
@@ -130,6 +132,9 @@ class FakePage:
                 return json.dumps(self.form_enumerations.pop(0))
             return json.dumps({"open": self.form_open_default, "fields": []})
         if "data-autojob-resume" in js:
+            if isinstance(self.resume_options, list):
+                queued = self.resume_options.pop(0) if self.resume_options else {}
+                return json.dumps(queued)
             return json.dumps(self.resume_options)
         if "data-autojob-btn" in js:
             if self.form_buttons_queue:
@@ -158,6 +163,8 @@ class FakePage:
             ("data-autojob-fill", self.fill_elements),
             ("data-autojob-btn", self.button_elements),
             ("data-autojob-resume", self.resume_elements),
+            ("data-autojob-resume-select", self.select_elements),
+            ("data-autojob-resume-upload", self.upload_elements),
         ):
             match = re.fullmatch(rf'\[{attribute}="([^"]+)"\]', selector)
             if match:
@@ -876,6 +883,211 @@ async def test_task4_advances_steps_but_never_submits(tmp_path) -> None:
     assert outcome.filled_fields == 2
     assert outcome.resume_attached is False
     assert "no resume control" in outcome.notes
+
+
+def _contact_step_fields() -> list[dict]:
+    """A required Contact-info step: email select, country select, phone input."""
+    return [
+        {
+            "marker": "f0",
+            "kind": "select",
+            "type": "select",
+            "name": "email",
+            "question": "Email address",
+            "option": "",
+            "required": True,
+            "checked": False,
+            "value": "",
+            "options": [{"value": "me@example.com", "text": "me@example.com"}],
+        },
+        {
+            "marker": "f1",
+            "kind": "select",
+            "type": "select",
+            "name": "country",
+            "question": "Phone country code",
+            "option": "",
+            "required": True,
+            "checked": False,
+            "value": "",
+            "options": [{"value": "Australia (+61)", "text": "Australia (+61)"}],
+        },
+        _text_field("f2", "phone", "Mobile phone number", required=True),
+    ]
+
+
+async def test_task4_follows_dynamic_form_and_selects_resume_from_select(tmp_path) -> None:
+    """The resume may be on any step and rendered as a <select>, not a radio."""
+    page = FakePage(
+        form_enumerations=[
+            {"open": True, "title": "Contact info", "fields": _contact_step_fields()},
+            {"open": True, "title": "Resume", "fields": []},
+        ],
+        form_buttons_queue=[[{"marker": "b0", "text": "Next", "disabled": False}], []],
+        resume_options=[
+            {"options": [], "fileInput": False, "select": None, "uploadButton": None},
+            {
+                "options": [],
+                "fileInput": False,
+                "uploadButton": None,
+                "select": {
+                    "marker": "s0",
+                    "label": "Select a resume",
+                    "options": [
+                        {"value": "other", "text": "Other_Resume.pdf"},
+                        {"value": "chosen", "text": "ShaktiKC_Resume_python_Node_Senior.pdf"},
+                    ],
+                },
+            },
+        ],
+    )
+    page.fill_elements = {
+        "f0": FakeElement("Email address"),
+        "f1": FakeElement("Phone country code"),
+        "f2": FakeElement("Mobile phone number"),
+    }
+    page.select_elements = {"s0": FakeElement("Select a resume")}
+    page.button_elements = {"b0": FakeElement("Next")}
+
+    outcome = await browser_tools._task4_on_page(
+        page,
+        FakeSession(page),
+        "resumes/ShaktiKC_Resume_python_Node_Senior.pdf",
+        {
+            "email address": "me@example.com",
+            "phone country code": "Australia (+61)",
+            "mobile phone number": "400000000",
+        },
+        _settings(tmp_path, post_click_wait_seconds=0),
+        lambda _m: None,
+    )
+
+    assert outcome.form_open is True
+    assert outcome.steps_advanced == 1
+    assert outcome.resume_attached is True
+    assert outcome.resume_selection == "listed"
+    assert outcome.resume_listed_name == "ShaktiKC_Resume_python_Node_Senior.pdf"
+    assert page.select_elements["s0"].selected_option == "chosen"
+    assert outcome.submitted is False
+
+
+async def test_task4_clicks_upload_button_to_reveal_file_input(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """When no resume control is visible, an Upload button may reveal the input."""
+    page = FakePage(
+        form_enumerations=[{"open": True, "title": "Resume", "fields": []}],
+        form_buttons_queue=[[]],
+        resume_options=[
+            {
+                "options": [],
+                "fileInput": False,
+                "select": None,
+                "uploadButton": {"marker": "u0", "label": "Upload resume"},
+            },
+            {"options": [], "fileInput": True, "select": None, "uploadButton": None},
+        ],
+    )
+    page.upload_elements = {
+        "u0": FakeElement(
+            "Upload resume",
+            on_click=lambda: setattr(page, "file_element", FakeElement("file")),
+        )
+    }
+
+    uploaded: dict = {}
+
+    async def fake_upload(session, page, selector: str, path: str) -> None:
+        uploaded["selector"] = selector
+        uploaded["path"] = path
+
+    monkeypatch.setattr(browser_tools, "upload_file_via_cdp", fake_upload)
+
+    outcome = await browser_tools._task4_on_page(
+        page,
+        FakeSession(page),
+        "resumes/ShaktiKC_Resume_python_Node_Senior.pdf",
+        {},
+        _settings(tmp_path, post_click_wait_seconds=0),
+        lambda _m: None,
+    )
+
+    assert page.upload_elements["u0"].clicked is True
+    assert outcome.resume_attached is True
+    assert outcome.resume_selection == "uploaded"
+    assert uploaded["path"].endswith("ShaktiKC_Resume_python_Node_Senior.pdf")
+
+
+async def test_task4_stops_when_dynamic_form_does_not_advance(tmp_path) -> None:
+    """A required unknown field blocks Next; stop instead of re-clicking forever."""
+    fields = _contact_step_fields()
+    page = FakePage(
+        form_enumerations=[
+            {"open": True, "title": "Contact info", "fields": fields},
+            {"open": True, "title": "Contact info", "fields": fields},
+            {"open": True, "title": "Contact info", "fields": fields},
+        ],
+        form_buttons_queue=[
+            [{"marker": "b0", "text": "Next", "disabled": False}] for _ in range(3)
+        ],
+        resume_options={"options": [], "fileInput": False},
+    )
+    page.fill_elements = {
+        "f0": FakeElement("Email address"),
+        "f1": FakeElement("Phone country code"),
+        "f2": FakeElement("Mobile phone number"),
+    }
+    page.button_elements = {"b0": FakeElement("Next")}
+
+    outcome = await browser_tools._task4_on_page(
+        page,
+        FakeSession(page),
+        None,
+        {},
+        _settings(tmp_path, post_click_wait_seconds=0),
+        lambda _m: None,
+    )
+
+    # A step that did not actually advance must not be counted as advanced.
+    assert outcome.steps_advanced == 0
+    assert "did not advance" in outcome.notes
+    # The note names the required answers that blocked Next, for a clear stop.
+    assert "Email address" in outcome.notes
+    assert "Mobile phone number" in outcome.notes
+    # It tried once and stopped (no blind retry loop).
+    assert page.button_elements["b0"].clicked is True
+
+
+async def test_task4_stops_clearly_when_next_is_disabled(tmp_path) -> None:
+    """A disabled Next (required answer unknown) stops with a clear, named note."""
+    fields = _contact_step_fields()  # all required, none answered
+    page = FakePage(
+        form_enumerations=[{"open": True, "title": "Contact info", "fields": fields}],
+        form_buttons_queue=[[{"marker": "b0", "text": "Next", "disabled": True}]],
+        resume_options={"options": [], "fileInput": False},
+    )
+    page.fill_elements = {
+        "f0": FakeElement("Email address"),
+        "f1": FakeElement("Phone country code"),
+        "f2": FakeElement("Mobile phone number"),
+    }
+    page.button_elements = {"b0": FakeElement("Next")}
+
+    outcome = await browser_tools._task4_on_page(
+        page,
+        FakeSession(page),
+        None,
+        {},
+        _settings(tmp_path, post_click_wait_seconds=0),
+        lambda _m: None,
+    )
+
+    assert outcome.steps_advanced == 0
+    assert outcome.submitted is False
+    assert page.button_elements["b0"].clicked is False
+    assert "disabled" in outcome.notes
+    assert "Email address" in outcome.notes
+    assert "stopping before Submit" in outcome.notes
 
 
 async def test_task4_reports_missing_form(tmp_path) -> None:
