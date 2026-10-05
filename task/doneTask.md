@@ -119,6 +119,37 @@ Unit tests: `uv run pytest` → 171 passed, 6 skipped (or 173 passed, 4 skipped 
 `AUTOJOB_TASK1_LIVE=1` to include the live-browser tests); `uv run ruff check .` →
 clean; `uv run autojob --dry-run` → exit 0.
 
+**Update (2026-10-05, third fix): removed the "no page reload" requirement.**
+- "No page reload" is **not** LinkedIn's default behaviour: submitting the jobs
+  search normally reloads/navigates. The requirement was removed from Task 1's
+  spec, code, and tests so searching follows LinkedIn's normal behaviour.
+- `type_jobs_search` / `open_jobs_search` no longer take `open_jobs_tab` /
+  `allow_navigation`; the repeat search after the optional AI click is a normal
+  search too and may reload/navigate. `restore_job_search` still recovers a job
+  list when the optional AI detour leaves none.
+- Removed the no-reload unit test and the `sessionStorage.loads`-based no-reload
+  assertions from the live Task 1 test; `task/task.md` no longer claims searching
+  avoids a reload.
+- Evidence: `uv run pytest` → 172 passed, 6 skipped; `uv run ruff check .` →
+  clean; `uv run autojob --dry-run` → exit 0.
+
+**Update (2026-10-05, fourth fix): removed the AI-detour recovery.**
+- The Task 1 spec dropped the "The AI detour is never fatal" note: the optional
+  "Try AI job search" detour is **not** recovered, because searching follows
+  LinkedIn's normal behaviour.
+- `_task1_on_page` no longer calls a recovery search. When the post-AI repeat
+  search returns no results the re-click loop simply stops and the outcome
+  reflects the empty repeat (`results_found=False`, `results_count=0`), so the
+  run reports "job search returned no results" instead of silently recovering.
+- Deleted the now-unused `restore_job_search` helper from `src/tools/browser.py`.
+- Also trimmed the redundant "Open the jobs tab first only if the search bar is
+  not already on the page" sentence from Task 1 step 7; the Notes still document
+  that the Jobs tab is opened only when the search bar is absent.
+- Evidence: replaced the recovery unit test with
+  `test_run_task1_stops_when_repeat_search_returns_no_results`; `uv run pytest` →
+  172 passed, 6 skipped; `uv run ruff check .` → clean;
+  `uv run autojob --dry-run` → exit 0.
+
 ---
 
 ## Task 2 — Select Easy Apply from the job list

@@ -20,13 +20,12 @@ log in successfully, search for **"software engineer"** jobs, and select the
    is successful). Then continue to step 5.
 5. **If logged in:** proceed directly to step 6.
 6. Confirm login succeeded (e.g. the LinkedIn feed/home page is visible).
-7. Type "software engineer" into the jobs search bar **in place** and submit it
-   (no page reload). Open the jobs tab first only if the search bar is not already
-   on the page.
+7. Type "software engineer" into the jobs search bar and submit it. Searching
+   follows LinkedIn's normal behavior and may reload or navigate the page.
 8. After the search returns results, click the **"Try AI job Search"** button
    **if it is present** (it is optional); when it is absent, continue unchanged.
-9. After clicking **"Try AI job Search"**, **repeat the job search** in place
-   (type "software engineer" into the search bar and submit again). If the button
+9. After clicking **"Try AI job Search"**, **repeat the job search** (type
+   "software engineer" into the search bar and submit again). If the button
    reappears, **click it again and repeat** — up to a safety cap (3 clicks).
 10. Select the **Easy Apply** filter.
 
@@ -40,15 +39,14 @@ log in successfully, search for **"software engineer"** jobs, and select the
   "software engineer" search is performed **again** after each click while the
   button reappears (capped); absence of the button does not fail the run and then
   the search is performed only once.
-- Searching does **not** reload the page when the search bar is already present.
 - The **Easy Apply** filter is selected.
 
 **Notes**
 - Browser automation is opt-in (`AUTOJOB_*` settings, `--dry-run` off).
 - The query must be entered through the jobs search bar (typed in), not by
-  navigating to a search URL. The Jobs tab is opened only once when the search bar
-  is not already present; repeat searches type in place so the page does not
-  reload.
+  navigating to a search URL. The Jobs tab is opened only when the search bar is
+  not already present. Searching is allowed to reload or navigate the page, as
+  LinkedIn does by default.
 - **Login gate:** if the user is not logged in, pause and wait for the user to
   log in. Only once login is successful do the remaining steps (search
   "software engineer" → click "Try AI job Search" if present → search again →
@@ -69,13 +67,8 @@ log in successfully, search for **"software engineer"** jobs, and select the
   search bar). That prompt is recognised, so the repeat search types the query
   into it and submits with Enter. A navigating click is treated as successful (the
   URL change is checked), and the page load is awaited before the search is
-  repeated; the repeat search itself never navigates.
-- **The AI detour is never fatal.** LinkedIn can switch the page into a semantic
-  mode (`origin=SEMANTIC_SEARCH_MODE_FROM_CLASSIC`) that renders **no job cards**.
-  When the repeat search after the AI click returns no results, the agent restores
-  the standard job search (navigates to the jobs search URL and waits for results)
-  so Task 2 still has a job list; the recovery is recorded in the notes. Only a
-  repeat search that *succeeds* leaves the page untouched (no reload).
+  repeated; the repeat search is a normal search and may reload or navigate.
+
 - If the search or filter is not found, capture a screenshot and the page URL for
   debugging.
 - When no AI job search control is matched, the labels of the controls the scan

@@ -936,20 +936,16 @@ async def find_jobs_search_input(page):
     return None
 
 
-async def type_jobs_search(
-    page, query: str, settings: Settings, *, open_jobs_tab: bool = True
-) -> bool:
-    """Type ``query`` into the jobs search bar and submit it, in place.
+async def type_jobs_search(page, query: str, settings: Settings) -> bool:
+    """Type ``query`` into the jobs search bar and submit it.
 
     When the jobs search bar is already on the page (e.g. after the first search)
-    it is used as-is, so the search behaves like a real user typing and does
-    **not** reload the page. The Jobs tab is opened only when no search bar is
-    present and ``open_jobs_tab`` is true (e.g. when starting from the feed).
+    it is used as-is, like a real user typing. LinkedIn may reload or navigate as
+    it normally does when a search is submitted. The Jobs tab is opened once when
+    no search bar is present (e.g. when starting from the feed).
     """
     field = await find_jobs_search_input(page)
     if field is None:
-        if not open_jobs_tab:
-            return False
         await page.goto(_JOBS_TAB_URL)
         await _wait_for_load(page, settings.session.navigation_timeout_ms / 1000)
         await _pace(settings)
@@ -1007,18 +1003,15 @@ async def results_count(page) -> int:
         return 0
 
 
-async def open_jobs_search(
-    page, query: str, settings: Settings, *, allow_navigation: bool = True
-) -> tuple[bool, int, str]:
+async def open_jobs_search(page, query: str, settings: Settings) -> tuple[bool, int, str]:
     """Type ``query`` into the jobs search bar and submit; return results info.
 
-    Returns ``(found, count, url)``. When the search bar cannot be found the run
-    falls back to navigating to the equivalent search URL — but only when
-    ``allow_navigation`` is true. Pass false for a repeat search that must not
-    reload the page (e.g. after clicking "Try AI job search").
+    Returns ``(found, count, url)``. Searching behaves like LinkedIn's default:
+    the page may reload or navigate. When the search bar cannot be found the run
+    falls back to navigating to the equivalent search URL.
     """
-    typed = await type_jobs_search(page, query, settings, open_jobs_tab=allow_navigation)
-    if not typed and allow_navigation:
+    typed = await type_jobs_search(page, query, settings)
+    if not typed:
         await page.goto(build_jobs_search_url(query))
         await _wait_for_load(page, settings.session.navigation_timeout_ms / 1000)
 
@@ -1028,26 +1021,6 @@ async def open_jobs_search(
         await asyncio.sleep(0.5)
         count = await results_count(page)
 
-    current_url = await _safe(page.get_url(), "") or ""
-    return count > 0, count, current_url
-
-
-async def restore_job_search(page, query: str, settings: Settings) -> tuple[bool, int, str]:
-    """Restore a classic job search after an optional AI detour left none.
-
-    LinkedIn's "Try AI job search" control can switch the page into a semantic
-    mode (``origin=SEMANTIC_SEARCH_MODE_FROM_CLASSIC``) that renders no job
-    cards. Because that control is optional, the agent must not be left without
-    a job list: navigate to the standard jobs search URL and wait for results.
-    Returns ``(found, count, url)`` like :func:`open_jobs_search`.
-    """
-    await _safe(page.goto(build_jobs_search_url(query)))
-    await _wait_for_load(page, settings.session.navigation_timeout_ms / 1000)
-    count = await results_count(page)
-    deadline = time.monotonic() + _RESULTS_WAIT_SECONDS
-    while count == 0 and time.monotonic() < deadline:
-        await asyncio.sleep(0.5)
-        count = await results_count(page)
     current_url = await _safe(page.get_url(), "") or ""
     return count > 0, count, current_url
 
@@ -1807,9 +1780,10 @@ async def _task1_on_page(
         outcome.search_url = search_url
         if found:
             # LinkedIn's AI job search entry point is optional and may render
-            # late. Click it when present, repeat the job search in place (no
-            # reload), and keep re-clicking while it reappears — up to a safety
-            # cap so a persistent control can never loop forever.
+            # late. Click it when present, repeat the job search, and keep
+            # re-clicking while it reappears — up to a safety cap so a persistent
+            # control can never loop forever. Searching follows LinkedIn's normal
+            # behaviour and may reload or navigate the page.
             for _ in range(_MAX_AI_JOB_SEARCH_CLICKS):
                 ai_button = await wait_for_ai_job_search_button(page, settings)
                 if ai_button is None:
@@ -1827,34 +1801,16 @@ async def _task1_on_page(
                 outcome.ai_job_search_clicks += 1
                 notify("Task 1: repeating the job search after AI job search.")
                 again_found, again_count, again_url = await open_jobs_search(
-                    page, search_query, settings, allow_navigation=False
+                    page, search_query, settings
                 )
-                if not again_found:
-                    # The optional AI detour left no job list (LinkedIn's
-                    # semantic mode can render zero cards). It must not fail the
-                    # run, so restore the standard job search before task 2.
-                    restored, restored_count, restored_url = await restore_job_search(
-                        page, search_query, settings
-                    )
-                    if restored:
-                        outcome.results_found = True
-                        outcome.results_count = restored_count
-                        outcome.search_url = restored_url
-                        outcome.notes = _append_note(
-                            outcome.notes,
-                            "job search after the AI job search returned no results; "
-                            "restored the standard job search",
-                        )
-                    else:
-                        outcome.notes = _append_note(
-                            outcome.notes,
-                            "job search after the AI job search returned no results; "
-                            "could not restore the job list",
-                        )
-                    break
-                outcome.results_found = True
+                outcome.results_found = again_found
                 outcome.results_count = again_count
                 outcome.search_url = again_url
+                if not again_found:
+                    # A repeat search that returns no results ends the loop; the
+                    # optional AI detour is not recovered, because searching
+                    # follows LinkedIn's normal behaviour.
+                    break
             if not outcome.ai_job_search_present:
                 # Nothing matched. Record the controls the scan actually saw so a
                 # real-run miss (different wording/markup) is diagnosable.

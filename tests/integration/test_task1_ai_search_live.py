@@ -5,7 +5,7 @@ LinkedIn-shaped jobs page from a local HTTP server and drives the **real** Task 
 code path (:func:`_task1_on_page`) in a real Chromium window built by
 :func:`build_browser`. This exercises what unit tests cannot: the runtime
 ``_AI_CANDIDATES_QUERY`` scan, CDP element resolution by the marked attribute,
-the click, the re-click loop, and that searching does **not** reload the page.
+the click, and the re-click loop.
 
 Enable it (the ``browser`` extra must be installed)::
 
@@ -49,13 +49,11 @@ pytestmark = [
 
 # A LinkedIn-shaped jobs page:
 # - a global nav so ``is_logged_in`` returns true without a login gate;
-# - the jobs search bar (input + submit) which must be used *in place*;
+# - the jobs search bar (input + submit);
 # - a "Try AI job search" button that disappears after two clicks (so the
 #   re-click loop is exercised and then stops on its own);
 # - job result cards so ``results_found`` is true;
 # - an "Easy Apply filter." toggle.
-# ``sessionStorage.loads`` counts document loads; it survives reloads in the same
-# tab, so it must stay 1 if the page is never reloaded.
 _PAGE_HTML = """<!doctype html>
 <html><head><meta charset="utf-8"><title>Jobs</title></head>
 <body>
@@ -74,9 +72,6 @@ _PAGE_HTML = """<!doctype html>
   <li class="jobs-search-results__list-item">Data Engineer</li>
 </ul>
 <script>
-  sessionStorage.setItem(
-    'loads', String((parseInt(sessionStorage.getItem('loads') || '0', 10)) + 1)
-  );
   window.__submitClicks = 0;
   window.__aiClicks = 0;
   document.querySelector('.jobs-search-box__submit-button').addEventListener('click', function () {
@@ -96,7 +91,6 @@ _PAGE_HTML = """<!doctype html>
 """
 
 _READ_STATE_JS = """() => JSON.stringify({
-  loads: parseInt(sessionStorage.getItem('loads') || '0', 10),
   ai_clicks: window.__aiClicks,
   submit_clicks: window.__submitClicks,
   filter_pressed: document.getElementById('easy-apply-filter').getAttribute('aria-pressed')
@@ -135,7 +129,7 @@ def _settings(tmp_path: Path) -> Settings:
     )
 
 
-async def test_task1_clicks_ai_job_search_repeatedly_without_reloading(tmp_path: Path) -> None:
+async def test_task1_clicks_ai_job_search_repeatedly(tmp_path: Path) -> None:
     page_file = tmp_path / "task1.html"
     page_file.write_text(_PAGE_HTML, encoding="utf-8")
     server, url = _serve(tmp_path, "task1.html")
@@ -164,12 +158,9 @@ async def test_task1_clicks_ai_job_search_repeatedly_without_reloading(tmp_path:
     assert outcome.ai_job_search_clicks == 2
     assert observed["ai_clicks"] == 2
 
-    # One initial search plus one repeat per click, all typed in place.
+    # One initial search plus one repeat per click.
     assert observed["submit_clicks"] == 3
     assert outcome.results_count == 2
-
-    # The page was never reloaded: the search bar was used in place.
-    assert observed["loads"] == 1
 
     # The Easy Apply filter was still selected afterwards.
     assert outcome.easy_apply_filter_selected is True
@@ -195,9 +186,6 @@ _AI_PAGE_HTML = """<!doctype html>
   <li class="jobs-search-results__list-item">Data Engineer</li>
 </ul>
 <script>
-  sessionStorage.setItem(
-    'loads', String((parseInt(sessionStorage.getItem('loads') || '0', 10)) + 1)
-  );
   window.__submitClicks = 0;
   window.__aiClicks = 0;
   window.__aiSubmits = 0;
@@ -234,7 +222,6 @@ _AI_PAGE_HTML = """<!doctype html>
 """
 
 _READ_AI_PAGE_JS = """() => JSON.stringify({
-  loads: parseInt(sessionStorage.getItem('loads') || '0', 10),
   ai_clicks: window.__aiClicks,
   ai_submits: window.__aiSubmits,
   ai_prompt_value: window.__aiPromptValue,
@@ -277,6 +264,3 @@ async def test_task1_searches_via_the_ai_prompt_after_the_ai_click(tmp_path: Pat
     assert outcome.results_count == 2
     assert outcome.easy_apply_filter_selected is True
     assert observed["filter_pressed"] == "true"
-
-    # The AI page swap was in-page: the document was never reloaded.
-    assert observed["loads"] == 1
