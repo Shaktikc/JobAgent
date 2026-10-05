@@ -100,6 +100,21 @@ clicked:
   submits with Enter. Covered by the live-browser test
   `test_task1_searches_via_the_ai_prompt_after_the_ai_click`.
 
+**Update (2026-10-05, second fix): the optional AI detour no longer fails the run.**
+- Real run: after "Try AI job search" LinkedIn switched to
+  `.../jobs/search-results/?origin=SEMANTIC_SEARCH_MODE_FROM_CLASSIC` with **no
+  `keywords`** and rendered **zero job cards**; the repeat search returned no
+  results and Task 2 then found `0 job(s)` and the run failed.
+- `_task1_on_page` now recovers: when the post-AI repeat search finds no job
+  list, `restore_job_search` navigates to the standard jobs search URL
+  (`build_jobs_search_url`) and waits for results, and the note records
+  "restored the standard job search". A repeat search that succeeds still never
+  navigates (existing no-reload test unchanged).
+- Evidence: new unit test
+  `test_run_task1_recovers_when_the_ai_search_leaves_no_jobs`; the new
+  `restore_job_search` helper in `src/tools/browser.py`. Full suite
+  `uv run pytest` → 173 passed, 6 skipped; `uv run ruff check .` → clean.
+
 Unit tests: `uv run pytest` → 171 passed, 6 skipped (or 173 passed, 4 skipped with
 `AUTOJOB_TASK1_LIVE=1` to include the live-browser tests); `uv run ruff check .` →
 clean; `uv run autojob --dry-run` → exit 0.
@@ -267,6 +282,25 @@ clean; `uv run autojob --dry-run` → exit 0.
   and the answer is persisted to the store. (`AUTOJOB_FILL_LIVE=1`)
 - `uv run pytest` → 133 passed, 4 skipped; `uv run ruff check .` → clean;
   `uv run autojob --dry-run` → exit 0.
+
+**Update (2026-10-05): fixed a live-browser kill that broke CDP.**
+- `build_browser`'s stale-profile recovery keyed off `_profile_is_locked`, which on
+  Windows is true for a **live** browser (Chromium holds `lockfile` while it runs).
+  It then ran `terminate_profile_browsers` (`taskkill /F /T`), force-closing a
+  browser that another run was driving. That run's CDP WebSocket dropped and every
+  reconnect failed: `🔌 CDP WebSocket message handler exited unexpectedly
+  (connection closed)` → `ConnectionRefusedError: [WinError 1225]`.
+- Recovery now separates a **stale** lock from a **live** owner: it clears the lock
+  files only when no process references the profile, and otherwise raises a clear
+  "another browser is already using the AutoJobApply profile" error without killing
+  anything. `terminate_profile_browsers` is now used only by the explicit
+  `autojob --clean-profile`.
+- Evidence: reproduced the exact drop (a second `build_browser` killed the first
+  session; the profile's `Default/Preferences` then showed `exit_type: Crashed`) and
+  verified the fix (the second launch raises `RuntimeError` and the first session's
+  `is_cdp_connected` stays `True`). Regression test
+  `test_build_browser_refuses_to_kill_a_live_browser_holding_the_profile`; full test
+  suite + `ruff check .` clean.
 
 ---
 

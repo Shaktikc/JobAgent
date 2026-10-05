@@ -731,6 +731,53 @@ async def test_run_task1_repeats_search_after_ai_job_search(
     assert outcome.easy_apply_filter_selected is True
 
 
+async def test_run_task1_recovers_when_the_ai_search_leaves_no_jobs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """The optional AI detour must not leave the run without a job list.
+
+    Regression test for a real run: after "Try AI job search" LinkedIn switched
+    to a semantic page (`SEMANTIC_SEARCH_MODE_FROM_CLASSIC`) with no job cards,
+    and the repeat search returned none, so Task 2 found 0 jobs. The agent now
+    restores the standard job search.
+    """
+    page = FakePage(results_count=25)
+    ai_button = FakeElement("Try AI job search")
+    filt = _filter_element(page)
+    page.ai_buttons_queue = [[ai_button], []]
+    page.by_selector = {
+        "input.jobs-search-box__keyboard-text-input": [
+            FakeElement("Search by title, skill, or company")
+        ],
+        "button.jobs-search-box__submit-button": [FakeElement("Search")],
+        "button[aria-label*='Easy Apply']": [filt],
+    }
+    session = FakeSession(page)
+    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+
+    async def fake_search(_page, query, _settings, **kwargs):
+        if kwargs.get("allow_navigation") is False:
+            # The page the AI click left behind has no job cards.
+            return False, 0, "https://www.linkedin.com/jobs/search-results/?origin=SEMANTIC_SEARCH_MODE_FROM_CLASSIC"
+        return True, 14, SEARCH_URL
+
+    monkeypatch.setattr(browser_tools, "open_jobs_search", fake_search)
+
+    outcome = await browser_tools.run_task1(
+        DEFAULT_LOGIN_URL,
+        "software engineer",
+        _settings(tmp_path, login_timeout_seconds=5, post_click_wait_seconds=0),
+    )
+
+    assert outcome.ai_job_search_clicked is True
+    # The standard job search URL was navigated to, restoring the list.
+    assert SEARCH_URL in page.goto_calls
+    assert outcome.results_found is True
+    assert outcome.results_count == 25  # the fake page still has job cards
+    assert "restored the standard job search" in outcome.notes
+    assert outcome.easy_apply_filter_selected is True
+
+
 async def test_run_task1_repeats_search_when_ai_click_navigates(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
@@ -2155,7 +2202,7 @@ def test_terminate_profile_browsers_kills_each_pid(
     assert len(commands) == 2
 
 
-def test_build_browser_cleans_a_locked_profile(
+def test_build_browser_clears_a_stale_profile_lock(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     pytest.importorskip("browser_use")
@@ -2165,19 +2212,48 @@ def test_build_browser_cleans_a_locked_profile(
     )
     settings.profile_dir.mkdir(parents=True)
     (settings.profile_dir / "lockfile").write_text("", encoding="utf-8")
-    calls: list = []
 
-    def fake_terminate(profile_dir):
-        calls.append(profile_dir)
-        return 1
-
-    monkeypatch.setattr(browser_tools, "terminate_profile_browsers", fake_terminate)
+    # No live browser owns the lock, so it is stale and may be cleared.
+    monkeypatch.setattr(browser_tools, "_profile_browser_pids", lambda _p: [])
 
     browser = browser_tools.build_browser(settings)
 
     assert browser is not None
-    assert calls == [settings.profile_dir]
     assert browser_tools._profile_is_locked(settings.profile_dir) is False
+
+
+def test_build_browser_refuses_to_kill_a_live_browser_holding_the_profile(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """A second launch must not tear down a browser another run is driving.
+
+    Regression test for the reported failure: force-closing the live browser
+    dropped its CDP WebSocket and every reconnect was refused (WinError 1225).
+    """
+    pytest.importorskip("browser_use")
+    settings = Settings(
+        session=SessionSettings(headless=True, clean_stale_profile=True),
+        data_dir=tmp_path,
+    )
+    settings.profile_dir.mkdir(parents=True)
+    (settings.profile_dir / "lockfile").write_text("", encoding="utf-8")
+
+    # A live browser owns the profile (a running process references it).
+    monkeypatch.setattr(browser_tools, "_profile_browser_pids", lambda _p: [4321])
+    killed: list = []
+
+    def fake_terminate(profile_dir):
+        killed.append(profile_dir)
+        return 1
+
+    monkeypatch.setattr(browser_tools, "terminate_profile_browsers", fake_terminate)
+
+    with pytest.raises(RuntimeError, match="already using the AutoJobApply profile"):
+        browser_tools.build_browser(settings)
+
+    # The live browser was left untouched, so the other run keeps its CDP link.
+    assert killed == []
+    assert browser_tools._profile_is_locked(settings.profile_dir) is True
 
 
 def test_build_browser_skips_cleanup_when_profile_is_free(

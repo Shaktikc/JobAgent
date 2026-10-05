@@ -763,13 +763,18 @@ def _first_line(text: str) -> str:
 
 
 # Chromium single-instance files left in the user-data-dir. While a browser owns
-# the profile it holds a lock; a crashed/interrupted run can leave both the files
-# and the process behind.
+# the profile it holds a lock; a crashed/interrupted run can leave the lock files
+# behind without a process.
 _PROFILE_LOCK_FILES = ("SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile")
 
 
 def _profile_is_locked(profile_dir: Path) -> bool:
-    """True when the profile looks owned by a browser (or a crashed one)."""
+    """True when the profile looks owned by a browser (or a crashed one).
+
+    A lock file alone does not prove the browser is gone: on Windows a *live*
+    Chromium holds ``lockfile`` for as long as it runs. Callers that need to act
+    on the lock must therefore also check :func:`_profile_browser_pids`.
+    """
     return any((profile_dir / name).exists() for name in _PROFILE_LOCK_FILES)
 
 
@@ -788,7 +793,8 @@ def _profile_browser_pids(profile_dir: Path) -> list[int]:
     if sys.platform == "win32":
         script = (
             "$ErrorActionPreference='SilentlyContinue';"
-            "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+            "Get-CimInstance Win32_Process -Filter "
+            "\"Name='chrome.exe' OR Name='chromium.exe' OR Name='headless_shell.exe'\" | "
             "Where-Object { $_.CommandLine -like ('*' + $env:AUTOJOB_PROFILE + '*') } | "
             "ForEach-Object { $_.ProcessId }"
         )
@@ -807,13 +813,16 @@ def _profile_browser_pids(profile_dir: Path) -> list[int]:
 
 
 def terminate_profile_browsers(profile_dir: Path) -> int:
-    """Kill leftover browsers still holding ``profile_dir``; return how many.
+    """Kill every browser still holding ``profile_dir``; return how many.
 
-    An interrupted run can leave Chromium owning the profile's process singleton.
-    A new launch then hands its command line to that instance and exits without
-    ever opening its own CDP port — surfacing as "Browser process ... exited
-    before CDP became available". Only processes whose command line references
-    this dedicated profile are touched, so a normal Chrome is never affected.
+    This is the **explicit** escape hatch (the ``--clean-profile`` command and
+    :func:`clean_profile`). It is intentionally aggressive: it force-closes any
+    browser whose command line references this dedicated profile, including a
+    live one. Automatic recovery must **not** call it — force-killing a browser
+    that another run is driving makes that run's CDP WebSocket drop and every
+    reconnect fail (``ConnectionRefusedError``). Only processes whose command
+    line references this dedicated profile are touched, so a normal Chrome is
+    never affected.
     """
     pids = _profile_browser_pids(profile_dir)
     for pid in pids:
@@ -833,7 +842,11 @@ def terminate_profile_browsers(profile_dir: Path) -> int:
 
 
 def clean_profile(settings: Settings) -> int:
-    """Close leftover browsers using the profile and clear its lock files."""
+    """Close every browser using the profile and clear its lock files.
+
+    Explicit and destructive: used by ``autojob --clean-profile`` when the user
+    wants to force-recover a profile, even if a browser is still driving it.
+    """
     settings.profile_dir.mkdir(parents=True, exist_ok=True)
     killed = terminate_profile_browsers(settings.profile_dir)
     _clear_profile_locks(settings.profile_dir)
@@ -841,18 +854,31 @@ def clean_profile(settings: Settings) -> int:
 
 
 def build_browser(settings: Settings):
-    """Build a Chromium session that persists logins in ``data/profile``."""
+    """Build a Chromium session that persists logins in ``data/profile``.
+
+    A profile lock left by a **crashed** run is recovered by clearing the stale
+    lock files. A lock held by a **live** browser is never force-killed: doing so
+    was the cause of a second run tearing down the first run's CDP WebSocket
+    (``CDP WebSocket message handler exited`` followed by reconnection attempts
+    that fail with ``ConnectionRefusedError`` / ``WinError 1225``). Instead the
+    launch stops with an actionable error so the caller can finish or close the
+    other run (or the user can run ``autojob --clean-profile`` deliberately).
+    """
     Browser = _require_browser_use()
     settings.profile_dir.mkdir(parents=True, exist_ok=True)
     if settings.session.clean_stale_profile and _profile_is_locked(settings.profile_dir):
-        # A previous run left the profile locked (usually a browser still open);
-        # clear it so this launch can open its own CDP port instead of handing off.
-        killed = terminate_profile_browsers(settings.profile_dir)
-        if killed:
-            print(
-                f"AutoJobApply: closed {killed} leftover browser process(es) using "
-                f"{settings.profile_dir}"
+        live = _profile_browser_pids(settings.profile_dir)
+        if live:
+            pids = ", ".join(str(pid) for pid in live)
+            raise RuntimeError(
+                "another browser is already using the AutoJobApply profile "
+                f"{settings.profile_dir} (process id(s): {pids}). Close that "
+                "window (or wait for the other run to finish), then retry; to "
+                "force-close it run `autojob --clean-profile`."
             )
+        # The lock has no live owner: a crashed/interrupted run left it behind.
+        # Clearing it lets this launch open its own CDP port instead of handing
+        # off to a browser that no longer exists.
         _clear_profile_locks(settings.profile_dir)
     return Browser(
         headless=settings.session.headless,
@@ -1002,6 +1028,26 @@ async def open_jobs_search(
         await asyncio.sleep(0.5)
         count = await results_count(page)
 
+    current_url = await _safe(page.get_url(), "") or ""
+    return count > 0, count, current_url
+
+
+async def restore_job_search(page, query: str, settings: Settings) -> tuple[bool, int, str]:
+    """Restore a classic job search after an optional AI detour left none.
+
+    LinkedIn's "Try AI job search" control can switch the page into a semantic
+    mode (``origin=SEMANTIC_SEARCH_MODE_FROM_CLASSIC``) that renders no job
+    cards. Because that control is optional, the agent must not be left without
+    a job list: navigate to the standard jobs search URL and wait for results.
+    Returns ``(found, count, url)`` like :func:`open_jobs_search`.
+    """
+    await _safe(page.goto(build_jobs_search_url(query)))
+    await _wait_for_load(page, settings.session.navigation_timeout_ms / 1000)
+    count = await results_count(page)
+    deadline = time.monotonic() + _RESULTS_WAIT_SECONDS
+    while count == 0 and time.monotonic() < deadline:
+        await asyncio.sleep(0.5)
+        count = await results_count(page)
     current_url = await _safe(page.get_url(), "") or ""
     return count > 0, count, current_url
 
@@ -1784,10 +1830,27 @@ async def _task1_on_page(
                     page, search_query, settings, allow_navigation=False
                 )
                 if not again_found:
-                    outcome.notes = _append_note(
-                        outcome.notes,
-                        "job search after the AI job search returned no results",
+                    # The optional AI detour left no job list (LinkedIn's
+                    # semantic mode can render zero cards). It must not fail the
+                    # run, so restore the standard job search before task 2.
+                    restored, restored_count, restored_url = await restore_job_search(
+                        page, search_query, settings
                     )
+                    if restored:
+                        outcome.results_found = True
+                        outcome.results_count = restored_count
+                        outcome.search_url = restored_url
+                        outcome.notes = _append_note(
+                            outcome.notes,
+                            "job search after the AI job search returned no results; "
+                            "restored the standard job search",
+                        )
+                    else:
+                        outcome.notes = _append_note(
+                            outcome.notes,
+                            "job search after the AI job search returned no results; "
+                            "could not restore the job list",
+                        )
                     break
                 outcome.results_found = True
                 outcome.results_count = again_count

@@ -81,8 +81,10 @@ class SessionSettings(BaseModel):
     ask_human: bool = True
     ask_timeout_seconds: float = Field(default=300.0, gt=0)
     ask_poll_seconds: float = Field(default=1.0, gt=0)
-    # Before launching, close any leftover browser still holding the profile
-    # (e.g. from an interrupted run) and clear its single-instance lock files.
+    # Before launching, recover a profile lock left by a crashed/interrupted run
+    # by clearing its stale lock files. A lock held by a live browser is never
+    # force-killed (that dropped another run's CDP link); the launch stops with a
+    # clear error instead. Use `autojob --clean-profile` to force-close browsers.
     clean_stale_profile: bool = True
 
     @property

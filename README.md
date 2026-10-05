@@ -151,10 +151,12 @@ tests/
 
 ## Troubleshooting
 
-- **"Browser process … exited before CDP became available"** — a previous run
-  left a Chromium still holding `data/profile` (its single-instance lock makes the
-  new launch hand off and exit before opening a debug port). The agent clears this
-  automatically on the next launch; you can also do it explicitly:
+- **"another browser is already using the AutoJobApply profile …"** — another
+  AutoJobApply run (or a window left open by an earlier one) still owns
+  `data/profile`, so this launch stops instead of force-closing it. Closing a
+  live browser that another run is driving tears down its CDP WebSocket and the
+  reconnect attempts fail (`ConnectionRefusedError` / `WinError 1225`). Finish or
+  close that run and retry; to force-close it deliberately:
 
   ```bash
   uv run autojob --clean-profile
@@ -162,7 +164,13 @@ tests/
 
   This only closes browser processes whose command line references the dedicated
   `data/profile`, so your normal Chrome is untouched. Set
-  `AUTOJOB_SESSION_CLEAN_STALE_PROFILE=false` to disable the automatic cleanup.
+  `AUTOJOB_SESSION_CLEAN_STALE_PROFILE=false` to skip the lock recovery.
+
+- **"Browser process … exited before CDP became available"** — a **crashed**
+  previous run left Chromium's single-instance lock in `data/profile` (with no
+  live process). The agent clears that stale lock automatically on the next
+  launch. If a browser is still alive, it stops with the message above instead of
+  killing it; use `uv run autojob --clean-profile` to force it.
 
 - **`Exception ignored in: … I/O operation on closed pipe` after a run** — a
   harmless Windows `asyncio` shutdown artifact from the browser subprocess. The
