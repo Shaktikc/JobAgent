@@ -25,8 +25,7 @@ log in successfully, search for **"software engineer"** jobs, and select the
 8. After the search returns results, click the **"Try AI job Search"** button
    **if it is present** (it is optional); when it is absent, continue unchanged.
 9. After clicking **"Try AI job Search"**, **repeat the job search** (type
-   "software engineer" into the search bar and submit again). If the button
-   reappears, **click it again and repeat** — up to a safety cap (3 clicks).
+   "software engineer" into the search bar and submit again). 
 10. Select the **Easy Apply** filter.
 
 **Acceptance criteria**
@@ -41,39 +40,7 @@ log in successfully, search for **"software engineer"** jobs, and select the
   the search is performed only once.
 - The **Easy Apply** filter is selected.
 
-**Notes**
-- Browser automation is opt-in (`AUTOJOB_*` settings, `--dry-run` off).
-- The query must be entered through the jobs search bar (typed in), not by
-  navigating to a search URL. The Jobs tab is opened only when the search bar is
-  not already present. Searching is allowed to reload or navigate the page, as
-  LinkedIn does by default.
-- **Login gate:** if the user is not logged in, pause and wait for the user to
-  log in. Only once login is successful do the remaining steps (search
-  "software engineer" → click "Try AI job Search" if present → search again →
-  select Easy Apply).
-- The **"Try AI job Search"** button is optional: it is discovered at runtime by
-  scanning interactive controls (buttons, links, role=button/role=link/tab) and
-  matching any label that mentions AI (the token `AI` or "Artificial
-  Intelligence") together with "search"; it is clicked only when found. A failed
-  click is recorded but never fails the run.
-- The control may render slightly after the results; the agent waits briefly for
-  it (`AUTOJOB_SESSION_AI_SEARCH_TIMEOUT_SECONDS`, default 5s) before giving up.
-- The button is re-clicked while it reappears, capped
-  (`_MAX_AI_JOB_SEARCH_CLICKS = 3`) so a persistent control can never loop
-  forever. Each click is followed by a repeat search; the loop stops early when
-  the button disappears or a repeat search returns no results.
-- The **"Try AI job Search"** click may open LinkedIn's **AI search page**, whose
-  only input is the **"Describe the job you want"** prompt (not the standard jobs
-  search bar). That prompt is recognised, so the repeat search types the query
-  into it and submits with Enter. A navigating click is treated as successful (the
-  URL change is checked), and the page load is awaited before the search is
-  repeated; the repeat search is a normal search and may reload or navigate.
 
-- If the search or filter is not found, capture a screenshot and the page URL for
-  debugging.
-- When no AI job search control is matched, the labels of the controls the scan
-  saw are recorded (`Task1Outcome.ai_job_search_candidates`) and added to the run
-  notes/log, so a real-page miss ("different wording/markup") is diagnosable.
 
 ---
 

@@ -1,10 +1,13 @@
 # Agent Guidelines
 
 - Do not commit or push code unless explicitly told to do so.
-- Task tracking: tasks live in `task/task.md`. When a task is finished, mark it
-  ✅ Done in `task.md` **and** add an entry to `task/doneTask.md` (number, title,
-  completion date, what was done, and supporting evidence). Keep the log in
-  `doneTask.md` up to date whenever a task is completed.
+- Do not edit anything in the task files (`task/task.md`, `task/doneTask.md`)
+  unless the user has reviewed the change and given explicit approval.
+- Task tracking: tasks live in `task/task.md`. Once the user has reviewed and
+  approved the completed work, mark the task ✅ Done in `task.md` **and** add an
+  entry to `task/doneTask.md` (number, title, completion date, what was done, and
+  supporting evidence). Keep the log in `doneTask.md` up to date whenever an
+  approved task is completed.
 
 ## Browser automation
 
