@@ -84,6 +84,8 @@ def _summary(state: ApplyState) -> str:
         lines += [
             f"logged in   : {task1.logged_in} (already={task1.already_logged_in})",
             f"results     : found={task1.results_found} count={task1.results_count}",
+            f"ai search   : present={task1.ai_job_search_present} "
+            f"clicked={task1.ai_job_search_clicked} clicks={task1.ai_job_search_clicks}",
             f"easy apply  : selected={task1.easy_apply_filter_selected}",
             f"page url    : {task1.page_url or 'unknown'}",
         ]

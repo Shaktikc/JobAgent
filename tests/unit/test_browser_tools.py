@@ -18,10 +18,18 @@ SEARCH_URL = build_jobs_search_url("software engineer")
 
 
 class FakeElement:
-    def __init__(self, label: str, *, aria_label: bool = True, on_click=None) -> None:
+    def __init__(
+        self,
+        label: str,
+        *,
+        aria_label: bool = True,
+        on_click=None,
+        click_error: Exception | None = None,
+    ) -> None:
         self.label = label
         self.aria_label = aria_label
         self.on_click = on_click
+        self.click_error = click_error
         self.clicked = False
         self.scrolled = False
         self.filled: str | None = None
@@ -58,6 +66,8 @@ class FakeElement:
         self.clicked = True
         if self.on_click is not None:
             self.on_click()
+        if self.click_error is not None:
+            raise self.click_error
 
 
 class FakePage:
@@ -77,6 +87,8 @@ class FakePage:
         form_buttons_queue: list[list[dict]] | None = None,
         resume_options: dict | None = None,
         form_open_default: bool = False,
+        ai_buttons: list | None = None,
+        ai_buttons_queue: list | None = None,
     ) -> None:
         self.by_selector = by_selector or {}
         self.login_payload = login_payload or {"path": "/feed/", "nav": True, "loginForm": False}
@@ -105,6 +117,11 @@ class FakePage:
         self.form_buttons_queue = list(form_buttons_queue or [])
         self.resume_options = resume_options or {"options": [], "fileInput": False}
         self.form_open_default = form_open_default
+        # Task 1 enhancement: controls the runtime AI-job-search scan returns.
+        self.ai_buttons = list(ai_buttons or [])
+        # Each evaluate pops the next batch; the last batch persists.
+        self.ai_buttons_queue = list(ai_buttons_queue or [])
+        self.ai_elements: dict[str, FakeElement] = {}
         self.fill_elements: dict[str, FakeElement] = {}
         self.button_elements: dict[str, FakeElement] = {}
         self.resume_elements: dict[str, FakeElement] = {}
@@ -128,6 +145,22 @@ class FakePage:
         return "LinkedIn"
 
     async def evaluate(self, js: str, *args):
+        if "data-autojob-ai" in js:
+            if self.ai_buttons_queue:
+                buttons = (
+                    self.ai_buttons_queue.pop(0)
+                    if len(self.ai_buttons_queue) > 1
+                    else self.ai_buttons_queue[0]
+                )
+            else:
+                buttons = self.ai_buttons
+            self.ai_elements = {}
+            candidates = []
+            for i, element in enumerate(buttons):
+                marker = f"ai{i}"
+                self.ai_elements[marker] = element
+                candidates.append({"marker": marker, "label": element.label})
+            return json.dumps({"candidates": candidates})
         if "data-autojob-fill" in js:
             if self.form_enumerations:
                 return json.dumps(self.form_enumerations.pop(0))
@@ -166,6 +199,7 @@ class FakePage:
             ("data-autojob-resume", self.resume_elements),
             ("data-autojob-resume-select", self.select_elements),
             ("data-autojob-resume-upload", self.upload_elements),
+            ("data-autojob-ai", self.ai_elements),
         ):
             match = re.fullmatch(rf'\[{attribute}="([^"]+)"\]', selector)
             if match:
@@ -227,6 +261,8 @@ def _job_card(page: FakePage, index: int, title: str) -> FakeElement:
 def _settings(tmp_path, **session) -> Settings:
     # Task 5's browser prompt is off by default in tests; Task 5 tests enable it.
     session.setdefault("ask_human", False)
+    # Task 1's optional AI-button wait is skipped by default so tests stay fast.
+    session.setdefault("ai_search_timeout_seconds", 0)
     return Settings(session=SessionSettings(**session), data_dir=tmp_path)
 
 
@@ -268,7 +304,7 @@ async def test_results_count() -> None:
     assert await browser_tools.results_count(FakePage(results_count=12)) == 12
 
 
-async def test_type_jobs_search_types_and_submits(tmp_path) -> None:
+async def test_type_jobs_search_types_and_submits_without_reloading(tmp_path) -> None:
     field = FakeElement("Search by title, skill, or company")
     submit = FakeElement("Search")
     page = FakePage(
@@ -282,6 +318,16 @@ async def test_type_jobs_search_types_and_submits(tmp_path) -> None:
     assert typed is True
     assert field.filled == "software engineer"
     assert submit.clicked is True
+    # The search bar is already on the page, so a real user just types; no reload.
+    assert page.goto_calls == []
+
+
+async def test_type_jobs_search_opens_jobs_tab_only_when_search_bar_absent(tmp_path) -> None:
+    page = FakePage()
+    typed = await browser_tools.type_jobs_search(page, "software engineer", _settings(tmp_path))
+
+    assert typed is False
+    # Without a search bar the Jobs tab is opened once to get one.
     assert page.goto_calls == [browser_tools._JOBS_TAB_URL]
 
 
@@ -293,6 +339,26 @@ async def test_type_jobs_search_uses_enter_without_submit_button(tmp_path) -> No
     assert typed is True
     assert field.filled == "software engineer"
     assert page.pressed == ["Enter"]
+
+
+async def test_type_jobs_search_types_into_ai_prompt_and_submits(tmp_path) -> None:
+    # The AI job search page's prompt is not the standard jobs search bar; it must
+    # still be recognised and typed into (in place, no reload).
+    ai_prompt = FakeElement("Describe the job you want")
+    page = FakePage(by_selector={"input": [ai_prompt]})
+
+    typed = await browser_tools.type_jobs_search(page, "software engineer", _settings(tmp_path))
+
+    assert typed is True
+    assert ai_prompt.filled == "software engineer"
+    assert page.pressed == ["Enter"]
+    assert page.goto_calls == []
+
+
+async def test_find_jobs_search_input_matches_ai_prompt() -> None:
+    ai_prompt = FakeElement("Describe the job you want")
+    page = FakePage(by_selector={"input": [FakeElement("City"), ai_prompt]})
+    assert await browser_tools.find_jobs_search_input(page) is ai_prompt
 
 
 async def test_type_jobs_search_returns_false_without_search_bar(tmp_path) -> None:
@@ -480,6 +546,432 @@ async def test_select_easy_apply_filter_falls_back_to_url(tmp_path) -> None:
     assert any("f_AL=true" in url for url in page.goto_calls)
 
 
+async def test_find_ai_job_search_button_present() -> None:
+    button = FakeElement("Try AI job search")
+    page = FakePage(ai_buttons=[FakeElement("Save this search"), button])
+    # The first candidate merely mentions "search"; the AI one must win.
+    assert await browser_tools.find_ai_job_search_button(page) is button
+
+
+async def test_find_ai_job_search_button_absent() -> None:
+    page = FakePage(
+        ai_buttons=[FakeElement("Save this search"), FakeElement("Search jobs")]
+    )
+    assert await browser_tools.find_ai_job_search_button(page) is None
+
+
+async def test_ai_job_search_query_scans_varied_markup() -> None:
+    # The runtime scan must not rely on a plain <button>: LinkedIn may render the
+    # entry point as a link/role=button/role=link, with its label spread across
+    # aria-label, visible text, value, or title.
+    query = browser_tools._AI_CANDIDATES_QUERY
+    assert 'role="link"' in query
+    assert 'role="button"' in query
+    assert "aria-label" in query
+    assert "innerText" in query
+    assert "value" in query
+
+
+async def test_click_ai_job_search_clicks_when_present(tmp_path) -> None:
+    button = FakeElement("Try AI job search")
+    page = FakePage(ai_buttons=[button])
+
+    clicked = await browser_tools.click_ai_job_search(
+        page, _settings(tmp_path, post_click_wait_seconds=0)
+    )
+
+    assert clicked is True
+    assert button.clicked is True
+    assert button.scrolled is True
+
+
+async def test_click_ai_job_search_returns_false_when_absent(tmp_path) -> None:
+    page = FakePage()
+    clicked = await browser_tools.click_ai_job_search(
+        page, _settings(tmp_path, post_click_wait_seconds=0)
+    )
+    assert clicked is False
+
+
+async def test_click_ai_job_search_treats_navigation_as_clicked(tmp_path) -> None:
+    page = FakePage()
+
+    def _navigate() -> None:
+        page.current_url = "https://www.linkedin.com/jobs/ai-search/"
+
+    # A click that navigates can raise *after* the navigation already started
+    # (the CDP execution context is destroyed). It must still count as clicked.
+    button = FakeElement(
+        "Try AI job search",
+        on_click=_navigate,
+        click_error=RuntimeError("Execution context was destroyed"),
+    )
+    page.ai_buttons = [button]
+
+    clicked = await browser_tools.click_ai_job_search(
+        page, _settings(tmp_path, post_click_wait_seconds=0)
+    )
+
+    assert clicked is True
+    assert button.clicked is True
+    assert page.current_url == "https://www.linkedin.com/jobs/ai-search/"
+
+
+async def test_click_ai_job_search_waits_for_the_page_to_load(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    page = FakePage()
+    page.ai_buttons = [FakeElement("Try AI job search")]
+
+    waits: list[float] = []
+
+    async def fake_wait(_page, timeout_seconds):
+        waits.append(timeout_seconds)
+        return True
+
+    monkeypatch.setattr(browser_tools, "_wait_for_load", fake_wait)
+
+    clicked = await browser_tools.click_ai_job_search(
+        page, _settings(tmp_path, post_click_wait_seconds=0)
+    )
+
+    assert clicked is True
+    # The click may navigate/reload, so the page load must be awaited after it.
+    assert waits
+
+
+async def test_wait_for_ai_job_search_button_finds_late_button(tmp_path) -> None:
+    late = FakeElement("Try AI job search")
+    # Nothing on the first scan; the button renders on a later poll.
+    page = FakePage(ai_buttons_queue=[[], [late]])
+
+    button = await browser_tools.wait_for_ai_job_search_button(
+        page, _settings(tmp_path, ai_search_timeout_seconds=2.0)
+    )
+
+    assert button is late
+
+
+async def test_wait_for_ai_job_search_button_times_out(tmp_path) -> None:
+    page = FakePage(ai_buttons=[])
+
+    button = await browser_tools.wait_for_ai_job_search_button(
+        page, _settings(tmp_path, ai_search_timeout_seconds=0.05)
+    )
+    assert button is None
+
+
+async def test_run_task1_clicks_try_ai_job_search_when_present(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    page = FakePage(results_count=25)
+    ai_button = FakeElement("Try AI job search")
+    filt = _filter_element(page)
+    # The button is present once, then gone after the click; click it once.
+    page.ai_buttons_queue = [[ai_button], []]
+    page.by_selector = {
+        "input.jobs-search-box__keyboard-text-input": [
+            FakeElement("Search by title, skill, or company")
+        ],
+        "button.jobs-search-box__submit-button": [FakeElement("Search")],
+        "button[aria-label*='Easy Apply']": [filt],
+    }
+    session = FakeSession(page)
+    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+
+    outcome = await browser_tools.run_task1(
+        DEFAULT_LOGIN_URL,
+        "software engineer",
+        _settings(tmp_path, login_timeout_seconds=5, post_click_wait_seconds=0),
+    )
+
+    assert outcome.ai_job_search_present is True
+    assert outcome.ai_job_search_clicked is True
+    assert outcome.ai_job_search_clicks == 1
+    assert ai_button.clicked is True
+    assert outcome.easy_apply_filter_selected is True
+    assert outcome.screenshot_path is None
+
+
+async def test_run_task1_repeats_search_after_ai_job_search(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    page = FakePage(results_count=25)
+    ai_button = FakeElement("Try AI job search")
+    filt = _filter_element(page)
+    page.ai_buttons_queue = [[ai_button], []]
+    page.by_selector = {
+        "input.jobs-search-box__keyboard-text-input": [
+            FakeElement("Search by title, skill, or company")
+        ],
+        "button.jobs-search-box__submit-button": [FakeElement("Search")],
+        "button[aria-label*='Easy Apply']": [filt],
+    }
+    session = FakeSession(page)
+    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+
+    calls: list[str] = []
+
+    async def fake_search(_page, query, _settings, **_kwargs):
+        calls.append(query)
+        return True, 25, SEARCH_URL
+
+    monkeypatch.setattr(browser_tools, "open_jobs_search", fake_search)
+
+    outcome = await browser_tools.run_task1(
+        DEFAULT_LOGIN_URL,
+        "software engineer",
+        _settings(tmp_path, login_timeout_seconds=5, post_click_wait_seconds=0),
+    )
+
+    assert ai_button.clicked is True
+    # The search is performed once, then again after the AI job search click.
+    assert calls == ["software engineer", "software engineer"]
+    assert outcome.results_found is True
+    assert outcome.easy_apply_filter_selected is True
+
+
+async def test_run_task1_repeats_search_when_ai_click_navigates(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    page = FakePage(results_count=25)
+
+    def _navigate() -> None:
+        page.current_url = "https://www.linkedin.com/jobs/ai-search/"
+
+    ai_button = FakeElement(
+        "Try AI job search",
+        on_click=_navigate,
+        click_error=RuntimeError("Execution context was destroyed"),
+    )
+    filt = _filter_element(page)
+    page.ai_buttons_queue = [[ai_button], []]
+    page.by_selector = {
+        "input.jobs-search-box__keyboard-text-input": [
+            FakeElement("Search by title, skill, or company")
+        ],
+        "button.jobs-search-box__submit-button": [FakeElement("Search")],
+        "button[aria-label*='Easy Apply']": [filt],
+    }
+    session = FakeSession(page)
+    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+
+    calls: list[str] = []
+
+    async def fake_search(_page, query, _settings, **_kwargs):
+        calls.append(query)
+        return True, 25, SEARCH_URL
+
+    monkeypatch.setattr(browser_tools, "open_jobs_search", fake_search)
+
+    outcome = await browser_tools.run_task1(
+        DEFAULT_LOGIN_URL,
+        "software engineer",
+        _settings(tmp_path, login_timeout_seconds=5, post_click_wait_seconds=0),
+    )
+
+    assert outcome.ai_job_search_clicked is True
+    assert calls == ["software engineer", "software engineer"]
+    assert outcome.easy_apply_filter_selected is True
+
+
+async def test_run_task1_reclicks_ai_job_search_while_it_reappears(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    page = FakePage(results_count=25)
+    ai_button = FakeElement("Try AI job search")
+    filt = _filter_element(page)
+    # The button never goes away; the loop must stop at the safety cap.
+    page.ai_buttons = [ai_button]
+    page.by_selector = {
+        "input.jobs-search-box__keyboard-text-input": [
+            FakeElement("Search by title, skill, or company")
+        ],
+        "button.jobs-search-box__submit-button": [FakeElement("Search")],
+        "button[aria-label*='Easy Apply']": [filt],
+    }
+    session = FakeSession(page)
+    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+
+    calls: list[bool | None] = []
+
+    async def fake_search(_page, query, _settings, **kwargs):
+        calls.append(kwargs.get("allow_navigation"))
+        return True, 25, SEARCH_URL
+
+    monkeypatch.setattr(browser_tools, "open_jobs_search", fake_search)
+
+    outcome = await browser_tools.run_task1(
+        DEFAULT_LOGIN_URL,
+        "software engineer",
+        _settings(tmp_path, login_timeout_seconds=5, post_click_wait_seconds=0),
+    )
+
+    assert outcome.ai_job_search_clicks == browser_tools._MAX_AI_JOB_SEARCH_CLICKS
+    assert len(calls) == 1 + browser_tools._MAX_AI_JOB_SEARCH_CLICKS
+    # The initial search may navigate; the repeats after the AI click must not.
+    assert calls[0] is None
+    assert all(allow_nav is False for allow_nav in calls[1:])
+    assert outcome.easy_apply_filter_selected is True
+
+
+async def test_run_task1_stops_reclicking_when_ai_button_disappears(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    page = FakePage(results_count=25)
+    ai_button = FakeElement("Try AI job search")
+    filt = _filter_element(page)
+    # Present for two clicks, then gone; the loop stops on its own.
+    page.ai_buttons_queue = [[ai_button], [ai_button], []]
+    page.by_selector = {
+        "input.jobs-search-box__keyboard-text-input": [
+            FakeElement("Search by title, skill, or company")
+        ],
+        "button.jobs-search-box__submit-button": [FakeElement("Search")],
+        "button[aria-label*='Easy Apply']": [filt],
+    }
+    session = FakeSession(page)
+    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+
+    calls: list[str] = []
+
+    async def fake_search(_page, query, _settings, **_kwargs):
+        calls.append(query)
+        return True, 25, SEARCH_URL
+
+    monkeypatch.setattr(browser_tools, "open_jobs_search", fake_search)
+
+    outcome = await browser_tools.run_task1(
+        DEFAULT_LOGIN_URL,
+        "software engineer",
+        _settings(tmp_path, login_timeout_seconds=5, post_click_wait_seconds=0),
+    )
+
+    assert outcome.ai_job_search_clicks == 2
+    assert calls == ["software engineer", "software engineer", "software engineer"]
+    assert outcome.easy_apply_filter_selected is True
+
+
+async def test_run_task1_does_not_reload_the_page_for_searches(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    page = FakePage(results_count=25)
+    ai_button = FakeElement("Try AI job search")
+    filt = _filter_element(page)
+    page.ai_buttons_queue = [[ai_button], []]
+    page.by_selector = {
+        "input.jobs-search-box__keyboard-text-input": [
+            FakeElement("Search by title, skill, or company")
+        ],
+        "button.jobs-search-box__submit-button": [FakeElement("Search")],
+        "button[aria-label*='Easy Apply']": [filt],
+    }
+    session = FakeSession(page)
+    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+
+    outcome = await browser_tools.run_task1(
+        DEFAULT_LOGIN_URL,
+        "software engineer",
+        _settings(tmp_path, login_timeout_seconds=5, post_click_wait_seconds=0),
+    )
+
+    # Only the initial login navigation should happen; the search bar is used in
+    # place, so neither the Jobs tab nor a search URL is loaded again.
+    assert browser_tools._JOBS_TAB_URL not in page.goto_calls
+    assert SEARCH_URL not in page.goto_calls
+    assert outcome.easy_apply_filter_selected is True
+
+
+async def test_run_task1_records_ai_search_candidates_when_absent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    page = FakePage(results_count=25)
+    filt = _filter_element(page)
+    # No AI control; only search-related controls are visible. Their labels must
+    # be recorded so a real-run miss is diagnosable.
+    page.ai_buttons = [FakeElement("Save this search"), FakeElement("Search jobs")]
+    page.by_selector = {
+        "input.jobs-search-box__keyboard-text-input": [
+            FakeElement("Search by title, skill, or company")
+        ],
+        "button.jobs-search-box__submit-button": [FakeElement("Search")],
+        "button[aria-label*='Easy Apply']": [filt],
+    }
+    session = FakeSession(page)
+    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+
+    outcome = await browser_tools.run_task1(
+        DEFAULT_LOGIN_URL,
+        "software engineer",
+        _settings(tmp_path, login_timeout_seconds=5, post_click_wait_seconds=0),
+    )
+
+    assert outcome.ai_job_search_present is False
+    assert outcome.ai_job_search_candidates == ["Save this search", "Search jobs"]
+    assert "controls seen" in outcome.notes
+
+
+async def test_run_task1_does_not_repeat_search_without_ai_button(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    page = FakePage(results_count=25)
+    filt = _filter_element(page)
+    page.by_selector = {
+        "input.jobs-search-box__keyboard-text-input": [
+            FakeElement("Search by title, skill, or company")
+        ],
+        "button.jobs-search-box__submit-button": [FakeElement("Search")],
+        "button[aria-label*='Easy Apply']": [filt],
+    }
+    session = FakeSession(page)
+    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+
+    calls: list[str] = []
+
+    async def fake_search(_page, query, _settings):
+        calls.append(query)
+        return True, 25, SEARCH_URL
+
+    monkeypatch.setattr(browser_tools, "open_jobs_search", fake_search)
+
+    outcome = await browser_tools.run_task1(
+        DEFAULT_LOGIN_URL,
+        "software engineer",
+        _settings(tmp_path, login_timeout_seconds=5, post_click_wait_seconds=0),
+    )
+
+    assert calls == ["software engineer"]
+    assert outcome.ai_job_search_clicked is False
+    assert outcome.easy_apply_filter_selected is True
+
+
+async def test_run_task1_succeeds_without_ai_job_search_button(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    page = FakePage(results_count=25)
+    filt = _filter_element(page)
+    page.by_selector = {
+        "input.jobs-search-box__keyboard-text-input": [
+            FakeElement("Search by title, skill, or company")
+        ],
+        "button.jobs-search-box__submit-button": [FakeElement("Search")],
+        "button[aria-label*='Easy Apply']": [filt],
+    }
+    session = FakeSession(page)
+    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+
+    outcome = await browser_tools.run_task1(
+        DEFAULT_LOGIN_URL,
+        "software engineer",
+        _settings(tmp_path, login_timeout_seconds=5, post_click_wait_seconds=0),
+    )
+
+    assert outcome.ai_job_search_present is False
+    assert outcome.ai_job_search_clicked is False
+    assert outcome.easy_apply_filter_selected is True
+    assert outcome.screenshot_path is None
+
+
 async def test_run_task1_success(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     page = FakePage(results_count=25)
     filt = _filter_element(page)
@@ -508,7 +1000,9 @@ async def test_run_task1_success(monkeypatch: pytest.MonkeyPatch, tmp_path) -> N
     assert outcome.easy_apply_filter_selected is True
     assert outcome.screenshot_path is None
     assert page.goto_calls[0] == DEFAULT_LOGIN_URL
-    assert browser_tools._JOBS_TAB_URL in page.goto_calls
+    # The search bar is already present, so the search is typed in place with no
+    # extra navigation/reload.
+    assert browser_tools._JOBS_TAB_URL not in page.goto_calls
     assert search_field.filled == "software engineer"
     assert submit.clicked is True
     assert session.started is True and session.killed is True
@@ -1579,6 +2073,7 @@ async def test_run_full_agent_end_to_end_offline(monkeypatch: pytest.MonkeyPatch
             headless=True,
             login_timeout_seconds=5,
             post_click_wait_seconds=0,
+            ai_search_timeout_seconds=0,
             ask_human=False,
         ),
         data_dir=tmp_path,

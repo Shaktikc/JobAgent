@@ -43,6 +43,8 @@ async def browse(state: ApplyState) -> ApplyState:
         f"logged_in={task1.logged_in} "
         f"results_found={task1.results_found} "
         f"results_count={task1.results_count} "
+        f"ai_job_search={task1.ai_job_search_clicked} "
+        f"ai_job_search_clicks={task1.ai_job_search_clicks} "
         f"easy_apply_filter={task1.easy_apply_filter_selected}",
         "browse: task2 "
         f"jobs_seen={task2.jobs_seen} "

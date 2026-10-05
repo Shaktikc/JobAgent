@@ -27,14 +27,82 @@ Keep newest work at the bottom so the log reads chronologically.
 - Browser session launches (opt-in) and navigates to the LinkedIn login page.
 - Login gate: waits for the human to log in before continuing.
 - Types `"software engineer"` into the jobs search bar and submits it.
+- After the results load, **clicks the "Try AI job Search" button when it is
+  present** (optional feature; discovered at runtime). Absence of the button is
+  recorded (`ai_job_search_present=False`) and never fails the run; a failed
+  click is noted instead of aborting.
 - Selects the **Easy Apply** filter on the results page.
 
 **Evidence**
 - `src/tools/browser.py` — `_task1_on_page`, `open_jobs_search`,
+  `find_ai_job_search_button`, `click_ai_job_search`,
   `select_easy_apply_filter`.
-- `src/nodes/browse.py` — Task 1 wiring.
+- `src/tools/linkedin.py` — `looks_like_ai_job_search`, `pick_ai_job_search_index`.
+- `src/state.py` — `Task1Outcome.ai_job_search_present` / `ai_job_search_clicked`.
+- `src/nodes/browse.py` — Task 1 wiring/log; `src/main.py` — summary line.
 - `src/nodes/verify.py` — `_task1_succeeded` acceptance check.
-- `tests/unit/test_browser_tools.py`, `tests/integration/test_login_search_live.py`.
+- `tests/unit/test_browser_tools.py`, `tests/unit/test_linkedin.py`,
+  `tests/integration/test_login_search_live.py`.
+
+**Update (2026-10-05):** added the optional "Try AI job Search" click after the
+search, then hardened it after a real run showed the button was not being
+clicked:
+- Discovery is now a runtime JS scan (`_AI_CANDIDATES_QUERY`) of all interactive
+  controls (`button`, `a`, `[role=button]`, `[role=link]`, `[role=tab]`, button
+  inputs) instead of a fixed `<button>` selector, so link/role-based markup is
+  found too.
+- The label combines `aria-label`, `title`, visible text, and `value`, so a
+  control whose accessible name differs from its visible "Try AI job search"
+  text still matches.
+- Matching is broader: any label with an `AI` token (or "Artificial
+  Intelligence") that also mentions "search" — e.g. "Try AI-powered job search",
+  "Search with AI", "AI-powered search" — while "Save this search" and
+  "AI resume builder" are excluded.
+- The control is polled briefly after results load (configurable
+  `AUTOJOB_SESSION_AI_SEARCH_TIMEOUT_SECONDS`, default 5s) so a late-rendering
+  button is still clicked; absence still never fails the run.
+- After a successful AI job search click, Task 1 **repeats the job search**
+  ("software engineer" typed and submitted again) before selecting the Easy
+  Apply filter. The repeat happens only after a successful click, so an absent
+  or unclickable button still searches exactly once (no loop).
+- **Fix (click navigates/reloads the page):** clicking "Try AI job search"
+  navigates/reloads LinkedIn, and such a click can make `Element.click()` raise
+  after the navigation already started (the CDP execution context is destroyed).
+  That exception used to be treated as a failed click, so the repeat search never
+  ran. Now a changed URL counts as a successful click, and the page load is
+  awaited after the click before repeating the search.
+- **Fix (self-inflicted page reloads):** `type_jobs_search` used to
+  `page.goto` the Jobs tab on *every* search, and `open_jobs_search` fell back to
+  a search-URL navigation. A real user just types in the search bar, so the agent
+  now types **in place** and opens the Jobs tab only when the search bar is not
+  already on the page. The repeat search after an AI click never navigates
+  (`open_jobs_search(..., allow_navigation=False)`), so no page reload occurs.
+- **Re-click loop:** while the "Try AI job search" button reappears, the agent
+  clicks it again and repeats the search, capped at
+  `_MAX_AI_JOB_SEARCH_CLICKS = 3` (the loop stops early if the button disappears
+  or a repeat search returns no results). Click count is recorded as
+  `Task1Outcome.ai_job_search_clicks` and surfaced in the log/summary.
+- **Live browser verification:** `tests/integration/test_task1_ai_search_live.py`
+  drives the real `_task1_on_page` in real Chromium against a locally served
+  LinkedIn-shaped page (`AUTOJOB_TASK1_LIVE=1`). It proves the runtime scan finds
+  and clicks the button, the loop re-clicks until the button removes itself
+  (2 clicks), the search is typed in place **without reloading** (`loads == 1`),
+  and the Easy Apply filter is selected.
+- **Diagnostics for a real-page miss:** when nothing matches, the labels of the
+  controls the scan saw are recorded as `Task1Outcome.ai_job_search_candidates`
+  and added to the run notes/log, so the actual LinkedIn markup can be reported.
+- **Fix (real AI search page found via screenshot):** the "Try AI job search"
+  click opens LinkedIn's AI search page, whose only input is the
+  **"Describe the job you want"** prompt. That input was not recognised, so the
+  repeat search did nothing and the page appeared stuck. `find_jobs_search_input`
+  now also matches the AI prompt (`input[placeholder*='Describe the job']` and the
+  matching hint), so the repeat search types "software engineer" into it and
+  submits with Enter. Covered by the live-browser test
+  `test_task1_searches_via_the_ai_prompt_after_the_ai_click`.
+
+Unit tests: `uv run pytest` → 171 passed, 6 skipped (or 173 passed, 4 skipped with
+`AUTOJOB_TASK1_LIVE=1` to include the live-browser tests); `uv run ruff check .` →
+clean; `uv run autojob --dry-run` → exit 0.
 
 ---
 

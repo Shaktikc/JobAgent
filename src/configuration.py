@@ -68,6 +68,10 @@ class SessionSettings(BaseModel):
     # How long to wait for the job details apply button and then the Easy Apply
     # application form to appear.
     easy_apply_timeout_seconds: float = Field(default=20.0, gt=0)
+    # Task 1: how long to keep looking for LinkedIn's optional "Try AI job
+    # search" control after the results load. 0 skips the wait (the control is
+    # optional, so an absent one must never stall the run).
+    ai_search_timeout_seconds: float = Field(default=5.0, ge=0)
     # Slow-motion delay inserted between visible steps so a human can follow the
     # run. 0 disables it (the default); set it high for a watchable demo.
     step_delay_seconds: float = Field(default=0.0, ge=0)
@@ -128,6 +132,9 @@ def load_settings(env_file: Path | None = None) -> Settings:
             post_click_wait_seconds=_get_float("AUTOJOB_SESSION_POST_CLICK_WAIT_SECONDS", 2.0),
             easy_apply_timeout_seconds=_get_float(
                 "AUTOJOB_SESSION_EASY_APPLY_TIMEOUT_SECONDS", 20.0
+            ),
+            ai_search_timeout_seconds=_get_float(
+                "AUTOJOB_SESSION_AI_SEARCH_TIMEOUT_SECONDS", 5.0
             ),
             step_delay_seconds=_get_float("AUTOJOB_SESSION_STEP_DELAY_SECONDS", 0.0),
             ask_human=_get_bool("AUTOJOB_SESSION_ASK_HUMAN", True),

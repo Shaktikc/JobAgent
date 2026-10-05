@@ -76,6 +76,7 @@ from src.tools.linkedin import (
     looks_like_apply_modal,
     looks_like_easy_apply_action,
     looks_like_jobs_search_input,
+    pick_ai_job_search_index,
     pick_easy_apply_action_index,
     pick_easy_apply_filter_index,
     pick_easy_apply_index,
@@ -95,6 +96,44 @@ _EASY_APPLY_FILTER_SELECTORS = (
     "[role='button'][aria-label*='Easy Apply']",
 )
 
+# LinkedIn's optional "Try AI job search" entry point (Task 1). Its markup varies
+# (it can be a button, a link, a role=button/role=link, or a tab) and its
+# accessible name can differ from its visible text, so we scan interactive
+# controls at runtime and combine every label source. Only controls that mention
+# "search" are returned; the precise AI match is applied in Python.
+_AI_CANDIDATES_QUERY = r"""
+() => {
+  const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+  document.querySelectorAll('[data-autojob-ai]').forEach(
+    (el) => el.removeAttribute('data-autojob-ai')
+  );
+  const controls = document.querySelectorAll(
+    'button, a, [role="button"], [role="link"], [role="tab"], '
+    + 'input[type="button"], input[type="submit"]'
+  );
+  const out = [];
+  let i = 0;
+  controls.forEach((el) => {
+    const rects = el.getClientRects();
+    if (!rects.length) return; // skip hidden controls
+    const label = norm(
+      (el.getAttribute('aria-label') || '') + ' '
+      + (el.getAttribute('title') || '') + ' '
+      + (el.innerText || '') + ' '
+      + (el.value || '')
+    );
+    if (!label || (label.toLowerCase().indexOf('search') === -1
+        && label.toLowerCase().indexOf('ai') === -1
+        && label.toLowerCase().indexOf('artificial') === -1)) return;
+    const marker = 'ai' + (i++);
+    el.setAttribute('data-autojob-ai', marker);
+    out.push({ marker: marker, label: label });
+  });
+  return JSON.stringify({ candidates: out });
+}
+"""
+
+
 # The jobs search bar on the Jobs tab: a keywords input plus a submit button.
 _JOBS_TAB_URL = "https://www.linkedin.com/jobs/"
 _JOBS_SEARCH_INPUT_SELECTORS = (
@@ -103,6 +142,9 @@ _JOBS_SEARCH_INPUT_SELECTORS = (
     "input[aria-label*='title, skill, or company']",
     "input[aria-label*='Search jobs']",
     "input[placeholder*='title, skill, or company']",
+    # LinkedIn's AI job search page prompt ("Describe the job you want").
+    "input[aria-label*='Describe the job']",
+    "input[placeholder*='Describe the job']",
 )
 _JOBS_SEARCH_SUBMIT_SELECTORS = (
     "button.jobs-search-box__submit-button",
@@ -132,6 +174,9 @@ _JOB_DETAILS_APPLY_SELECTORS = (
 _RESULTS_WAIT_SECONDS = 20.0
 # Poll interval used while waiting for the details pane / apply modal.
 _APPLY_POLL_SECONDS = 0.5
+# Safety cap on re-clicking "Try AI job search" when it reappears after each
+# search, so a persistent control can never loop forever.
+_MAX_AI_JOB_SEARCH_CLICKS = 3
 
 _LOGIN_STATE_QUERY = """
 () => JSON.stringify({
@@ -865,13 +910,24 @@ async def find_jobs_search_input(page):
     return None
 
 
-async def type_jobs_search(page, query: str, settings: Settings) -> bool:
-    """Open the Jobs tab, type ``query`` into the search bar, and submit it."""
-    await page.goto(_JOBS_TAB_URL)
-    await _wait_for_load(page, settings.session.navigation_timeout_ms / 1000)
-    await _pace(settings)
+async def type_jobs_search(
+    page, query: str, settings: Settings, *, open_jobs_tab: bool = True
+) -> bool:
+    """Type ``query`` into the jobs search bar and submit it, in place.
 
+    When the jobs search bar is already on the page (e.g. after the first search)
+    it is used as-is, so the search behaves like a real user typing and does
+    **not** reload the page. The Jobs tab is opened only when no search bar is
+    present and ``open_jobs_tab`` is true (e.g. when starting from the feed).
+    """
     field = await find_jobs_search_input(page)
+    if field is None:
+        if not open_jobs_tab:
+            return False
+        await page.goto(_JOBS_TAB_URL)
+        await _wait_for_load(page, settings.session.navigation_timeout_ms / 1000)
+        await _pace(settings)
+        field = await find_jobs_search_input(page)
     if field is None:
         return False
 
@@ -925,14 +981,18 @@ async def results_count(page) -> int:
         return 0
 
 
-async def open_jobs_search(page, query: str, settings: Settings) -> tuple[bool, int, str]:
+async def open_jobs_search(
+    page, query: str, settings: Settings, *, allow_navigation: bool = True
+) -> tuple[bool, int, str]:
     """Type ``query`` into the jobs search bar and submit; return results info.
 
-    Returns ``(found, count, url)``. If the search bar cannot be found, it falls
-    back to navigating to the equivalent search URL so the run can still proceed.
+    Returns ``(found, count, url)``. When the search bar cannot be found the run
+    falls back to navigating to the equivalent search URL — but only when
+    ``allow_navigation`` is true. Pass false for a repeat search that must not
+    reload the page (e.g. after clicking "Try AI job search").
     """
-    typed = await type_jobs_search(page, query, settings)
-    if not typed:
+    typed = await type_jobs_search(page, query, settings, open_jobs_tab=allow_navigation)
+    if not typed and allow_navigation:
         await page.goto(build_jobs_search_url(query))
         await _wait_for_load(page, settings.session.navigation_timeout_ms / 1000)
 
@@ -1003,6 +1063,80 @@ async def select_easy_apply_filter(page, settings: Settings) -> tuple[bool, str]
             return True, note
 
     return False, note or "Easy Apply filter could not be selected"
+
+
+async def _read_ai_candidates(page) -> list[dict]:
+    payload = _loads(await _safe(page.evaluate(_AI_CANDIDATES_QUERY), ""))
+    return list(payload.get("candidates") or [])
+
+
+async def find_ai_job_search_button(page):
+    """Return LinkedIn's "Try AI job search" control, or ``None`` when absent.
+
+    Discovery is runtime and markup-agnostic: a JS scan collects visible
+    interactive controls whose combined label mentions "search" or "AI", then the
+    pure :func:`looks_like_ai_job_search` predicate picks the AI one.
+    """
+    candidates = await _read_ai_candidates(page)
+    labels = [candidate.get("label", "") for candidate in candidates]
+    index = pick_ai_job_search_index(labels)
+    if index is None:
+        return None
+    marker = candidates[index].get("marker")
+    return await _marker_element(page, "data-autojob-ai", marker) if marker else None
+
+
+async def read_ai_job_search_candidates(page) -> list[str]:
+    """Labels of the controls the AI scan saw, for diagnosing a miss."""
+    return [candidate.get("label", "") for candidate in await _read_ai_candidates(page)]
+
+
+async def wait_for_ai_job_search_button(page, settings: Settings):
+    """Wait briefly for the optional AI job search control; return it or ``None``."""
+    deadline = time.monotonic() + settings.session.ai_search_timeout_seconds
+    button = await find_ai_job_search_button(page)
+    while button is None and time.monotonic() < deadline:
+        await asyncio.sleep(_APPLY_POLL_SECONDS)
+        button = await find_ai_job_search_button(page)
+    return button
+
+
+async def click_ai_job_search(page, settings: Settings, button=None) -> bool:
+    """Click LinkedIn's optional "Try AI job search" control when present.
+
+    The control often navigates/reloads the page. A navigating click can make
+    ``Element.click()`` raise *after* the navigation has already started (the CDP
+    execution context is torn down), which is not a failed click. So a raised
+    exception is discarded and success is judged from whether the URL changed,
+    and the page load is awaited either way so the caller can repeat the search
+    on the new page.
+    """
+    if button is None:
+        button = await find_ai_job_search_button(page)
+    if button is None:
+        return False
+
+    url_before = await _safe(page.get_url(), "") or ""
+    await _safe(button.evaluate("() => this.scrollIntoView({block: 'center'})"))
+    await _pace(settings)
+
+    clicked = False
+    try:
+        await button.click()
+        clicked = True
+    except Exception:  # noqa: BLE001 - a navigating click may raise; judged below
+        clicked = False
+    if settings.session.post_click_wait_seconds:
+        await asyncio.sleep(settings.session.post_click_wait_seconds)
+    await _pace(settings)
+
+    # The click may have triggered a navigation/reload; wait for it before the
+    # caller repeats the search, and treat a changed URL as a successful click.
+    await _wait_for_load(page, settings.session.navigation_timeout_ms / 1000)
+    url_after = await _safe(page.get_url(), "") or ""
+    if url_after and url_after != url_before:
+        clicked = True
+    return clicked
 
 
 async def read_job_cards(page) -> list:
@@ -1626,9 +1760,51 @@ async def _task1_on_page(
         outcome.results_count = count
         outcome.search_url = search_url
         if found:
+            # LinkedIn's AI job search entry point is optional and may render
+            # late. Click it when present, repeat the job search in place (no
+            # reload), and keep re-clicking while it reappears — up to a safety
+            # cap so a persistent control can never loop forever.
+            for _ in range(_MAX_AI_JOB_SEARCH_CLICKS):
+                ai_button = await wait_for_ai_job_search_button(page, settings)
+                if ai_button is None:
+                    break
+                outcome.ai_job_search_present = True
+                notify("Task 1: 'Try AI job search' button found; clicking it.")
+                clicked = await click_ai_job_search(page, settings, ai_button)
+                if not clicked:
+                    outcome.notes = _append_note(
+                        outcome.notes,
+                        "Try AI job search button was present but could not be clicked",
+                    )
+                    break
+                outcome.ai_job_search_clicked = True
+                outcome.ai_job_search_clicks += 1
+                notify("Task 1: repeating the job search after AI job search.")
+                again_found, again_count, again_url = await open_jobs_search(
+                    page, search_query, settings, allow_navigation=False
+                )
+                if not again_found:
+                    outcome.notes = _append_note(
+                        outcome.notes,
+                        "job search after the AI job search returned no results",
+                    )
+                    break
+                outcome.results_found = True
+                outcome.results_count = again_count
+                outcome.search_url = again_url
+            if not outcome.ai_job_search_present:
+                # Nothing matched. Record the controls the scan actually saw so a
+                # real-run miss (different wording/markup) is diagnosable.
+                outcome.ai_job_search_candidates = await read_ai_job_search_candidates(page)
+                if outcome.ai_job_search_candidates:
+                    outcome.notes = _append_note(
+                        outcome.notes,
+                        "AI job search not matched; controls seen: "
+                        + "; ".join(outcome.ai_job_search_candidates[:10]),
+                    )
             selected, note = await select_easy_apply_filter(page, settings)
             outcome.easy_apply_filter_selected = selected
-            outcome.notes = note
+            outcome.notes = _append_note(outcome.notes, note)
 
     outcome.page_url = await _safe(page.get_url(), None)
     outcome.page_title = await _safe(page.get_title(), "") or ""

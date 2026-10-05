@@ -121,6 +121,31 @@ def pick_easy_apply_action_index(labels: list[str]) -> int | None:
     return _pick_index(labels, looks_like_easy_apply_action)
 
 
+# LinkedIn's AI-powered job search entry point. It is offered as an optional
+# button/link (e.g. "Try AI job search"); the exact wording varies, so match an
+# "AI" token (or the spelled-out phrase) together with the word "search".
+_AI_TOKEN_RE = re.compile(r"(?<![a-z])ai(?![a-z])")
+
+
+def looks_like_ai_job_search(text: str) -> bool:
+    """True when ``text`` labels LinkedIn's "Try AI job search" control.
+
+    Matches any accessible label that mentions AI (as the token ``AI`` or
+    ``Artificial Intelligence``) **and** searching, so variants like
+    "Try AI-powered job search", "Search with AI", or "AI-powered search" are
+    all recognised while unrelated controls ("Save this search",
+    "AI resume builder") are not.
+    """
+    normalized = _normalize(text)
+    mentions_ai = bool(_AI_TOKEN_RE.search(normalized)) or "artificial intelligence" in normalized
+    return mentions_ai and "search" in normalized
+
+
+def pick_ai_job_search_index(labels: list[str]) -> int | None:
+    """Return the index of the first AI job search label, if any."""
+    return _pick_index(labels, looks_like_ai_job_search)
+
+
 # Phrases that appear in LinkedIn's Easy Apply application form/modal.
 _APPLY_MODAL_HINTS = (
     "easy apply",
@@ -142,6 +167,9 @@ _JOBS_SEARCH_INPUT_HINTS = (
     "search by title",
     "search jobs",
     "search for jobs",
+    # LinkedIn's AI job search page uses a "describe what you want" prompt.
+    "describe the job",
+    "describe the job you want",
 )
 
 

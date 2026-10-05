@@ -20,9 +20,15 @@ log in successfully, search for **"software engineer"** jobs, and select the
    is successful). Then continue to step 5.
 5. **If logged in:** proceed directly to step 6.
 6. Confirm login succeeded (e.g. the LinkedIn feed/home page is visible).
-7. Open the jobs search tab and **type "software engineer" into the search bar**,
-   then submit the search.
-8. Open the search results and select the **Easy Apply** filter.
+7. Type "software engineer" into the jobs search bar **in place** and submit it
+   (no page reload). Open the jobs tab first only if the search bar is not already
+   on the page.
+8. After the search returns results, click the **"Try AI job Search"** button
+   **if it is present** (it is optional); when it is absent, continue unchanged.
+9. After clicking **"Try AI job Search"**, **repeat the job search** in place
+   (type "software engineer" into the search bar and submit again). If the button
+   reappears, **click it again and repeat** — up to a safety cap (3 clicks).
+10. Select the **Easy Apply** filter.
 
 **Acceptance criteria**
 - Browser opens successfully.
@@ -30,16 +36,45 @@ log in successfully, search for **"software engineer"** jobs, and select the
 - User logs in successfully.
 - **"software engineer"** is typed into the jobs search bar and the search
   returns job results.
+- The **"Try AI job Search"** button is clicked when present, and the
+  "software engineer" search is performed **again** after each click while the
+  button reappears (capped); absence of the button does not fail the run and then
+  the search is performed only once.
+- Searching does **not** reload the page when the search bar is already present.
 - The **Easy Apply** filter is selected.
 
 **Notes**
 - Browser automation is opt-in (`AUTOJOB_*` settings, `--dry-run` off).
 - The query must be entered through the jobs search bar (typed in), not by
-  navigating to a search URL.
+  navigating to a search URL. The Jobs tab is opened only once when the search bar
+  is not already present; repeat searches type in place so the page does not
+  reload.
 - **Login gate:** if the user is not logged in, pause and wait for the user to
   log in. Only once login is successful do the remaining steps (search
-  "software engineer" → select Easy Apply).
-- If the search or filter is not found, capture a screenshot and the page URL for debugging.
+  "software engineer" → click "Try AI job Search" if present → search again →
+  select Easy Apply).
+- The **"Try AI job Search"** button is optional: it is discovered at runtime by
+  scanning interactive controls (buttons, links, role=button/role=link/tab) and
+  matching any label that mentions AI (the token `AI` or "Artificial
+  Intelligence") together with "search"; it is clicked only when found. A failed
+  click is recorded but never fails the run.
+- The control may render slightly after the results; the agent waits briefly for
+  it (`AUTOJOB_SESSION_AI_SEARCH_TIMEOUT_SECONDS`, default 5s) before giving up.
+- The button is re-clicked while it reappears, capped
+  (`_MAX_AI_JOB_SEARCH_CLICKS = 3`) so a persistent control can never loop
+  forever. Each click is followed by a repeat search; the loop stops early when
+  the button disappears or a repeat search returns no results.
+- The **"Try AI job Search"** click may open LinkedIn's **AI search page**, whose
+  only input is the **"Describe the job you want"** prompt (not the standard jobs
+  search bar). That prompt is recognised, so the repeat search types the query
+  into it and submits with Enter. A navigating click is treated as successful (the
+  URL change is checked), and the page load is awaited before the search is
+  repeated; the repeat search itself never navigates.
+- If the search or filter is not found, capture a screenshot and the page URL for
+  debugging.
+- When no AI job search control is matched, the labels of the controls the scan
+  saw are recorded (`Task1Outcome.ai_job_search_candidates`) and added to the run
+  notes/log, so a real-page miss ("different wording/markup") is diagnosable.
 
 ---
 

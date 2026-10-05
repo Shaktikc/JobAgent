@@ -37,6 +37,10 @@ class Task1Outcome(BaseModel):
     search_performed: bool = False
     results_found: bool = False
     results_count: int = 0
+    ai_job_search_present: bool = False
+    ai_job_search_clicked: bool = False
+    ai_job_search_clicks: int = 0
+    ai_job_search_candidates: list[str] = Field(default_factory=list)
     easy_apply_filter_selected: bool = False
     screenshot_path: str | None = None
     notes: str = ""
