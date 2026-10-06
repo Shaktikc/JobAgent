@@ -12,6 +12,7 @@ import pytest
 from src.configuration import SessionSettings, Settings
 from src.state import DEFAULT_LOGIN_URL, Task5Outcome
 from src.tools import browser as browser_tools
+from src.tools import linkedin_search as linkedin_tools
 from src.tools.linkedin import build_jobs_search_url
 
 SEARCH_URL = build_jobs_search_url("software engineer")
@@ -879,7 +880,7 @@ async def test_click_ai_job_search_waits_for_the_page_to_load(
         waits.append(timeout_seconds)
         return True
 
-    monkeypatch.setattr(browser_tools, "_wait_for_load", fake_wait)
+    monkeypatch.setattr(linkedin_tools, "_wait_for_load", fake_wait)
 
     clicked = await browser_tools.click_ai_job_search(
         page, _settings(tmp_path, post_click_wait_seconds=0)
@@ -927,7 +928,7 @@ async def test_run_task1_clicks_try_ai_job_search_when_present(
         "button[aria-label*='Easy Apply']": [filt],
     }
     session = FakeSession(page)
-    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+    monkeypatch.setattr(linkedin_tools, "build_browser", lambda settings: session)
 
     outcome = await browser_tools.run_task1(
         DEFAULT_LOGIN_URL,
@@ -958,7 +959,7 @@ async def test_run_task1_repeats_search_after_ai_job_search(
         "button[aria-label*='Easy Apply']": [filt],
     }
     session = FakeSession(page)
-    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+    monkeypatch.setattr(linkedin_tools, "build_browser", lambda settings: session)
 
     calls: list[str] = []
 
@@ -966,7 +967,7 @@ async def test_run_task1_repeats_search_after_ai_job_search(
         calls.append(query)
         return True, 25, SEARCH_URL
 
-    monkeypatch.setattr(browser_tools, "open_jobs_search", fake_search)
+    monkeypatch.setattr(linkedin_tools, "open_jobs_search", fake_search)
 
     outcome = await browser_tools.run_task1(
         DEFAULT_LOGIN_URL,
@@ -1002,7 +1003,7 @@ async def test_run_task1_stays_in_ai_mode_when_repeat_returns_no_results(
         "button[aria-label*='Easy Apply']": [filt],
     }
     session = FakeSession(page)
-    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+    monkeypatch.setattr(linkedin_tools, "build_browser", lambda settings: session)
 
     calls: list[str] = []
 
@@ -1017,7 +1018,7 @@ async def test_run_task1_stays_in_ai_mode_when_repeat_returns_no_results(
             "https://www.linkedin.com/jobs/search-results/?origin=SEMANTIC_SEARCH_MODE_FROM_CLASSIC",
         )
 
-    monkeypatch.setattr(browser_tools, "open_jobs_search", fake_search)
+    monkeypatch.setattr(linkedin_tools, "open_jobs_search", fake_search)
 
     outcome = await browser_tools.run_task1(
         DEFAULT_LOGIN_URL,
@@ -1057,7 +1058,7 @@ async def test_run_task1_repeats_search_when_ai_click_navigates(
         "button[aria-label*='Easy Apply']": [filt],
     }
     session = FakeSession(page)
-    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+    monkeypatch.setattr(linkedin_tools, "build_browser", lambda settings: session)
 
     calls: list[str] = []
 
@@ -1065,7 +1066,7 @@ async def test_run_task1_repeats_search_when_ai_click_navigates(
         calls.append(query)
         return True, 25, SEARCH_URL
 
-    monkeypatch.setattr(browser_tools, "open_jobs_search", fake_search)
+    monkeypatch.setattr(linkedin_tools, "open_jobs_search", fake_search)
 
     outcome = await browser_tools.run_task1(
         DEFAULT_LOGIN_URL,
@@ -1094,7 +1095,7 @@ async def test_run_task1_reclicks_ai_job_search_while_it_reappears(
         "button[aria-label*='Easy Apply']": [filt],
     }
     session = FakeSession(page)
-    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+    monkeypatch.setattr(linkedin_tools, "build_browser", lambda settings: session)
 
     calls: list[str] = []
 
@@ -1102,7 +1103,7 @@ async def test_run_task1_reclicks_ai_job_search_while_it_reappears(
         calls.append(query)
         return True, 25, SEARCH_URL
 
-    monkeypatch.setattr(browser_tools, "open_jobs_search", fake_search)
+    monkeypatch.setattr(linkedin_tools, "open_jobs_search", fake_search)
 
     outcome = await browser_tools.run_task1(
         DEFAULT_LOGIN_URL,
@@ -1132,7 +1133,7 @@ async def test_run_task1_stops_reclicking_when_ai_button_disappears(
         "button[aria-label*='Easy Apply']": [filt],
     }
     session = FakeSession(page)
-    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+    monkeypatch.setattr(linkedin_tools, "build_browser", lambda settings: session)
 
     calls: list[str] = []
 
@@ -1140,7 +1141,7 @@ async def test_run_task1_stops_reclicking_when_ai_button_disappears(
         calls.append(query)
         return True, 25, SEARCH_URL
 
-    monkeypatch.setattr(browser_tools, "open_jobs_search", fake_search)
+    monkeypatch.setattr(linkedin_tools, "open_jobs_search", fake_search)
 
     outcome = await browser_tools.run_task1(
         DEFAULT_LOGIN_URL,
@@ -1169,7 +1170,7 @@ async def test_run_task1_records_ai_search_candidates_when_absent(
         "button[aria-label*='Easy Apply']": [filt],
     }
     session = FakeSession(page)
-    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+    monkeypatch.setattr(linkedin_tools, "build_browser", lambda settings: session)
 
     outcome = await browser_tools.run_task1(
         DEFAULT_LOGIN_URL,
@@ -1195,7 +1196,7 @@ async def test_run_task1_does_not_repeat_search_without_ai_button(
         "button[aria-label*='Easy Apply']": [filt],
     }
     session = FakeSession(page)
-    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+    monkeypatch.setattr(linkedin_tools, "build_browser", lambda settings: session)
 
     calls: list[str] = []
 
@@ -1203,7 +1204,7 @@ async def test_run_task1_does_not_repeat_search_without_ai_button(
         calls.append(query)
         return True, 25, SEARCH_URL
 
-    monkeypatch.setattr(browser_tools, "open_jobs_search", fake_search)
+    monkeypatch.setattr(linkedin_tools, "open_jobs_search", fake_search)
 
     outcome = await browser_tools.run_task1(
         DEFAULT_LOGIN_URL,
@@ -1229,7 +1230,7 @@ async def test_run_task1_succeeds_without_ai_job_search_button(
         "button[aria-label*='Easy Apply']": [filt],
     }
     session = FakeSession(page)
-    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+    monkeypatch.setattr(linkedin_tools, "build_browser", lambda settings: session)
 
     outcome = await browser_tools.run_task1(
         DEFAULT_LOGIN_URL,
@@ -1256,7 +1257,7 @@ async def test_run_task1_success(monkeypatch: pytest.MonkeyPatch, tmp_path) -> N
     session = FakeSession(page)
     messages: list[str] = []
 
-    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+    monkeypatch.setattr(linkedin_tools, "build_browser", lambda settings: session)
     settings = _settings(tmp_path, login_timeout_seconds=5, post_click_wait_seconds=0)
 
     outcome = await browser_tools.run_task1(
@@ -1292,14 +1293,14 @@ async def test_run_task1_paces_each_step_when_step_delay_is_set(
         "button[aria-label*='Easy Apply']": [filt],
     }
     session = FakeSession(page)
-    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+    monkeypatch.setattr(linkedin_tools, "build_browser", lambda settings: session)
 
     paced: list[float] = []
 
     async def fake_pace(settings):
         paced.append(settings.session.step_delay_seconds)
 
-    monkeypatch.setattr(browser_tools, "_pace", fake_pace)
+    monkeypatch.setattr(linkedin_tools, "_pace", fake_pace)
 
     outcome = await browser_tools.run_task1(
         DEFAULT_LOGIN_URL,
@@ -1319,12 +1320,12 @@ async def test_run_task1_captures_screenshot_when_login_fails(
     page = FakePage(login_payload={"path": "/login", "nav": False, "loginForm": True})
     session = FakeSession(page)
 
-    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+    monkeypatch.setattr(linkedin_tools, "build_browser", lambda settings: session)
 
     async def fake_wait(_page, *, timeout_seconds, poll_seconds):
         return False
 
-    monkeypatch.setattr(browser_tools, "wait_for_login", fake_wait)
+    monkeypatch.setattr(linkedin_tools, "wait_for_login", fake_wait)
 
     outcome = await browser_tools.run_task1(
         DEFAULT_LOGIN_URL, "software engineer", _settings(tmp_path)
@@ -1343,12 +1344,12 @@ async def test_run_task1_captures_screenshot_when_search_is_empty(
     page = FakePage(results_count=0)
     session = FakeSession(page)
 
-    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+    monkeypatch.setattr(linkedin_tools, "build_browser", lambda settings: session)
 
     async def fake_search(_page, _query, _settings):
         return False, 0, SEARCH_URL
 
-    monkeypatch.setattr(browser_tools, "open_jobs_search", fake_search)
+    monkeypatch.setattr(linkedin_tools, "open_jobs_search", fake_search)
 
     outcome = await browser_tools.run_task1(
         DEFAULT_LOGIN_URL, "software engineer", _settings(tmp_path)
@@ -1404,7 +1405,7 @@ async def test_run_agent_skips_task2_when_task1_fails(
     async def fake_wait(_page, *, timeout_seconds, poll_seconds):
         return False
 
-    monkeypatch.setattr(browser_tools, "wait_for_login", fake_wait)
+    monkeypatch.setattr(linkedin_tools, "wait_for_login", fake_wait)
 
     result = await browser_tools.run_agent(
         DEFAULT_LOGIN_URL, "software engineer", _settings(tmp_path)

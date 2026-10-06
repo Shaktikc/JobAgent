@@ -35,6 +35,7 @@ import pytest
 
 from src.configuration import SessionSettings, Settings
 from src.tools import browser as browser_tools
+from src.tools import linkedin_search as linkedin_tools
 
 pytest.importorskip("browser_use")
 
@@ -310,9 +311,9 @@ async def test_task1_stays_in_ai_mode_when_the_detour_is_empty(
     def _fail_on_classic(_query: str) -> str:
         raise AssertionError("fell back to the classic jobs search URL")
 
-    monkeypatch.setattr(browser_tools, "build_jobs_search_url", _fail_on_classic)
+    monkeypatch.setattr(linkedin_tools, "build_jobs_search_url", _fail_on_classic)
     # Keep the "wait for results" polls short so the test stays fast.
-    monkeypatch.setattr(browser_tools, "_RESULTS_WAIT_SECONDS", 0.5)
+    monkeypatch.setattr(linkedin_tools, "_RESULTS_WAIT_SECONDS", 0.5)
 
     browser = browser_tools.build_browser(_settings(tmp_path))
     try:
