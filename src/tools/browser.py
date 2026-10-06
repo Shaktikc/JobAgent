@@ -334,13 +334,22 @@ _ENUMERATE_FORM_QUERY = r"""
     const wrap = el.closest('label');
     if (wrap && norm(wrap.innerText)) return norm(wrap.innerText);
     const box = el.closest(
-      '.fb-dash-form-element, .artdeco-text-input, .jobs-easy-apply-form-element'
+      '.fb-dash-form-element, .fb-form-element, .fb-form-element-wrapper, '
+      + '.artdeco-text-input, .jobs-easy-apply-form-element, '
+      + '.jobs-easy-apply-form-section__grouping, .jobs-easy-apply-form-section'
     );
     if (box) {
       const lab = box.querySelector(
-        'label, .fb-dash-form-element__label, .artdeco-text-input--label'
+        'label, .fb-dash-form-element__label, .fb-form-element-label, '
+        + '.artdeco-text-input--label'
       );
       if (lab && norm(lab.innerText)) return norm(lab.innerText);
+    }
+    // A choice control rendered as a styled div shows its own option label as
+    // its text content (e.g. <div role="radio"><span>Yes</span></div>).
+    const role = (el.getAttribute('role') || '').toLowerCase();
+    if ((role === 'radio' || role === 'checkbox') && norm(el.innerText)) {
+      return norm(el.innerText);
     }
     return '';
   };
@@ -351,11 +360,24 @@ _ENUMERATE_FORM_QUERY = r"""
       const lg = fs.querySelector('legend');
       if (lg && norm(lg.innerText)) return norm(lg.innerText);
     }
-    const box = el.closest(
-      '.fb-dash-form-element, .jobs-easy-apply-form-element, .artdeco-form-element'
-    );
-    if (box) {
-      const lab = box.querySelector('legend, .fb-dash-form-element__label, label');
+    // The question label usually sits in an outer grouping/section container
+    // that also wraps the controls. Walk outward and take the first container
+    // that actually holds a question label.
+    const boxes = [
+      '.jobs-easy-apply-form-section__grouping',
+      '.jobs-easy-apply-form-section',
+      '.fb-form-element-wrapper',
+      '.fb-form-element',
+      '.fb-dash-form-element',
+      '.jobs-easy-apply-form-element',
+      '.artdeco-form-element',
+    ];
+    for (const sel of boxes) {
+      const box = el.closest(sel);
+      if (!box) continue;
+      const lab = box.querySelector(
+        'legend, .fb-form-element-label, .fb-dash-form-element__label, label'
+      );
       if (lab && norm(lab.innerText)) return norm(lab.innerText);
     }
     return '';
@@ -443,6 +465,21 @@ _RESUME_OPTIONS_QUERY = r"""
     }
     const wrap = el.closest('label');
     if (wrap && norm(wrap.innerText)) return norm(wrap.innerText);
+    const box = el.closest(
+      '.fb-dash-form-element, .fb-form-element, .fb-form-element-wrapper, '
+      + '.jobs-easy-apply-form-element, .jobs-easy-apply-form-section__grouping, '
+      + '.jobs-easy-apply-form-section'
+    );
+    if (box) {
+      const lab = box.querySelector(
+        'label, .fb-dash-form-element__label, .fb-form-element-label'
+      );
+      if (lab && norm(lab.innerText)) return norm(lab.innerText);
+    }
+    const role = (el.getAttribute('role') || '').toLowerCase();
+    if ((role === 'radio' || role === 'checkbox') && norm(el.innerText)) {
+      return norm(el.innerText);
+    }
     return '';
   };
   const clickTarget = (el) => {
