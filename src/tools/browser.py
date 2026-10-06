@@ -208,6 +208,32 @@ _RESULTS_QUERY = """
 })
 """
 
+# LinkedIn's AI/semantic results page (origin=SEMANTIC_SEARCH_LANDING_PAGE)
+# renders its job cards as div[role="button"], not the classic <li> items the
+# classic selectors above match. Scan those controls and mark the ones that look
+# like job cards with `data-autojob-card` (see _JOB_CARD_ATTR), so results_count
+# and read_job_cards can find them and the run never stalls waiting for cards
+# that the classic selectors cannot see.
+_AI_JOB_CARDS_JS = r"""
+() => {
+  // Clear any stale markers from a previous scan.
+  document.querySelectorAll('[data-autojob-card]').forEach(
+    (el) => el.removeAttribute('data-autojob-card')
+  );
+  const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+  let n = 0;
+  document.querySelectorAll('div[role="button"]').forEach((el) => {
+    const t = norm(el.innerText);
+    if (!t || t.length < 40) return;              // a card has a title + metadata
+    if (/^easy apply/i.test(t)) return;           // not the apply button / filter
+    if (!/(on-site|hybrid|remote|posted|actively reviewing|applied|promoted)/i.test(t)) return;
+    el.setAttribute('data-autojob-card', 'job' + n);
+    n += 1;
+  });
+  return JSON.stringify({ count: n });
+}
+"""
+
 _FILTER_QUERY = """
 () => JSON.stringify({
   selected: (() => {
@@ -1042,6 +1068,26 @@ async def results_count(page) -> int:
     """Number of job cards currently rendered on the search results page."""
     payload = _loads(await _safe(page.evaluate(_RESULTS_QUERY), ""))
     try:
+        count = int(payload.get("count") or 0)
+    except (TypeError, ValueError):
+        count = 0
+    if count == 0:
+        # AI/semantic results page: its job cards are div[role="button"], which
+        # the classic selectors in _RESULTS_QUERY cannot see.
+        count = await _mark_ai_job_cards(page)
+    return count
+
+
+async def _mark_ai_job_cards(page) -> int:
+    """Mark AI/semantic job-card controls and return how many were found.
+
+    LinkedIn's AI job search renders results as ``div[role="button"]`` job cards
+    that the classic ``<li>`` selectors miss. This tags each one with
+    ``data-autojob-card`` (see :data:`_JOB_CARD_ATTR`) so ``read_job_cards`` can
+    resolve them, and returns the count for :func:`results_count`.
+    """
+    payload = _loads(await _safe(page.evaluate(_AI_JOB_CARDS_JS), ""))
+    try:
         return int(payload.get("count") or 0)
     except (TypeError, ValueError):
         return 0
@@ -1233,6 +1279,8 @@ async def click_ai_job_search(page, settings: Settings, button=None) -> bool:
 
 async def read_job_cards(page) -> list:
     """Return the job cards currently shown in the search results list."""
+    # Ensure AI/semantic job cards are marked so [data-autojob-card] resolves them.
+    await _mark_ai_job_cards(page)
     for selector in _JOB_CARD_SELECTORS:
         cards = await _query_elements(page, selector)
         if cards:

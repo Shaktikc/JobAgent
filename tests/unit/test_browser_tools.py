@@ -105,10 +105,12 @@ class FakePage:
         form_open_default: bool = False,
         ai_buttons: list | None = None,
         ai_buttons_queue: list | None = None,
+        ai_job_cards: list | None = None,
     ) -> None:
         self.by_selector = by_selector or {}
         self.login_payload = login_payload or {"path": "/feed/", "nav": True, "loginForm": False}
         self.results_count = results_count
+        self.ai_job_cards = list(ai_job_cards or [])
         self.filter_selected = filter_selected
         self.ready = ready
         self.goto_calls: list[str] = []
@@ -197,6 +199,8 @@ class FakePage:
             return json.dumps(payload)
         if "jobs-search-results" in js:
             return json.dumps({"count": self.results_count})
+        if "data-autojob-card" in js:
+            return json.dumps({"count": len(self.ai_job_cards)})
         if "jobs-easy-apply-modal" in js:
             text = self.modal_text if self.modal_open else ""
             return json.dumps({"open": self.modal_open, "text": text})
@@ -223,6 +227,8 @@ class FakePage:
                 return [element] if element is not None else []
         if selector in {'[data-autojob-file="1"]', 'input[type="file"]'}:
             return [self.file_element] if self.file_element is not None else []
+        if selector == "[data-autojob-card]":
+            return list(self.ai_job_cards)
         return list(self.by_selector.get(selector, []))
 
     def _apply_button(self) -> FakeElement:
@@ -331,6 +337,14 @@ async def test_results_count() -> None:
     assert await browser_tools.results_count(FakePage(results_count=12)) == 12
 
 
+async def test_results_count_counts_ai_job_cards() -> None:
+    """The AI/semantic results page has no classic <li> cards, so results_count
+    falls back to counting the div[role="button"] job cards it marks."""
+    card = FakeElement("Backend Engineer")
+    page = FakePage(results_count=0, ai_job_cards=[card])
+    assert await browser_tools.results_count(page) == 1
+
+
 async def test_type_jobs_search_types_and_submits(tmp_path) -> None:
     field = FakeElement("Search by title, skill, or company")
     submit = FakeElement("Search")
@@ -422,6 +436,25 @@ async def test_open_jobs_search_falls_back_to_url_without_search_bar(tmp_path) -
     assert (found, count) == (True, 4)
     assert url == SEARCH_URL
     assert SEARCH_URL in page.goto_calls
+
+
+async def test_open_jobs_search_detects_ai_job_cards_promptly(tmp_path) -> None:
+    """On the AI/semantic results page the classic <li> cards are absent but the
+    div[role="button"] job cards are present. results_count must find them so the
+    run does not wait for cards the classic selectors cannot see."""
+    field = FakeElement("Search by title, skill, or company")
+    card = FakeElement("Backend Engineer")
+    page = FakePage(
+        by_selector={"input.jobs-search-box__keyboard-text-input": [field]},
+        results_count=0,
+        ai_job_cards=[card],
+    )
+    found, count, _url = await browser_tools.open_jobs_search(
+        page, "software engineer", _settings(tmp_path)
+    )
+    assert (found, count) == (True, 1)
+    assert field.filled == "software engineer"
+    assert SEARCH_URL not in page.goto_calls
 
 
 async def test_find_easy_apply_filter_prefers_filter_label() -> None:
@@ -526,6 +559,14 @@ async def test_read_job_cards() -> None:
 
     assert await browser_tools.read_job_cards(page) == cards
     assert await browser_tools.read_job_cards(FakePage()) == []
+
+
+async def test_read_job_cards_finds_ai_job_cards() -> None:
+    """On the AI/semantic results page the cards are div[role="button"], not
+    classic <li> items; read_job_cards marks them and returns them."""
+    card = FakeElement("Backend Engineer")
+    page = FakePage(ai_job_cards=[card])
+    assert await browser_tools.read_job_cards(page) == [card]
 
 
 async def test_find_job_apply_button_reads_details_pane() -> None:
