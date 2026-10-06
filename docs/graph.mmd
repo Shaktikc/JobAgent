@@ -1,0 +1,28 @@
+---
+config:
+  flowchart:
+    curve: basis
+---
+graph LR;
+	__start__([<p>__start__</p>]):::first
+	ingest(ingest)
+	browse(browse)
+	match(match)
+	fill(fill)
+	cleanup(cleanup)
+	verify(verify)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> ingest;
+	browse -. "browser errors" .-> cleanup;
+	browse -. "live run, no errors" .-> match;
+	browse -. "dry run" .-> verify;
+	cleanup --> verify;
+	fill --> cleanup;
+	ingest -. "invalid input" .-> __end__;
+	ingest -. "valid input" .-> browse;
+	match -. "resume selection failed" .-> cleanup;
+	match -. "resume selected" .-> fill;
+	verify --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc

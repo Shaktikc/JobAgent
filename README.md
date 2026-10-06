@@ -17,14 +17,20 @@ filling the form — all through a real browser (via
 
 The graph is `START -> ingest -> browse -> match -> fill -> cleanup -> verify -> END`:
 
+![Graph diagram](docs/graph.png)
+
+> Regenerate the diagram (or the Mermaid source) with
+> `python -m src.visualize --out docs/graph.png --mermaid-out docs/graph.mmd`.
+
 1. **ingest** — validates the LinkedIn URL and the search query.
 2. **browse** — runs Tasks 1-3's browser work in **one session**:
    - **Task 1:** opens Chromium, navigates to the login page, and checks whether
      you are logged in. If not, it **waits for you to log in** in the browser
      window (up to `AUTOJOB_SESSION_LOGIN_TIMEOUT_SECONDS`). Once logged in, it
-     opens the jobs search tab, **types the query** (default `"software engineer"`)
-     into the search bar and submits it, then selects the **Easy Apply** filter on
-     the results page.
+     runs LinkedIn's **AI job search** — clicking the **"Try AI job search"**
+     control and typing the query (default `"software engineer"`) into the AI
+     prompt ("Describe the job you want") — then selects the **Easy Apply** filter
+     on the results page. The classic jobs search bar is not used.
    - **Task 2:** reads the job list from those results, opens the first job that
      offers Easy Apply (skipping external-apply jobs), clicks its **Easy Apply**
      button, and confirms the application form opened.
