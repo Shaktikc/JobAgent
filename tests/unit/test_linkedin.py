@@ -12,6 +12,7 @@ from src.tools.linkedin import (
     looks_like_easy_apply,
     looks_like_easy_apply_action,
     looks_like_easy_apply_filter,
+    looks_like_job_card_label,
     looks_like_jobs_search_input,
     pick_ai_job_search_index,
     pick_easy_apply_action_index,
@@ -119,3 +120,19 @@ def test_pick_ai_job_search_index() -> None:
     assert pick_ai_job_search_index(labels) == 1
     assert pick_ai_job_search_index(["Save", "Easy Apply filter."]) is None
     assert pick_ai_job_search_index([]) is None
+
+
+def test_looks_like_job_card_label() -> None:
+    # A job card's accessible text carries title + location/status metadata.
+    card = (
+        "Senior Software Engineer (Founding Team) Care GP Sydney, NSW (On-site) "
+        "Actively reviewing applicants Viewed 3 months ago Easy Apply"
+    )
+    assert looks_like_job_card_label(card)
+    assert looks_like_job_card_label("Full Stack Engineer MoreGoodDays Australia (Remote) Easy Apply")
+    assert looks_like_job_card_label("Software Engineer UpGuard Posted 1 week ago Easy Apply")
+
+    # An apply button's label is short and carries no location/status metadata.
+    assert not looks_like_job_card_label("Easy Apply to Senior Software Engineer at Care GP")
+    assert not looks_like_job_card_label("Easy Apply")
+    assert not looks_like_job_card_label("Easy Apply filter.")

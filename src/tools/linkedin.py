@@ -99,6 +99,34 @@ def looks_like_easy_apply_action(text: str) -> bool:
     return "easy apply" in normalized and "filter" not in normalized
 
 
+# Job-card labels carry location/status metadata that a job's apply button label
+# ("Easy Apply to <job> at <company>") does not. These are the same markers the
+# AI/semantic job-card scanner (:data:`_AI_JOB_CARDS_JS`) uses, so a card's
+# "Easy Apply" badge is never mistaken for the details pane's apply button.
+_JOB_CARD_MARKERS = (
+    "on-site",
+    "hybrid",
+    "remote",
+    "posted",
+    "actively reviewing",
+    "applied",
+    "promoted",
+)
+
+
+def looks_like_job_card_label(text: str) -> bool:
+    """True when ``text`` reads like a job card, not a job's apply button.
+
+    A job card's accessible text carries the title plus location/status metadata
+    ("On-site", "Hybrid", "Remote", "Actively reviewing applicants", "Posted",
+    "Applied"). The details pane's apply button is short ("Easy Apply to <job> at
+    <company>") and rarely contains those markers, so requiring one keeps a job
+    card's "Easy Apply" badge from being chosen as the apply button.
+    """
+    normalized = _normalize(text)
+    return any(marker in normalized for marker in _JOB_CARD_MARKERS)
+
+
 def _pick_index(labels: list[str], predicate) -> int | None:
     for index, label in enumerate(labels):
         if predicate(label):

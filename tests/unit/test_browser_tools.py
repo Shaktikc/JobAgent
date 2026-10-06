@@ -582,6 +582,31 @@ async def test_find_job_apply_button_none_without_selection() -> None:
     assert await browser_tools.find_job_apply_button(FakePage()) == (None, "")
 
 
+async def test_find_job_apply_button_fallback_skips_job_cards() -> None:
+    """A job card whose text contains "Easy Apply" must not be chosen as the
+    apply button when the CSS selectors miss the details pane's button.
+
+    On the AI/semantic results page the job cards are div[role="button"] and their
+    accessible text carries the "Easy Apply" badge, so a naive fallback scan picks
+    the first card and clicks it instead of the blue "Easy Apply" button (the Task
+    2 bug). The fallback must exclude job cards and return the real apply button.
+    """
+    card = FakeElement(
+        "Senior Software Engineer (Founding Team) Care GP Sydney, NSW (On-site) "
+        "Actively reviewing applicants Easy Apply",
+        aria_label=False,
+    )
+    apply_button = FakeElement("Easy Apply to Senior Software Engineer at Care GP")
+    page = FakePage(by_selector={"button, [role='button']": [card, apply_button]})
+
+    button, label = await browser_tools.find_job_apply_button(page)
+
+    assert button is apply_button
+    assert label == "Easy Apply to Senior Software Engineer at Care GP"
+    # The job card was never picked as the apply button.
+    assert button is not card
+
+
 async def test_task2_selects_job_and_opens_form(tmp_path) -> None:
     page = FakePage(
         results_count=3,

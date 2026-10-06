@@ -76,6 +76,7 @@ from src.tools.linkedin import (
     looks_like_apply_modal,
     looks_like_easy_apply,
     looks_like_easy_apply_action,
+    looks_like_job_card_label,
     looks_like_jobs_search_input,
     pick_ai_job_search_index,
     pick_easy_apply_action_index,
@@ -1288,18 +1289,49 @@ async def read_job_cards(page) -> list:
     return []
 
 
+async def _element_is_job_card(element) -> bool:
+    """True when ``element`` is a job card, not the details pane's apply button.
+
+    AI/semantic job cards are ``div[role="button"]`` marked with
+    ``data-autojob-card`` (see :data:`_JOB_CARD_ATTR`). Their accessible text
+    also carries "Easy Apply", so without this check the fallback scan would
+    mistake the first card for the apply button and click it instead of the blue
+    "Easy Apply" button (the Task 2 bug).
+
+    A real apply button is a ``<button>`` and is never excluded by the label
+    heuristic, so a job whose title/company contains a location word (e.g.
+    "Remote") is still matched.
+    """
+    if await _safe(element.get_attribute(_JOB_CARD_ATTR), None) is not None:
+        return True
+    tag = await _safe(element.evaluate("() => this.tagName"), "") or ""
+    if str(tag).upper() == "BUTTON":
+        return False
+    return looks_like_job_card_label(await _element_label(element))
+
+
 async def find_job_apply_button(page) -> tuple:
     """Return ``(element, label)`` for the details pane's apply button, or ``(None, "")``."""
+    # Ensure AI/semantic job cards are marked so the fallback scan below can
+    # exclude them: a job card's "Easy Apply" badge is not the apply button.
+    await _mark_ai_job_cards(page)
     button = await _first_element(page, _JOB_DETAILS_APPLY_SELECTORS)
     if button is not None:
         return button, await _element_label(button)
 
     # Fall back to scanning interactive controls for an Easy Apply *action*
-    # (an Easy Apply label that is not the results filter).
+    # (an Easy Apply label that is not the results filter). Job cards are
+    # excluded — their text also contains "Easy Apply" but they are not the
+    # blue apply button.
     controls = await _query_elements(page, "button, [role='button']")
     labels = [await _element_label(element) for element in controls]
-    index = pick_easy_apply_action_index(labels)
-    return (controls[index], labels[index]) if index is not None else (None, "")
+    candidates = [
+        (element, label)
+        for element, label in zip(controls, labels)
+        if looks_like_easy_apply_action(label) and not await _element_is_job_card(element)
+    ]
+    index = pick_easy_apply_action_index([label for _element, label in candidates])
+    return (candidates[index][0], candidates[index][1]) if index is not None else (None, "")
 
 
 async def wait_for_job_apply_button(page, settings: Settings) -> tuple:
