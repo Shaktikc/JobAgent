@@ -86,6 +86,10 @@ class SessionSettings(BaseModel):
     # force-killed (that dropped another run's CDP link); the launch stops with a
     # clear error instead. Use `autojob --clean-profile` to force-close browsers.
     clean_stale_profile: bool = True
+    # Task 6: skip job cards whose status is already "Applied" and open the next
+    # unapplied job instead. Set false to ignore the Applied status (open the
+    # first Easy Apply card regardless).
+    skip_applied: bool = True
 
     @property
     def viewport(self) -> dict[str, int]:
@@ -143,6 +147,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
             ask_timeout_seconds=_get_float("AUTOJOB_SESSION_ASK_TIMEOUT_SECONDS", 300.0),
             ask_poll_seconds=_get_float("AUTOJOB_SESSION_ASK_POLL_SECONDS", 1.0),
             clean_stale_profile=_get_bool("AUTOJOB_SESSION_CLEAN_STALE_PROFILE", True),
+            skip_applied=_get_bool("AUTOJOB_SESSION_SKIP_APPLIED", True),
         ),
         data_dir=Path(data_dir).expanduser() if data_dir else PROJECT_ROOT / "data",
         resumes_dir=(Path(resumes_dir).expanduser() if resumes_dir else PROJECT_ROOT / "resumes"),

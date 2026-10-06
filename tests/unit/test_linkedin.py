@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from src.tools.linkedin import (
     build_jobs_search_url,
+    card_is_applied,
     is_linkedin_url,
     is_logged_in_path,
     is_login_path,
@@ -136,3 +137,26 @@ def test_looks_like_job_card_label() -> None:
     assert not looks_like_job_card_label("Easy Apply to Senior Software Engineer at Care GP")
     assert not looks_like_job_card_label("Easy Apply")
     assert not looks_like_job_card_label("Easy Apply filter.")
+
+
+def test_card_is_applied_matches_only_the_applied_status_word() -> None:
+    # The Applied status word decides, regardless of the age text that follows.
+    assert card_is_applied("Senior Software Engineer Care GP Applied 5 months ago")
+    assert card_is_applied("  senior software engineer   applied  · 5 months ago ")
+    assert card_is_applied("Backend Engineer Acme Applied")
+
+
+def test_card_is_applied_ignores_other_statuses_and_age_text() -> None:
+    # "Viewed"/"Saved"/"Easy Apply" must not be mistaken for Applied.
+    assert not card_is_applied("Senior Software Engineer Care GP Viewed 2 weeks ago Easy Apply")
+    assert not card_is_applied("Backend Engineer Acme Saved Easy Apply")
+    assert not card_is_applied("Data Engineer Acme Posted 1 week ago Easy Apply")
+    assert not card_is_applied("Data Engineer Acme Easy Apply")
+
+
+def test_card_is_applied_treats_unreadable_card_as_unapplied() -> None:
+    assert not card_is_applied("")
+    assert not card_is_applied("   ")
+    # The word "applied" must be standalone; "applicants"/"applies" is not it.
+    assert not card_is_applied("Actively reviewing applicants")
+    assert not card_is_applied("Full Stack Engineer Australia (Remote) Easy Apply")

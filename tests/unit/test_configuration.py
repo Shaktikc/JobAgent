@@ -37,6 +37,7 @@ def test_defaults_are_safe() -> None:
     assert settings.session.ask_timeout_seconds == 300.0
     assert settings.session.ask_poll_seconds == 1.0
     assert settings.session.clean_stale_profile is True
+    assert settings.session.skip_applied is True
 
 
 def test_env_overrides_are_read(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -53,6 +54,7 @@ def test_env_overrides_are_read(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AUTOJOB_SESSION_ASK_TIMEOUT_SECONDS", "30")
     monkeypatch.setenv("AUTOJOB_SESSION_ASK_POLL_SECONDS", "0.25")
     monkeypatch.setenv("AUTOJOB_SESSION_CLEAN_STALE_PROFILE", "false")
+    monkeypatch.setenv("AUTOJOB_SESSION_SKIP_APPLIED", "false")
 
     settings = load_settings()
     assert settings.session.headless is True
@@ -68,6 +70,7 @@ def test_env_overrides_are_read(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.session.ask_timeout_seconds == 30.0
     assert settings.session.ask_poll_seconds == 0.25
     assert settings.session.clean_stale_profile is False
+    assert settings.session.skip_applied is False
 
 
 def test_data_dir_override(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:

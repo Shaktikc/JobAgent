@@ -127,6 +127,20 @@ def looks_like_job_card_label(text: str) -> bool:
     return any(marker in normalized for marker in _JOB_CARD_MARKERS)
 
 
+def card_is_applied(text: str) -> bool:
+    """True when a job card's status marks the job as already applied.
+
+    A card that the user has already applied to shows the word **Applied** in its
+    status line (e.g. "Applied · 5 months ago"). Only that standalone word
+    decides: the age text ("5 months ago", "2 weeks ago") and other statuses
+    ("Viewed", "Saved") are ignored, as is an "Easy Apply" badge. Matching is on
+    the normalized card text (trim, lowercase, collapse whitespace) because the
+    status label's markup and position vary, and an unreadable/empty card is
+    never assumed Applied — the caller lets the existing Easy Apply check decide.
+    """
+    return bool(re.search(r"\bapplied\b", _normalize(text)))
+
+
 def _pick_index(labels: list[str], predicate) -> int | None:
     for index, label in enumerate(labels):
         if predicate(label):

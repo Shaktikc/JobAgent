@@ -71,6 +71,7 @@ from src.tools.forms import (
 )
 from src.tools.linkedin import (
     build_jobs_search_url,
+    card_is_applied,
     is_logged_in_path,
     is_login_path,
     looks_like_apply_modal,
@@ -2052,7 +2053,16 @@ async def _task2_on_page(page, settings: Settings, notify) -> Task2Outcome:
     await _pace(settings)
 
     for index, card in enumerate(cards):
-        title = _first_line(await _element_label(card))
+        label = await _element_label(card)
+        title = _first_line(label)
+        # Task 6: skip cards already marked "Applied" (never click them). The
+        # status text is read from the card itself; a card with no readable
+        # status is treated as unapplied and left to the Easy Apply check.
+        if settings.session.skip_applied and card_is_applied(label):
+            outcome.applied_jobs_skipped += 1
+            outcome.applied_skipped_cards.append({"index": index, "title": title})
+            notify(f"Task 2: job {index + 1} is already applied; skipping.")
+            continue
         outcome.job_index = index
         outcome.job_title = title
         notify(f"Task 2: opening job {index + 1}: {title or '(untitled)'}")
@@ -2095,6 +2105,21 @@ async def _task2_on_page(page, settings: Settings, notify) -> Task2Outcome:
 
     outcome.page_url = await _safe(page.get_url(), None)
     outcome.page_title = await _safe(page.get_title(), "") or ""
+
+    if not outcome.easy_apply_clicked:
+        # Task 6: when every card on this page was skipped as Applied, stop
+        # gracefully with a clear note instead of opening (and applying to) one.
+        if outcome.jobs_seen and outcome.applied_jobs_skipped >= outcome.jobs_seen:
+            outcome.notes = _append_note(
+                outcome.notes,
+                "no unapplied job found on this page; every job card is already Applied",
+            )
+        elif outcome.applied_jobs_skipped:
+            outcome.notes = _append_note(
+                outcome.notes,
+                f"skipped {outcome.applied_jobs_skipped} applied job(s); "
+                "no unapplied Easy Apply job was opened",
+            )
     return outcome
 
 

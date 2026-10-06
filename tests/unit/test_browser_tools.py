@@ -671,6 +671,76 @@ async def test_task2_reports_when_form_does_not_open(tmp_path) -> None:
     assert outcome.notes
 
 
+async def test_task2_skips_applied_jobs_and_opens_first_unapplied(tmp_path) -> None:
+    page = FakePage(
+        details_apply_labels={1: "Easy Apply to Data Engineer at Acme"},
+    )
+    page.by_selector = {
+        "li.jobs-search-results__list-item": [
+            _job_card(page, 0, "Backend Engineer Acme Applied 5 months ago"),
+            _job_card(page, 1, "Data Engineer Acme Easy Apply"),
+        ]
+    }
+
+    outcome = await browser_tools._task2_on_page(
+        page, _settings(tmp_path, post_click_wait_seconds=0), lambda _m: None
+    )
+
+    # The applied card is never clicked (no application form opened for it).
+    assert page.selected_job == 1
+    assert outcome.applied_jobs_skipped == 1
+    assert outcome.applied_skipped_cards == [
+        {"index": 0, "title": "Backend Engineer Acme Applied 5 months ago"}
+    ]
+    assert outcome.job_index == 1
+    assert outcome.job_title == "Data Engineer Acme Easy Apply"
+    assert outcome.easy_apply_clicked is True
+    assert outcome.application_form_opened is True
+
+
+async def test_task2_stops_when_every_card_is_applied(tmp_path) -> None:
+    page = FakePage()
+    page.by_selector = {
+        "li.jobs-search-results__list-item": [
+            _job_card(page, 0, "Backend Engineer Acme Applied 5 months ago"),
+            _job_card(page, 1, "Data Engineer Acme Applied 2 weeks ago"),
+        ]
+    }
+
+    outcome = await browser_tools._task2_on_page(
+        page, _settings(tmp_path, post_click_wait_seconds=0), lambda _m: None
+    )
+
+    assert page.selected_job is None
+    assert outcome.applied_jobs_skipped == 2
+    assert outcome.easy_apply_clicked is False
+    assert outcome.application_form_opened is False
+    assert outcome.job_index is None
+    assert "no unapplied job found" in outcome.notes
+
+
+async def test_task2_applied_skip_can_be_disabled(tmp_path) -> None:
+    page = FakePage(
+        details_apply_labels={0: "Easy Apply to Backend Engineer at Acme"},
+    )
+    page.by_selector = {
+        "li.jobs-search-results__list-item": [
+            _job_card(page, 0, "Backend Engineer Acme Applied 5 months ago"),
+        ]
+    }
+
+    outcome = await browser_tools._task2_on_page(
+        page,
+        _settings(tmp_path, post_click_wait_seconds=0, skip_applied=False),
+        lambda _m: None,
+    )
+
+    assert outcome.applied_jobs_skipped == 0
+    assert outcome.job_index == 0
+    assert outcome.easy_apply_clicked is True
+    assert outcome.application_form_opened is True
+
+
 async def test_read_job_description() -> None:
     page = FakePage()
     description = await browser_tools.read_job_description(page)

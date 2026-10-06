@@ -59,6 +59,9 @@ class Task2Outcome(BaseModel):
     job_index: int | None = None
     job_title: str = ""
     skipped_jobs: int = 0
+    # Task 6: cards that were skipped because they are already "Applied".
+    applied_jobs_skipped: int = 0
+    applied_skipped_cards: list[dict] = Field(default_factory=list)
     easy_apply_button_found: bool = False
     easy_apply_clicked: bool = False
     application_form_opened: bool = False
