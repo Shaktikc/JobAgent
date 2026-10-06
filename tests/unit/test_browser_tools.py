@@ -23,11 +23,15 @@ class FakeElement:
         label: str,
         *,
         aria_label: bool = True,
+        css_class: str = "",
+        aria_pressed: str | None = None,
         on_click=None,
         click_error: Exception | None = None,
     ) -> None:
         self.label = label
         self.aria_label = aria_label
+        self.css_class = css_class
+        self.aria_pressed = aria_pressed
         self.on_click = on_click
         self.click_error = click_error
         self.clicked = False
@@ -39,6 +43,10 @@ class FakeElement:
     async def get_attribute(self, name: str) -> str | None:
         if name == "aria-label" and self.aria_label:
             return self.label
+        if name == "class":
+            return self.css_class or None
+        if name == "aria-pressed":
+            return self.aria_pressed
         return None
 
     async def evaluate(self, js: str, *args) -> str:
@@ -405,6 +413,40 @@ async def test_find_easy_apply_filter_prefers_filter_label() -> None:
     assert await browser_tools.find_easy_apply_filter(page) is filter_button
 
 
+async def test_find_easy_apply_filter_prefers_toggle_pill_over_apply_button() -> None:
+    """The filter pill and the blue apply button share the label "Easy Apply".
+
+    Only the pill is a toggle (aria-pressed), so it must win even when it appears
+    after the apply button and neither label mentions "filter".
+    """
+    apply_btn = FakeElement("Easy Apply", aria_label=False, css_class="jobs-apply-button")
+    pill = FakeElement("Easy Apply", aria_pressed="false")
+    page = FakePage(
+        by_selector={
+            "button, [role='button']": [apply_btn, pill],
+            "button[aria-label*='Easy Apply']": [apply_btn, pill],
+        }
+    )
+    assert await browser_tools.find_easy_apply_filter(page) is pill
+
+
+async def test_find_easy_apply_filter_never_returns_the_apply_button() -> None:
+    """A lone blue apply button (no filter toggle) must not be returned as the filter."""
+    apply_btn = FakeElement("Easy Apply", aria_label=False, css_class="jobs-apply-button")
+    page = FakePage(by_selector={"button, [role='button']": [apply_btn]})
+    assert await browser_tools.find_easy_apply_filter(page) is None
+
+
+async def test_find_easy_apply_filter_skips_apply_button_by_class() -> None:
+    """The blue apply button is skipped by its jobs-apply-button class, so a
+    bare-label Easy Apply filter pill (without aria-pressed) still wins by its
+    'filter' name."""
+    apply_btn = FakeElement("Easy Apply", aria_label=False, css_class="jobs-apply-button")
+    pill = FakeElement("Easy Apply filter.")
+    page = FakePage(by_selector={"button, [role='button']": [apply_btn, pill]})
+    assert await browser_tools.find_easy_apply_filter(page) is pill
+
+
 async def test_read_job_cards() -> None:
     page = FakePage()
     cards = [_job_card(page, 0, "Backend Engineer"), _job_card(page, 1, "Data Engineer")]
@@ -731,16 +773,16 @@ async def test_run_task1_repeats_search_after_ai_job_search(
     assert outcome.easy_apply_filter_selected is True
 
 
-async def test_run_task1_stops_when_repeat_search_returns_no_results(
+async def test_run_task1_stays_in_ai_mode_when_repeat_returns_no_results(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
-    """A repeat search that returns no results ends the AI re-click loop.
+    """After "Try AI job search" is clicked, never fall back to the classic search.
 
-    The optional AI detour is not recovered: searching follows LinkedIn's normal
-    behaviour, so when the repeat search after the AI click leaves no job cards
-    the loop stops and the outcome reflects the empty search.
+    LinkedIn's AI mode can render no job cards; a repeat search that returns
+    nothing simply ends the re-click loop and the outcome reflects the AI search.
+    The classic "software engineer" URL must not be opened again.
     """
-    page = FakePage(results_count=25)
+    page = FakePage(results_count=14)
     ai_button = FakeElement("Try AI job search")
     filt = _filter_element(page)
     page.ai_buttons_queue = [[ai_button], []]
@@ -760,7 +802,7 @@ async def test_run_task1_stops_when_repeat_search_returns_no_results(
         calls.append(query)
         if len(calls) == 1:
             return True, 14, SEARCH_URL
-        # The page the AI click left behind has no job cards.
+        # The AI mode page the click left behind has no job cards.
         return (
             False,
             0,
@@ -778,7 +820,7 @@ async def test_run_task1_stops_when_repeat_search_returns_no_results(
     assert outcome.ai_job_search_clicked is True
     # The initial search plus exactly one repeat; the loop stops there.
     assert calls == ["software engineer", "software engineer"]
-    # No recovery search/navigation: the outcome reflects the empty repeat.
+    # No fallback to the classic search URL; the outcome reflects the AI mode.
     assert SEARCH_URL not in page.goto_calls
     assert outcome.results_found is False
     assert outcome.results_count == 0

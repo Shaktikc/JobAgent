@@ -74,6 +74,7 @@ from src.tools.linkedin import (
     is_logged_in_path,
     is_login_path,
     looks_like_apply_modal,
+    looks_like_easy_apply,
     looks_like_easy_apply_action,
     looks_like_jobs_search_input,
     pick_ai_job_search_index,
@@ -907,6 +908,26 @@ async def _element_label(element) -> str:
     return await _safe(element.evaluate("() => this.innerText"), "") or ""
 
 
+async def _element_has_aria_pressed(element) -> bool:
+    """True when the control is a toggle (carries an ``aria-pressed`` attribute).
+
+    LinkedIn renders the Easy Apply *filter* pill as a toggle button, so it always
+    exposes ``aria-pressed``; a job's "Easy Apply" apply button does not.
+    """
+    return await _safe(element.get_attribute("aria-pressed"), None) is not None
+
+
+async def _element_is_apply_button(element) -> bool:
+    """True when the control is a job's "Easy Apply" apply button, not the filter.
+
+    LinkedIn marks the blue apply button with the ``jobs-apply-button`` class,
+    which the results filter pill never carries. This lets the filter finder skip
+    it even when its accessible name is also exactly "Easy Apply".
+    """
+    css_class = await _safe(element.get_attribute("class"), "") or ""
+    return "jobs-apply-button" in css_class
+
+
 async def _query_elements(page, selector: str) -> list:
     try:
         return list(await page.get_elements_by_css_selector(selector))
@@ -1026,27 +1047,52 @@ async def open_jobs_search(page, query: str, settings: Settings) -> tuple[bool, 
 
 
 async def find_easy_apply_filter(page):
-    """Return the Easy Apply *filter* control, or ``None`` when absent."""
+    """Return the Easy Apply *filter* toggle, or ``None`` when absent.
+
+    The results page can show two controls whose accessible name is "Easy Apply":
+    the results filter pill (a toggle carrying ``aria-pressed``, e.g. the pill
+    next to "Backend" in the filter bar) and the blue "Easy Apply" apply button
+    on a job. They share the same label, so they are told apart by structure, not
+    text: the filter is a toggle (``aria-pressed`` present) and is never a
+    ``jobs-apply-button``.
+
+    A toggle is always preferred; when there is no toggle, only a control whose
+    label explicitly names the filter is accepted. When neither exists the caller
+    falls back to the ``f_AL=true`` URL toggle, so a job's apply button is never
+    clicked as if it were the filter.
+    """
     candidates: list = []
-    for selector in _EASY_APPLY_FILTER_SELECTORS:
-        candidates.extend(await _query_elements(page, selector))
+    seen: set[int] = set()
+    for selector in _EASY_APPLY_FILTER_SELECTORS + ("button, [role='button']",):
+        for element in await _query_elements(page, selector):
+            if id(element) in seen:
+                continue
+            seen.add(id(element))
+            label = await _element_label(element)
+            if looks_like_easy_apply(label) and not await _element_is_apply_button(element):
+                candidates.append((element, label))
 
-    labels = [await _element_label(element) for element in candidates]
-    # Prefer a control whose label mentions "filter" so a job's Easy Apply
-    # *button* (also matching ``*='Easy Apply'``) is not mistaken for the filter.
+    if not candidates:
+        return None
+
+    # The filter pill is a toggle; the blue apply button is not.
+    toggles = [(el, label) for el, label in candidates if await _element_has_aria_pressed(el)]
+    if toggles:
+        labels = [label for _el, label in toggles]
+        index = pick_easy_apply_filter_index(labels)
+        if index is None:
+            index = pick_easy_apply_index(labels)
+        if index is not None:
+            return toggles[index][0]
+
+    # No toggle: only accept a control whose label names the filter, so a job's
+    # bare "Easy Apply" apply button is never mistaken for it.
+    labels = [label for _el, label in candidates]
     index = pick_easy_apply_filter_index(labels)
-    if index is None:
-        index = pick_easy_apply_index(labels)
     if index is not None:
-        return candidates[index]
+        return candidates[index][0]
 
-    # Fall back to scanning every interactive control on the page.
-    controls = await _query_elements(page, "button, [role='button']")
-    labels = [await _element_label(element) for element in controls]
-    index = pick_easy_apply_filter_index(labels)
-    if index is None:
-        index = pick_easy_apply_index(labels)
-    return controls[index] if index is not None else None
+    return None
 
 
 async def easy_apply_filter_selected(page) -> bool:
@@ -1738,6 +1784,65 @@ async def capture_failure_screenshot(
     return str(path) if path.is_file() else None
 
 
+async def run_ai_job_search_detour(
+    page,
+    search_query: str,
+    settings: Settings,
+    notify,
+    outcome: Task1Outcome,
+) -> None:
+    """Click the optional "Try AI job search" control and repeat the search.
+
+    The control is optional: when it is absent the search is performed only once
+    and this returns without changing the outcome. When it is present, each click
+    is followed by a repeat "software engineer" search, and the click/repeat pair
+    is retried while the control reappears — up to ``_MAX_AI_JOB_SEARCH_CLICKS`` so
+    a persistent control can never loop forever. Searching follows LinkedIn's
+    normal behaviour and may reload or navigate the page.
+
+    Once the control is clicked the run stays in LinkedIn's AI (semantic) search
+    mode: it never navigates back to the classic jobs search. A repeat search that
+    returns no results simply ends the re-click loop and the outcome reflects the
+    AI search.
+    """
+    for _ in range(_MAX_AI_JOB_SEARCH_CLICKS):
+        ai_button = await wait_for_ai_job_search_button(page, settings)
+        if ai_button is None:
+            break
+
+        outcome.ai_job_search_present = True
+        notify("Task 1: 'Try AI job search' button found; clicking it.")
+        if not await click_ai_job_search(page, settings, ai_button):
+            outcome.notes = _append_note(
+                outcome.notes,
+                "Try AI job search button was present but could not be clicked",
+            )
+            return
+
+        outcome.ai_job_search_clicked = True
+        outcome.ai_job_search_clicks += 1
+        notify("Task 1: repeating the job search after AI job search.")
+        found, count, url = await open_jobs_search(page, search_query, settings)
+        outcome.results_found = found
+        outcome.results_count = count
+        outcome.search_url = url
+        if not found:
+            # Stay in the AI mode: a repeat that returns nothing just ends the
+            # re-click loop. Never fall back to the classic search.
+            break
+
+    if not outcome.ai_job_search_present:
+        # Nothing matched. Record the labels the scan actually saw so a real-run
+        # miss (different wording/markup) is diagnosable.
+        outcome.ai_job_search_candidates = await read_ai_job_search_candidates(page)
+        if outcome.ai_job_search_candidates:
+            outcome.notes = _append_note(
+                outcome.notes,
+                "AI job search not matched; controls seen: "
+                + "; ".join(outcome.ai_job_search_candidates[:10]),
+            )
+
+
 async def _task1_on_page(
     page,
     url: str,
@@ -1779,48 +1884,7 @@ async def _task1_on_page(
         outcome.results_count = count
         outcome.search_url = search_url
         if found:
-            # LinkedIn's AI job search entry point is optional and may render
-            # late. Click it when present, repeat the job search, and keep
-            # re-clicking while it reappears — up to a safety cap so a persistent
-            # control can never loop forever. Searching follows LinkedIn's normal
-            # behaviour and may reload or navigate the page.
-            for _ in range(_MAX_AI_JOB_SEARCH_CLICKS):
-                ai_button = await wait_for_ai_job_search_button(page, settings)
-                if ai_button is None:
-                    break
-                outcome.ai_job_search_present = True
-                notify("Task 1: 'Try AI job search' button found; clicking it.")
-                clicked = await click_ai_job_search(page, settings, ai_button)
-                if not clicked:
-                    outcome.notes = _append_note(
-                        outcome.notes,
-                        "Try AI job search button was present but could not be clicked",
-                    )
-                    break
-                outcome.ai_job_search_clicked = True
-                outcome.ai_job_search_clicks += 1
-                notify("Task 1: repeating the job search after AI job search.")
-                again_found, again_count, again_url = await open_jobs_search(
-                    page, search_query, settings
-                )
-                outcome.results_found = again_found
-                outcome.results_count = again_count
-                outcome.search_url = again_url
-                if not again_found:
-                    # A repeat search that returns no results ends the loop; the
-                    # optional AI detour is not recovered, because searching
-                    # follows LinkedIn's normal behaviour.
-                    break
-            if not outcome.ai_job_search_present:
-                # Nothing matched. Record the controls the scan actually saw so a
-                # real-run miss (different wording/markup) is diagnosable.
-                outcome.ai_job_search_candidates = await read_ai_job_search_candidates(page)
-                if outcome.ai_job_search_candidates:
-                    outcome.notes = _append_note(
-                        outcome.notes,
-                        "AI job search not matched; controls seen: "
-                        + "; ".join(outcome.ai_job_search_candidates[:10]),
-                    )
+            await run_ai_job_search_detour(page, search_query, settings, notify, outcome)
             selected, note = await select_easy_apply_filter(page, settings)
             outcome.easy_apply_filter_selected = selected
             outcome.notes = _append_note(outcome.notes, note)

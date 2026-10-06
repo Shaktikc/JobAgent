@@ -264,3 +264,143 @@ async def test_task1_searches_via_the_ai_prompt_after_the_ai_click(tmp_path: Pat
     assert outcome.results_count == 2
     assert outcome.easy_apply_filter_selected is True
     assert observed["filter_pressed"] == "true"
+
+
+# Reproduces the real failure: clicking "Try AI job search" switches the page into
+# Reproduces the real failure: clicking "Try AI job search" switches the page into
+# LinkedIn's semantic mode, which renders **no** job cards, so the repeat search
+# returns nothing. Once the AI control has been clicked the run must stay in the
+# AI mode and never fall back to the classic jobs search.
+_PAGE_AI_EMPTY_HTML = """<!doctype html>
+<html><head><meta charset="utf-8"><title>Jobs</title></head>
+<body>
+<nav class="global-nav"></nav>
+<div class="jobs-search-box">
+  <input class="jobs-search-box__keyboard-text-input"
+         aria-label="Search by title, skill, or company">
+  <button class="jobs-search-box__submit-button" type="button">Search</button>
+</div>
+<button id="ai-search" type="button" aria-label="Try AI job search">Try AI job search</button>
+<ul class="jobs-search__results-list" id="results">
+  <li class="jobs-search-results__list-item">Backend Engineer</li>
+  <li class="jobs-search-results__list-item">Data Engineer</li>
+</ul>
+<script>
+  window.__aiClicks = 0;
+  document.getElementById('ai-search').addEventListener('click', function () {
+    window.__aiClicks += 1;
+    // LinkedIn's semantic mode: the classic job cards are gone.
+    var results = document.getElementById('results');
+    if (results) { results.remove(); }
+    this.remove();
+  });
+</script>
+</body></html>
+"""
+
+
+async def test_task1_stays_in_ai_mode_when_the_detour_is_empty(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    page_file = tmp_path / "ai_empty.html"
+    page_file.write_text(_PAGE_AI_EMPTY_HTML, encoding="utf-8")
+    server, url = _serve(tmp_path, "ai_empty.html")
+
+    # Fail loudly if the agent tries to fall back to the classic search URL.
+    def _fail_on_classic(_query: str) -> str:
+        raise AssertionError("fell back to the classic jobs search URL")
+
+    monkeypatch.setattr(browser_tools, "build_jobs_search_url", _fail_on_classic)
+    # Keep the "wait for results" polls short so the test stays fast.
+    monkeypatch.setattr(browser_tools, "_RESULTS_WAIT_SECONDS", 0.5)
+
+    browser = browser_tools.build_browser(_settings(tmp_path))
+    try:
+        await browser.start()
+        page = await browser.new_page()
+        outcome = await browser_tools._task1_on_page(
+            page, url, "software engineer", _settings(tmp_path), lambda _m: None
+        )
+    finally:
+        await browser.kill()
+        server.shutdown()
+
+    assert outcome.ai_job_search_present is True
+    assert outcome.ai_job_search_clicked is True
+    assert outcome.ai_job_search_clicks == 1
+    # The AI mode left no cards and the run stayed in AI mode (no classic fallback).
+    assert outcome.results_found is False
+    assert outcome.results_count == 0
+    assert not hasattr(outcome, "search_restored")
+
+
+# Reproduces the filter-selection bug from the screenshot: the results page shows a
+# filter pill labelled "Easy Apply" (a toggle) next to the blue "Easy Apply" apply
+# button on a job. Both read "Easy Apply"; the agent must click the filter pill,
+# never the blue apply button.
+_PAGE_FILTER_PILL_HTML = """<!doctype html>
+<html><head><meta charset="utf-8"><title>Jobs</title></head>
+<body>
+<nav class="global-nav"></nav>
+<div class="jobs-search-box">
+  <input class="jobs-search-box__keyboard-text-input"
+         aria-label="Search by title, skill, or company">
+  <button class="jobs-search-box__submit-button" type="button">Search</button>
+</div>
+<button id="easy-apply-pill" type="button" aria-label="Easy Apply" aria-pressed="false">
+  Easy Apply
+</button>
+<button id="easy-apply-blue" type="button" class="jobs-apply-button">Easy Apply</button>
+<ul class="jobs-search__results-list">
+  <li class="jobs-search-results__list-item">Backend Engineer</li>
+  <li class="jobs-search-results__list-item">Data Engineer</li>
+</ul>
+<script>
+  window.__pillClicks = 0;
+  window.__blueClicks = 0;
+  document.getElementById('easy-apply-pill').addEventListener('click', function () {
+    window.__pillClicks += 1;
+    this.setAttribute('aria-pressed', 'true');
+  });
+  document.getElementById('easy-apply-blue').addEventListener('click', function () {
+    window.__blueClicks += 1;
+  });
+</script>
+</body></html>
+"""
+
+_READ_FILTER_PILL_JS = """() => JSON.stringify({
+  pill_pressed: document.getElementById('easy-apply-pill').getAttribute('aria-pressed'),
+  pill_clicks: window.__pillClicks,
+  blue_clicks: window.__blueClicks
+})"""
+
+
+async def test_task1_clicks_the_easy_apply_filter_pill_not_the_apply_button(
+    tmp_path: Path,
+) -> None:
+    page_file = tmp_path / "filter_pill.html"
+    page_file.write_text(_PAGE_FILTER_PILL_HTML, encoding="utf-8")
+    server, url = _serve(tmp_path, "filter_pill.html")
+
+    browser = browser_tools.build_browser(_settings(tmp_path))
+    try:
+        await browser.start()
+        page = await browser.new_page()
+        outcome = await browser_tools._task1_on_page(
+            page, url, "software engineer", _settings(tmp_path), lambda _m: None
+        )
+        observed = json.loads(await page.evaluate(_READ_FILTER_PILL_JS))
+    finally:
+        await browser.kill()
+        server.shutdown()
+
+    assert outcome.results_found is True
+    # The Easy Apply filter was selected by clicking the pill toggle.
+    assert outcome.easy_apply_filter_selected is True
+    assert observed["pill_pressed"] == "true"
+    assert observed["pill_clicks"] == 1
+    # The blue "Easy Apply" apply button on the job was never clicked.
+    assert observed["blue_clicks"] == 0
+
+
