@@ -335,9 +335,9 @@ async def test_task1_stays_in_ai_mode_when_the_detour_is_empty(
 
 
 # Reproduces the filter-selection bug from the screenshot: the results page shows a
-# filter pill labelled "Easy Apply" (a toggle) next to the blue "Easy Apply" apply
-# button on a job. Both read "Easy Apply"; the agent must click the filter pill,
-# never the blue apply button.
+# filter pill labelled "Easy Apply" (role="radio" / aria-checked) next to the blue
+# "Easy Apply" apply button on a job. Both mention "Easy Apply"; the agent must click
+# the filter pill, never the blue apply button. Markup copied from the real page.
 _PAGE_FILTER_PILL_HTML = """<!doctype html>
 <html><head><meta charset="utf-8"><title>Jobs</title></head>
 <body>
@@ -347,10 +347,14 @@ _PAGE_FILTER_PILL_HTML = """<!doctype html>
          aria-label="Search by title, skill, or company">
   <button class="jobs-search-box__submit-button" type="button">Search</button>
 </div>
-<button id="easy-apply-pill" type="button" aria-label="Easy Apply" aria-pressed="false">
+<button id="searchFilter_applyWithLinkedin" type="button" role="radio"
+        aria-checked="false" aria-label="Easy Apply filter."
+        class="artdeco-pill artdeco-pill--choice search-reusables__filter-pill-button">
   Easy Apply
 </button>
-<button id="easy-apply-blue" type="button" class="jobs-apply-button">Easy Apply</button>
+<button id="jobs-apply-button-id" type="button" aria-label="Easy Apply to Backend Engineer at Acme"
+        class="jobs-apply-button artdeco-button artdeco-button--primary ember-view"
+        data-live-test-job-apply-button="">Easy Apply</button>
 <ul class="jobs-search__results-list">
   <li class="jobs-search-results__list-item">Backend Engineer</li>
   <li class="jobs-search-results__list-item">Data Engineer</li>
@@ -358,11 +362,11 @@ _PAGE_FILTER_PILL_HTML = """<!doctype html>
 <script>
   window.__pillClicks = 0;
   window.__blueClicks = 0;
-  document.getElementById('easy-apply-pill').addEventListener('click', function () {
+  document.getElementById('searchFilter_applyWithLinkedin').addEventListener('click', function () {
     window.__pillClicks += 1;
-    this.setAttribute('aria-pressed', 'true');
+    this.setAttribute('aria-checked', 'true');
   });
-  document.getElementById('easy-apply-blue').addEventListener('click', function () {
+  document.getElementById('jobs-apply-button-id').addEventListener('click', function () {
     window.__blueClicks += 1;
   });
 </script>
@@ -370,7 +374,9 @@ _PAGE_FILTER_PILL_HTML = """<!doctype html>
 """
 
 _READ_FILTER_PILL_JS = """() => JSON.stringify({
-  pill_pressed: document.getElementById('easy-apply-pill').getAttribute('aria-pressed'),
+  pill_checked: document.getElementById(
+    'searchFilter_applyWithLinkedin'
+  ).getAttribute('aria-checked'),
   pill_clicks: window.__pillClicks,
   blue_clicks: window.__blueClicks
 })"""
@@ -398,7 +404,7 @@ async def test_task1_clicks_the_easy_apply_filter_pill_not_the_apply_button(
     assert outcome.results_found is True
     # The Easy Apply filter was selected by clicking the pill toggle.
     assert outcome.easy_apply_filter_selected is True
-    assert observed["pill_pressed"] == "true"
+    assert observed["pill_checked"] == "true"
     assert observed["pill_clicks"] == 1
     # The blue "Easy Apply" apply button on the job was never clicked.
     assert observed["blue_clicks"] == 0

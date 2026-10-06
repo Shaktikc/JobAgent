@@ -159,7 +159,16 @@ _JOB_CARD_SELECTORS = (
     "li.scaffold-layout__list-item",
     "div.job-card-container",
     "ul.jobs-search__results-list > li",
+    # AI/semantic results page (origin=SEMANTIC_SEARCH_LANDING_PAGE): the job
+    # cards are rendered as div[role="button"], not classic <li> items. Their
+    # accessible name starts with the job title and repeats it (see
+    # _JOB_CARD_ATTR for the marker that proves a div is a job card).
+    "[data-autojob-card]",
 )
+
+# Attribute used to mark AI/semantic job cards (div[role="button"]) so the
+# classic selectors and CDP element resolution can find them.
+_JOB_CARD_ATTR = "data-autojob-card"
 
 # The job's apply button in the right-hand details pane (Task 2). Its label is
 # "Easy Apply" for Easy Apply jobs and "Apply" for external ones.
@@ -202,10 +211,16 @@ _RESULTS_QUERY = """
 _FILTER_QUERY = """
 () => JSON.stringify({
   selected: (() => {
-    const btn = document.querySelector('[aria-label*="Easy Apply"]');
-    const pressed = btn ? btn.getAttribute('aria-pressed') : null;
+    const btn = document.querySelector(
+      '[id="searchFilter_applyWithLinkedin"], [aria-label*="Easy Apply"]'
+    );
+    if (!btn) return (location.search || '').indexOf('f_AL=true') !== -1;
+    // The real Easy Apply filter pill is role="radio" with aria-checked; other
+    // variants expose aria-pressed. Neither is present on a job's apply button.
+    const checked = btn.getAttribute('aria-checked');
+    const pressed = btn.getAttribute('aria-pressed');
     const inUrl = (location.search || '').indexOf('f_AL=true') !== -1;
-    return pressed === 'true' || inUrl;
+    return checked === 'true' || pressed === 'true' || inUrl;
   })()
 })
 """
@@ -908,24 +923,32 @@ async def _element_label(element) -> str:
     return await _safe(element.evaluate("() => this.innerText"), "") or ""
 
 
-async def _element_has_aria_pressed(element) -> bool:
-    """True when the control is a toggle (carries an ``aria-pressed`` attribute).
+async def _element_is_choice_control(element) -> bool:
+    """True when the control is the results *filter* toggle, not an apply button.
 
-    LinkedIn renders the Easy Apply *filter* pill as a toggle button, so it always
-    exposes ``aria-pressed``; a job's "Easy Apply" apply button does not.
+    LinkedIn renders the "Easy Apply" results filter pill as a choice toggle: it
+    is ``role="radio"`` carrying ``aria-checked`` (or a plain toggle carrying
+    ``aria-pressed``). A job's "Easy Apply" apply button is a plain
+    ``artdeco-button`` and has neither. This structural signal — not the label,
+    which both controls share — is what tells the two apart on the real page.
     """
+    if await _safe(element.get_attribute("aria-checked"), None) is not None:
+        return True
     return await _safe(element.get_attribute("aria-pressed"), None) is not None
 
 
 async def _element_is_apply_button(element) -> bool:
     """True when the control is a job's "Easy Apply" apply button, not the filter.
 
-    LinkedIn marks the blue apply button with the ``jobs-apply-button`` class,
-    which the results filter pill never carries. This lets the filter finder skip
-    it even when its accessible name is also exactly "Easy Apply".
+    LinkedIn marks the blue apply button with the ``jobs-apply-button`` class
+    (and a ``data-live-test-job-apply-button`` hook), which the results filter
+    pill never carries. This lets the filter finder skip it even when its
+    accessible name also contains "Easy Apply".
     """
     css_class = await _safe(element.get_attribute("class"), "") or ""
-    return "jobs-apply-button" in css_class
+    if "jobs-apply-button" in css_class:
+        return True
+    return await _safe(element.get_attribute("data-live-test-job-apply-button"), None) is not None
 
 
 async def _query_elements(page, selector: str) -> list:
@@ -1049,17 +1072,19 @@ async def open_jobs_search(page, query: str, settings: Settings) -> tuple[bool, 
 async def find_easy_apply_filter(page):
     """Return the Easy Apply *filter* toggle, or ``None`` when absent.
 
-    The results page can show two controls whose accessible name is "Easy Apply":
-    the results filter pill (a toggle carrying ``aria-pressed``, e.g. the pill
-    next to "Backend" in the filter bar) and the blue "Easy Apply" apply button
-    on a job. They share the same label, so they are told apart by structure, not
-    text: the filter is a toggle (``aria-pressed`` present) and is never a
-    ``jobs-apply-button``.
+    The results page shows two controls whose accessible name contains "Easy
+    Apply": the results filter pill (``id="searchFilter_applyWithLinkedin"``,
+    ``role="radio"`` with ``aria-checked``, class ``search-reusables__filter-pill-button``
+    — e.g. the pill beside "Backend" in the filter bar) and the blue "Easy Apply"
+    apply button on a job (``jobs-apply-button`` / ``artdeco-button--primary``,
+    blue background). They share the label text, so they are told apart by
+    structure: the filter is a choice toggle (``role="radio"``/``aria-checked`` or
+    ``aria-pressed``) and is never a ``jobs-apply-button``.
 
-    A toggle is always preferred; when there is no toggle, only a control whose
-    label explicitly names the filter is accepted. When neither exists the caller
-    falls back to the ``f_AL=true`` URL toggle, so a job's apply button is never
-    clicked as if it were the filter.
+    A choice-toggle filter is always preferred; when there is no toggle, only a
+    control whose label explicitly names the filter is accepted. When neither
+    exists the caller falls back to the ``f_AL=true`` URL toggle, so a job's
+    apply button is never clicked as if it were the filter.
     """
     candidates: list = []
     seen: set[int] = set()
@@ -1075,8 +1100,10 @@ async def find_easy_apply_filter(page):
     if not candidates:
         return None
 
-    # The filter pill is a toggle; the blue apply button is not.
-    toggles = [(el, label) for el, label in candidates if await _element_has_aria_pressed(el)]
+    # The filter pill is a choice toggle; the blue apply button is not.
+    toggles = [
+        (el, label) for el, label in candidates if await _element_is_choice_control(el)
+    ]
     if toggles:
         labels = [label for _el, label in toggles]
         index = pick_easy_apply_filter_index(labels)

@@ -25,6 +25,8 @@ class FakeElement:
         aria_label: bool = True,
         css_class: str = "",
         aria_pressed: str | None = None,
+        aria_checked: str | None = None,
+        data_live_test: bool = False,
         on_click=None,
         click_error: Exception | None = None,
     ) -> None:
@@ -32,6 +34,8 @@ class FakeElement:
         self.aria_label = aria_label
         self.css_class = css_class
         self.aria_pressed = aria_pressed
+        self.aria_checked = aria_checked
+        self.data_live_test = data_live_test
         self.on_click = on_click
         self.click_error = click_error
         self.clicked = False
@@ -47,6 +51,10 @@ class FakeElement:
             return self.css_class or None
         if name == "aria-pressed":
             return self.aria_pressed
+        if name == "aria-checked":
+            return self.aria_checked
+        if name == "data-live-test-job-apply-button":
+            return "" if self.data_live_test else None
         return None
 
     async def evaluate(self, js: str, *args) -> str:
@@ -257,6 +265,17 @@ def _filter_element(page: FakePage) -> FakeElement:
     return FakeElement("Easy Apply filter.", on_click=_click)
 
 
+# Real class strings captured from the live LinkedIn results page (see
+# test_find_easy_apply_filter_from_real_linkedin_dom).
+_FILTER_PILL_CLASS = (
+    "artdeco-pill artdeco-pill--slate artdeco-pill--2 artdeco-pill--choice ember-view "
+    "search-reusables__filter-pill-button"
+)
+_APPLY_BUTTON_CLASS = (
+    "jobs-apply-button artdeco-button artdeco-button--3 artdeco-button--primary ember-view"
+)
+
+
 def _job_card(page: FakePage, index: int, title: str) -> FakeElement:
     """A job card that selects its details pane when clicked."""
 
@@ -416,11 +435,23 @@ async def test_find_easy_apply_filter_prefers_filter_label() -> None:
 async def test_find_easy_apply_filter_prefers_toggle_pill_over_apply_button() -> None:
     """The filter pill and the blue apply button share the label "Easy Apply".
 
-    Only the pill is a toggle (aria-pressed), so it must win even when it appears
-    after the apply button and neither label mentions "filter".
+    From the real page: the pill is role="radio" with aria-checked (id
+    searchFilter_applyWithLinkedin, class search-reusables__filter-pill-button);
+    the blue button is jobs-apply-button / artdeco-button--primary. Only the pill
+    is a choice toggle, so it must win even though it appears after the apply
+    button and its label is just "Easy Apply filter.".
     """
-    apply_btn = FakeElement("Easy Apply", aria_label=False, css_class="jobs-apply-button")
-    pill = FakeElement("Easy Apply", aria_pressed="false")
+    apply_btn = FakeElement(
+        "Easy Apply to Senior Software Engineer at Care GP",
+        aria_label=False,
+        css_class="jobs-apply-button artdeco-button artdeco-button--primary ember-view",
+        data_live_test=True,
+    )
+    pill = FakeElement(
+        "Easy Apply filter.",
+        css_class=_FILTER_PILL_CLASS,
+        aria_checked="false",
+    )
     page = FakePage(
         by_selector={
             "button, [role='button']": [apply_btn, pill],
@@ -430,18 +461,59 @@ async def test_find_easy_apply_filter_prefers_toggle_pill_over_apply_button() ->
     assert await browser_tools.find_easy_apply_filter(page) is pill
 
 
+async def test_find_easy_apply_filter_from_real_linkedin_dom() -> None:
+    """Regression test built from the real captured LinkedIn DOM.
+
+    The filter pill (role="radio", aria-checked, id searchFilter_applyWithLinkedin)
+    must be selected and the two blue jobs-apply-button controls skipped, even
+    though all three mention "Easy Apply".
+    """
+    apply_top = FakeElement(
+        "Easy Apply to Programmer (Unity) at True Anomaly Entertainment",
+        css_class=_APPLY_BUTTON_CLASS,
+        data_live_test=True,
+    )
+    apply_sticky = FakeElement(
+        "Easy Apply to Programmer (Unity) at True Anomaly Entertainment",
+        css_class=_APPLY_BUTTON_CLASS,
+        data_live_test=True,
+    )
+    filter_pill = FakeElement(
+        "Easy Apply filter.",
+        css_class=_FILTER_PILL_CLASS,
+        aria_checked="false",
+    )
+    page = FakePage(
+        by_selector={
+            "button, [role='button']": [apply_top, apply_sticky, filter_pill],
+            "button[aria-label*='Easy Apply']": [apply_top, apply_sticky, filter_pill],
+        }
+    )
+    assert await browser_tools.find_easy_apply_filter(page) is filter_pill
+
+
 async def test_find_easy_apply_filter_never_returns_the_apply_button() -> None:
     """A lone blue apply button (no filter toggle) must not be returned as the filter."""
-    apply_btn = FakeElement("Easy Apply", aria_label=False, css_class="jobs-apply-button")
+    apply_btn = FakeElement(
+        "Easy Apply",
+        aria_label=False,
+        css_class="jobs-apply-button artdeco-button artdeco-button--primary",
+        data_live_test=True,
+    )
     page = FakePage(by_selector={"button, [role='button']": [apply_btn]})
     assert await browser_tools.find_easy_apply_filter(page) is None
 
 
 async def test_find_easy_apply_filter_skips_apply_button_by_class() -> None:
     """The blue apply button is skipped by its jobs-apply-button class, so a
-    bare-label Easy Apply filter pill (without aria-pressed) still wins by its
-    'filter' name."""
-    apply_btn = FakeElement("Easy Apply", aria_label=False, css_class="jobs-apply-button")
+    bare-label Easy Apply filter pill (without a toggle attribute) still wins by
+    its 'filter' name."""
+    apply_btn = FakeElement(
+        "Easy Apply",
+        aria_label=False,
+        css_class="jobs-apply-button artdeco-button artdeco-button--primary",
+        data_live_test=True,
+    )
     pill = FakeElement("Easy Apply filter.")
     page = FakePage(by_selector={"button, [role='button']": [apply_btn, pill]})
     assert await browser_tools.find_easy_apply_filter(page) is pill
