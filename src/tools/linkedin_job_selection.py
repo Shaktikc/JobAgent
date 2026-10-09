@@ -10,6 +10,10 @@ This module owns Task 2's interactive browser flow, split out of
 3. Click the details pane's **Easy Apply** button and
 4. Confirm the Easy Apply application form/modal opened.
 
+Task 6's applied-job detection (classify a card as **Applied**, record the skip,
+and produce the "no unapplied job" note) lives in
+:mod:`src.tools.linkedin_skip_applied`; this module calls it while scanning.
+
 The low-level browser primitives (pacing, safe probing, element resolution, the
 shared AI/semantic job-card scanner, failure screenshots, and the session /
 profile management) stay in :mod:`src.tools.browser`, which this module imports.
@@ -41,12 +45,12 @@ from src.tools.browser import (
     results_count,
 )
 from src.tools.linkedin import (
-    card_is_applied,
     looks_like_apply_modal,
     looks_like_easy_apply_action,
     looks_like_job_card_label,
     pick_easy_apply_action_index,
 )
+from src.tools.linkedin_skip_applied import applied_skip_note, skip_applied_card
 
 # Job cards in the left-hand search-results list (Task 2). This mirrors the
 # selector union :func:`results_count` uses, so a card style that ``results_count``
@@ -242,18 +246,21 @@ async def _task2_on_page(page, settings: Settings, notify) -> Task2Outcome:
         for index, card in enumerate(cards):
             label = await _element_label(card)
             title = _first_line(label)
+            key = _job_key(title, index)
             # Task 6: skip cards already marked "Applied" (never click them). The
             # status text is read from the card itself; a card with no readable
             # status is treated as unapplied and left to the Easy Apply check.
-            if settings.session.skip_applied and card_is_applied(label):
-                key = _job_key(title, index)
-                if key not in applied_seen:
-                    applied_seen.add(key)
-                    outcome.applied_jobs_skipped += 1
-                    outcome.applied_skipped_cards.append({"index": index, "title": title})
-                    notify(f"Task 2: job {index + 1} is already applied; skipping.")
+            if skip_applied_card(
+                label,
+                index=index,
+                title=title,
+                key=key,
+                settings=settings,
+                outcome=outcome,
+                applied_seen=applied_seen,
+                notify=notify,
+            ):
                 continue
-            key = _job_key(title, index)
             if key in tried:
                 continue
             candidate = (index, card, title, key)
@@ -310,17 +317,9 @@ async def _task2_on_page(page, settings: Settings, notify) -> Task2Outcome:
     if not outcome.easy_apply_clicked:
         # Task 6: when every card on this page was skipped as Applied, stop
         # gracefully with a clear note instead of opening (and applying to) one.
-        if outcome.jobs_seen and outcome.applied_jobs_skipped >= outcome.jobs_seen:
-            outcome.notes = _append_note(
-                outcome.notes,
-                "no unapplied job found on this page; every job card is already Applied",
-            )
-        elif outcome.applied_jobs_skipped:
-            outcome.notes = _append_note(
-                outcome.notes,
-                f"skipped {outcome.applied_jobs_skipped} applied job(s); "
-                "no unapplied Easy Apply job was opened",
-            )
+        note = applied_skip_note(outcome)
+        if note:
+            outcome.notes = _append_note(outcome.notes, note)
     return outcome
 
 
