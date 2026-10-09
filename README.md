@@ -148,6 +148,7 @@ src/
     linkedin_job_selection.py      Task 2: select a job, open its Easy Apply form
     linkedin_best_matching_resume.py
                      Task 3: read the job description, pick the best-matching resume
+    linkedin_easy_apply_fill.py    Task 4: fill the Easy Apply form, attach the resume
     matching.py      Pure resume-to-job scoring (explainable, deterministic)
     answers.py       Question -> answer store (read by Task 4, written by Task 5)
     forms.py         Pure Easy Apply form helpers (resume match, next/submit)
