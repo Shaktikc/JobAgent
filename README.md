@@ -141,11 +141,14 @@ src/
     cleanup.py       Close the shared browser session
     verify.py        Confirm every task's acceptance criteria
   tools/
-    browser.py       browser-use session wrapper (opt-in); run_agent / run_full_agent
-                     and Task 5's ask-the-human browser banner
+    browser.py       browser-use session wrapper (opt-in); shared browser primitives,
+                     run_agent / run_full_agent, and Task 5's ask-the-human banner
     linkedin.py      Pure LinkedIn URL/text helpers
+    linkedin_search.py             Task 1: log in, search jobs, select Easy Apply filter
+    linkedin_job_selection.py      Task 2: select a job, open its Easy Apply form
+    linkedin_best_matching_resume.py
+                     Task 3: read the job description, pick the best-matching resume
     matching.py      Pure resume-to-job scoring (explainable, deterministic)
-    resumes.py       Resume discovery, text extraction, and selection
     answers.py       Question -> answer store (read by Task 4, written by Task 5)
     forms.py         Pure Easy Apply form helpers (resume match, next/submit)
   main.py            CLI entry point

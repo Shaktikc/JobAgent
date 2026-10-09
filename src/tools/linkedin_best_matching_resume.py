@@ -1,9 +1,18 @@
-"""Resume discovery, text extraction, and best-match selection (filesystem only).
+"""Task 3: read the open job's description and pick the best-matching resume.
 
-Task 3 reads every resume in the configured folder, extracts its readable text
-(``.pdf``, ``.docx``, ``.txt``, ``.md``), scores each one against the open job's
-description with :mod:`src.tools.matching`, and selects the highest scorer. Ties
-are broken by the most recently modified file. Resume files are never modified.
+This module owns Task 3 in full, gathered from the two places its code used to
+live (the description reader in :mod:`src.tools.browser`, the resume selection in
+``src.tools.resumes``):
+
+1. Read the description of the job that is open in the details pane: title,
+   company, location, and the full description body.
+2. Read every resume in the configured folder, extract its readable text
+   (``.pdf``, ``.docx``, ``.txt``, ``.md``), score each one against the job
+   description with :mod:`src.tools.matching`, and select the highest scorer.
+
+Ties are broken by the most recently modified file. Resume files are never
+modified. Reading the description is a deterministic CDP ``page.evaluate`` (no
+LLM), and the scoring is deterministic keyword/weight matching.
 """
 
 from __future__ import annotations
@@ -13,11 +22,62 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 from src.state import JobDescription, ResumeCandidate, Task3Outcome
+from src.tools.browser import _loads, _safe
 from src.tools.matching import score_resume
 
+# Accepted resume file formats (case-insensitive).
 RESUME_SUFFIXES = (".pdf", ".docx", ".txt", ".md")
 
 _DOCX_TEXT_TAG = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"
+
+# The open job's details (Task 3): title, company, location, and description body.
+_JOB_DESCRIPTION_QUERY = """
+() => {
+  const pick = (selectors) => {
+    for (const selector of selectors) {
+      const el = document.querySelector(selector);
+      if (el && (el.innerText || '').trim()) return el.innerText.trim();
+    }
+    return '';
+  };
+  return JSON.stringify({
+    title: pick([
+      '.job-details-jobs-unified-top-card__job-title',
+      '.jobs-unified-top-card__job-title',
+      'h1.t-24', 'h1'
+    ]),
+    company: pick([
+      '.job-details-jobs-unified-top-card__company-name',
+      '.jobs-unified-top-card__company-name',
+      'a.topcard__org-name-link'
+    ]),
+    location: pick([
+      '.job-details-jobs-unified-top-card__bullet',
+      '.jobs-unified-top-card__bullet',
+      '.topcard__flavor--bullet'
+    ]),
+    body: pick([
+      '.jobs-description__content',
+      '.jobs-box__html-content',
+      '#job-details',
+      '.jobs-description'
+    ]),
+    url: location.href
+  });
+}
+"""
+
+
+async def read_job_description(page) -> JobDescription:
+    """Read the open job's title, company, location, and description (Task 3)."""
+    payload = _loads(await _safe(page.evaluate(_JOB_DESCRIPTION_QUERY), ""))
+    return JobDescription(
+        title=(payload.get("title") or "").strip(),
+        company=(payload.get("company") or "").strip(),
+        location=(payload.get("location") or "").strip(),
+        body=(payload.get("body") or "").strip(),
+        page_url=payload.get("url") or None,
+    )
 
 
 def list_resume_files(resumes_dir: str | Path) -> list[Path]:

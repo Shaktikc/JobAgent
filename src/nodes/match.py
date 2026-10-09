@@ -26,7 +26,7 @@ def match(state: ApplyState) -> ApplyState:
     if state.get("dry_run", True):
         return {"status": "matched", "log": ["match: dry-run, resume selection skipped"]}
 
-    from src.tools.resumes import select_best_resume  # local import keeps the node light
+    from src.tools.linkedin_best_matching_resume import select_best_resume  # keep light
 
     description = _as_description(state.get("job_description"))
     resumes_dir = state.get("resumes_dir") or str(load_settings().resumes_dir)

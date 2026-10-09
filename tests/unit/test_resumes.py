@@ -8,8 +8,8 @@ import zipfile
 import pytest
 
 from src.state import JobDescription
-from src.tools import resumes as resumes_tools
-from src.tools.resumes import (
+from src.tools import linkedin_best_matching_resume as resumes_tools
+from src.tools.linkedin_best_matching_resume import (
     RESUME_SUFFIXES,
     extract_resume_text,
     list_resume_files,

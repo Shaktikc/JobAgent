@@ -24,13 +24,13 @@ from src.tools.linkedin import (
     pick_easy_apply_filter_index,
     pick_easy_apply_index,
 )
-from src.tools.matching import MatchResult, score_resume, skills_in_text
-from src.tools.resumes import (
+from src.tools.linkedin_best_matching_resume import (
     RESUME_SUFFIXES,
     extract_resume_text,
     list_resume_files,
     select_best_resume,
 )
+from src.tools.matching import MatchResult, score_resume, skills_in_text
 
 __all__ = [
     "RESUME_SUFFIXES",

@@ -1,15 +1,14 @@
-"""browser-use wrapper for the LinkedIn agent (Tasks 3-5).
+"""browser-use wrapper for the LinkedIn agent (Tasks 4-5).
 
 Task 1 (log in, search "software engineer", click LinkedIn's optional "Try AI job
 search", and select the **Easy Apply** filter) lives in
 :mod:`src.tools.linkedin_search`; Task 2 (select a job from the results list and
-open its **Easy Apply** form) lives in :mod:`src.tools.linkedin_job_selection`.
-This module owns the shared browser primitives plus Tasks 3-5. For back-compat the
+open its **Easy Apply** form) lives in :mod:`src.tools.linkedin_job_selection`;
+Task 3 (read the open job's description and pick the best-matching resume) lives in
+:mod:`src.tools.linkedin_best_matching_resume`.
+This module owns the shared browser primitives plus Tasks 4-5. For back-compat the
 moved names are still reachable here (see ``__getattr__`` below), so ``browser``
 remains the stable entry point.
-
-Task 3 reads the open job's title, company, location, and description body from
-the details pane so the offline resume selection can run.
 
 Task 4 continues in the *same* session: it enumerates the open Easy Apply form,
 fills every field whose answer is known, attaches the resume chosen by Task 3
@@ -119,43 +118,6 @@ _AI_JOB_CARDS_JS = r"""
     n += 1;
   });
   return JSON.stringify({ count: n });
-}
-"""
-
-# The open job's details (Task 3): title, company, location, and description body.
-_JOB_DESCRIPTION_QUERY = """
-() => {
-  const pick = (selectors) => {
-    for (const selector of selectors) {
-      const el = document.querySelector(selector);
-      if (el && (el.innerText || '').trim()) return el.innerText.trim();
-    }
-    return '';
-  };
-  return JSON.stringify({
-    title: pick([
-      '.job-details-jobs-unified-top-card__job-title',
-      '.jobs-unified-top-card__job-title',
-      'h1.t-24', 'h1'
-    ]),
-    company: pick([
-      '.job-details-jobs-unified-top-card__company-name',
-      '.jobs-unified-top-card__company-name',
-      'a.topcard__org-name-link'
-    ]),
-    location: pick([
-      '.job-details-jobs-unified-top-card__bullet',
-      '.jobs-unified-top-card__bullet',
-      '.topcard__flavor--bullet'
-    ]),
-    body: pick([
-      '.jobs-description__content',
-      '.jobs-box__html-content',
-      '#job-details',
-      '.jobs-description'
-    ]),
-    url: location.href
-  });
 }
 """
 
@@ -908,18 +870,6 @@ async def _mark_ai_job_cards(page) -> int:
         return 0
 
 
-async def read_job_description(page) -> JobDescription:
-    """Read the open job's title, company, location, and description (Task 3)."""
-    payload = _loads(await _safe(page.evaluate(_JOB_DESCRIPTION_QUERY), ""))
-    return JobDescription(
-        title=(payload.get("title") or "").strip(),
-        company=(payload.get("company") or "").strip(),
-        location=(payload.get("location") or "").strip(),
-        body=(payload.get("body") or "").strip(),
-        page_url=payload.get("url") or None,
-    )
-
-
 def _append_note(existing: str, extra: str) -> str:
     return f"{existing}; {extra}" if existing else extra
 
@@ -1600,8 +1550,9 @@ async def start_tasks(
     open** and registered under ``run_id`` so Task 4 can fill the same Easy Apply
     form; otherwise the session is closed and ``run_id`` is ``None``.
     """
-    # Tasks 1 and 2 live in their own modules. Imported here (not at module load)
-    # so they can share this module's browser primitives without an import cycle.
+    # Tasks 1-3 live in their own modules. Imported here (not at module load) so
+    # they can share this module's browser primitives without an import cycle.
+    from src.tools.linkedin_best_matching_resume import read_job_description
     from src.tools.linkedin_job_selection import _task2_ok, _task2_on_page
     from src.tools.linkedin_search import _task1_ok, _task1_on_page
 
@@ -1717,7 +1668,7 @@ async def run_full_agent(
     progress=None,
 ) -> AgentOutcome:
     """Run Tasks 1-4 end-to-end in one browser session (nothing is submitted)."""
-    from src.tools.resumes import select_best_resume  # local import keeps this light
+    from src.tools.linkedin_best_matching_resume import select_best_resume  # keep light
 
     settings = settings or load_settings()
     outcome, run_id = await start_tasks(url, search_query, settings, progress)
@@ -1791,9 +1742,20 @@ _TASK2_REEXPORTS = frozenset(
     }
 )
 
+# Task 3's flow (read the open job's description and pick the best-matching
+# resume) now lives in :mod:`src.tools.linkedin_best_matching_resume`. Re-exported
+# lazily for the same reason as Tasks 1-2: that module imports this module's
+# shared primitives at load time, so importing it here would create a cycle.
+_TASK3_REEXPORTS = frozenset(
+    {
+        "_JOB_DESCRIPTION_QUERY",
+        "read_job_description",
+    }
+)
+
 
 def __getattr__(name: str):
-    """Re-export Task 1 and Task 2's moved names from their modules."""
+    """Re-export the moved Task 1-3 names from their modules."""
     if name in _TASK1_REEXPORTS:
         from src.tools import linkedin_search
 
@@ -1802,4 +1764,8 @@ def __getattr__(name: str):
         from src.tools import linkedin_job_selection
 
         return getattr(linkedin_job_selection, name)
+    if name in _TASK3_REEXPORTS:
+        from src.tools import linkedin_best_matching_resume
+
+        return getattr(linkedin_best_matching_resume, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

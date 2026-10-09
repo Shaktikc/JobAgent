@@ -14,7 +14,7 @@ import pytest
 
 from src.configuration import load_settings
 from src.state import JobDescription
-from src.tools.resumes import list_resume_files, select_best_resume
+from src.tools.linkedin_best_matching_resume import list_resume_files, select_best_resume
 
 RESUMES_DIR = load_settings().resumes_dir
 RESUME_FILES = list_resume_files(RESUMES_DIR)
