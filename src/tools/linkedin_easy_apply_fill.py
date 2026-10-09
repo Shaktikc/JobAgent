@@ -13,7 +13,8 @@ This module owns Task 4's interactive fill flow, split out of
 The form is dynamic, so its steps, fields, and resume control (a radio list, a
 ``<select>``, a file input, or an "Upload resume" button that reveals one) are
 discovered at runtime rather than assumed. Task 5's ask-the-human code lives in
-:mod:`src.tools.browser` and is called from here when a question is unknown.
+:mod:`src.tools.linkedin_ask_human` and is called from here when a question is
+unknown.
 
 The interaction uses browser-use's deterministic CDP actor API (``Page`` /
 ``Element``); no LLM is involved.
@@ -35,9 +36,7 @@ from src.tools.browser import (
     _loads,
     _marker_element,
     _pace,
-    _remember_answer,
     _safe,
-    ask_human_for_answer,
 )
 from src.tools.forms import (
     answers_match,
@@ -46,6 +45,7 @@ from src.tools.forms import (
     pick_listed_resume,
     pick_next_button,
 )
+from src.tools.linkedin_ask_human import _remember_answer, ask_human_for_answer
 
 # How many steps of a multi-step Easy Apply form to walk before stopping. The
 # form is dynamic, so this is only a safety cap: the walk stops as soon as there
