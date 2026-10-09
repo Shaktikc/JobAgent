@@ -42,33 +42,42 @@ The graph is `START -> ingest -> browse -> match -> fill -> cleanup -> verify ->
    (`.pdf`, `.docx`, `.txt`, `.md`), extracts its text, scores it against the job
    description, and selects the highest scorer with a written rationale. Ties go
    to the most recently modified file. Resume files are never modified.
-4. **fill** — **Task 4:** enumerates the still-open Easy Apply form, answers every
-   question it already knows from the answer store (`data/answers.json`), attaches
-   the chosen resume — preferring a resume already listed on the form over
-   uploading a duplicate — and advances multi-step forms. It **stops before
-   Submit application** and never clicks it.
-   - **Task 5 (inside fill):** when a question is not in the store, the agent shows
-     a banner in the browser window saying it does not know the answer, **pauses
-     for you to type it into the form field on the page** (the banner has no input
-     of its own), reads the value you enter, fills the field, and saves the
-     normalized question → answer mapping. The same question is answered
-     automatically next run. Choice fields (selects/radios) list their allowed
-     options in the banner, and an answer that matches a visible option label is
-     mapped to the right value. Controls the form has **already filled** (e.g.
-     LinkedIn's pre-filled *Email address* / *Phone country code* selects) are left
-     as-is and never asked about. Click **Skip** in the banner to skip on purpose.
-     Set `AUTOJOB_SESSION_ASK_HUMAN=false` to leave unknown questions unanswered
-     instead of prompting. Questions you skip or leave unanswered are recorded and
-     can be answered on a later run.
+4. **fill** — **Task 4:** enumerates the still-open Easy Apply form, fills the
+   known answers, attaches the chosen resume — preferring a resume already listed
+   on the form over uploading a duplicate — and advances multi-step forms. It
+   **stops before Submit application** and never clicks it.
+   - **Steps 2-3 (LLM agent):** when `AUTOJOB_LLM_MODEL` and an
+     `OPENROUTER_API_KEY` are set, browser-use's LLM agent is the **sole**
+     mechanism for deciding which enumerated fields already have a known answer
+     (from `data/answers.json`) and filling them. It runs behind a
+     navigation/submit click guard and a restricted toolset. There is no
+     deterministic store fallback: fields the agent leaves empty go straight to
+     Task 5. With no model configured, the offline deterministic fill is used
+     instead (no LLM at all).
+   - **Task 5 (inside fill):** when a question is unknown (including anything the
+     agent left empty), the agent shows a banner in the browser window saying it
+     does not know the answer, **pauses for you to type it into the form field on
+     the page** (the banner has no input of its own), reads the value you enter,
+     fills the field, and saves the normalized question → answer mapping. The same
+     question is answered automatically next run. Choice fields (selects/radios)
+     list their allowed options in the banner, and an answer that matches a visible
+     option label is mapped to the right value. Controls the form has **already
+     filled** (e.g. LinkedIn's pre-filled *Email address* / *Phone country code*
+     selects) are left as-is and never asked about. Click **Skip** in the banner to
+     skip on purpose. Set `AUTOJOB_SESSION_ASK_HUMAN=false` to leave unknown
+     questions unanswered instead of prompting. Questions you skip or leave
+     unanswered are recorded and can be answered on a later run.
 5. **cleanup** — closes the shared browser session on every path.
 6. **verify** — passes only when all of the above succeeded. Otherwise the run
    fails and a full-page screenshot plus the page URL are recorded under
    `data/debug/`.
 
-The browser interaction is deterministic (browser-use's CDP actor API) and the
-resume matching is deterministic keyword/weight scoring; **no LLM is involved**.
-The login gate is human: your session is stored in the persistent Chromium
-profile under `data/profile`, so later runs skip the wait.
+The browser interaction is deterministic (browser-use's CDP actor API) except for
+Task 4 steps 2-3, which are driven by a browser-use LLM agent (OpenRouter) when a
+model is configured; the resume matching is deterministic keyword/weight scoring.
+With no model configured, **no LLM is involved** at all. The login gate is human:
+your session is stored in the persistent Chromium profile under `data/profile`, so
+later runs skip the wait.
 
 ## Requirements
 
@@ -149,6 +158,7 @@ src/
     linkedin_best_matching_resume.py
                      Task 3: read the job description, pick the best-matching resume
     linkedin_easy_apply_fill.py    Task 4: fill the Easy Apply form, attach the resume
+    agent_fill.py                  Task 4 steps 2-3: browser-use LLM agent fill (optional)
     matching.py      Pure resume-to-job scoring (explainable, deterministic)
     answers.py       Question -> answer store (read by Task 4, written by Task 5)
     forms.py         Pure Easy Apply form helpers (resume match, next/submit)
@@ -191,7 +201,10 @@ tests/
 - The browser is **opt-in**: `--no-dry-run` is required to launch it.
 - **Login gate:** a real run pauses until you log in; it never types credentials.
 - Task 4 fills **known** answers only, attaches the chosen resume, and **never
-  clicks Submit application** — submission stays a manual human step.
+  clicks Submit application** — submission stays a manual human step. When the
+  optional LLM agent drives steps 2-3, a click/submit guard disables every
+  navigation, close, and Submit control for the duration of the agent run, and its
+  toolset excludes navigation, tab, file, and resume-upload actions.
 - Task 5 never guesses: an unknown question pauses on a browser banner and waits
   for you to type the answer into the form field. Answers are stored in
   `data/answers.json` (no credentials) and reused.

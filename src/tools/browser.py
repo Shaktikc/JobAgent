@@ -19,7 +19,8 @@ to type the answer into the form field itself. The answer is remembered in the
 answer store so the same (normalized) question is filled automatically next time.
 
 The interaction uses browser-use's deterministic CDP actor API (``Page`` /
-``Element``); no LLM is involved.
+``Element``). Task 4 steps 2-3 can additionally be driven by browser-use's LLM
+agent (see :mod:`src.tools.agent_fill`); every other step stays deterministic.
 
 A live session is kept open across graph nodes via :func:`start_tasks` (which
 registers it) and :func:`fill_application` / :func:`close_run`. The state only
@@ -502,12 +503,17 @@ def build_browser(settings: Settings):
         # Clearing it lets this launch open its own CDP port instead of handing
         # off to a browser that no longer exists.
         _clear_profile_locks(settings.profile_dir)
-    return Browser(
+    session = Browser(
         headless=settings.session.headless,
         user_data_dir=str(settings.profile_dir),
         viewport=settings.session.viewport,
         user_agent=settings.session.user_agent,
     )
+    # Keep the browser alive when a browser-use Agent finishes (its close() kills
+    # the session unless keep_alive is set). The run owns teardown explicitly via
+    # close_run(), so the shared session must survive the in-form agent calls.
+    session.browser_profile.keep_alive = True
+    return session
 
 
 async def _wait_for_load(page, timeout_seconds: float) -> bool:

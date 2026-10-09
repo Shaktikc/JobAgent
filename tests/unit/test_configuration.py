@@ -38,6 +38,11 @@ def test_defaults_are_safe() -> None:
     assert settings.session.ask_poll_seconds == 1.0
     assert settings.session.clean_stale_profile is True
     assert settings.session.skip_applied is True
+    assert settings.session.agent_fill is True
+    # Offline by default: no model configured, so the agent is disabled.
+    assert settings.llm.model == ""
+    assert settings.llm.configured is False
+    assert settings.agent_fill_enabled is False
 
 
 def test_env_overrides_are_read(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -55,6 +60,11 @@ def test_env_overrides_are_read(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AUTOJOB_SESSION_ASK_POLL_SECONDS", "0.25")
     monkeypatch.setenv("AUTOJOB_SESSION_CLEAN_STALE_PROFILE", "false")
     monkeypatch.setenv("AUTOJOB_SESSION_SKIP_APPLIED", "false")
+    monkeypatch.setenv("AUTOJOB_SESSION_AGENT_FILL", "false")
+    monkeypatch.setenv("AUTOJOB_LLM_MODEL", "deepseek/deepseek-v4.1-flash")
+    monkeypatch.setenv("AUTOJOB_LLM_TEMPERATURE", "0.5")
+    monkeypatch.setenv("AUTOJOB_LLM_TIMEOUT_SECONDS", "30")
+    monkeypatch.setenv("AUTOJOB_LLM_MAX_STEPS", "12")
 
     settings = load_settings()
     assert settings.session.headless is True
@@ -71,6 +81,24 @@ def test_env_overrides_are_read(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.session.ask_poll_seconds == 0.25
     assert settings.session.clean_stale_profile is False
     assert settings.session.skip_applied is False
+    assert settings.session.agent_fill is False
+    assert settings.llm.model == "deepseek/deepseek-v4.1-flash"
+    assert settings.llm.temperature == 0.5
+    assert settings.llm.timeout_seconds == 30.0
+    assert settings.llm.max_steps == 12
+
+
+def test_agent_fill_requires_a_model_and_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The LLM agent is only enabled with both a model id and an OpenRouter key."""
+    monkeypatch.setenv("AUTOJOB_LLM_MODEL", "deepseek/deepseek-v4.1-flash")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    assert load_settings().agent_fill_enabled is False
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    assert load_settings().agent_fill_enabled is True
+
+    monkeypatch.setenv("AUTOJOB_SESSION_AGENT_FILL", "false")
+    assert load_settings().agent_fill_enabled is False
 
 
 def test_data_dir_override(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:

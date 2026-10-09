@@ -90,19 +90,60 @@ class SessionSettings(BaseModel):
     # unapplied job instead. Set false to ignore the Applied status (open the
     # first Easy Apply card regardless).
     skip_applied: bool = True
+    # Task 4 steps 2-3: use browser-use's LLM agent to decide which form fields
+    # already have a known answer (from the answer store) and fill them. Requires
+    # a configured LLM (see LlmSettings / AUTOJOB_LLM_MODEL) and an OpenRouter API
+    # key; without those it is a no-op and the deterministic fill runs instead.
+    # Set false to always use the deterministic fill.
+    agent_fill: bool = True
 
     @property
     def viewport(self) -> dict[str, int]:
         return {"width": self.viewport_width, "height": self.viewport_height}
 
 
+class LlmSettings(BaseModel):
+    """The OpenRouter model that drives Task 4's browser-use agent (steps 2-3).
+
+    An empty ``model`` disables the agent, keeping the offline deterministic fill
+    the default. The API key is read from ``OPENROUTER_API_KEY`` (never stored
+    here) so it cannot leak into the run state or logs.
+    """
+
+    model: str = ""
+    temperature: float = Field(default=0.0, ge=0.0)
+    # Overall seconds budget for one form step's agent run.
+    timeout_seconds: float = Field(default=180.0, gt=0)
+    # Safety cap on how many agent steps one form step may take.
+    max_steps: int = Field(default=20, gt=0)
+
+    @property
+    def configured(self) -> bool:
+        """True when a model id is set (the agent can be built)."""
+        return bool(self.model.strip())
+
+
 class Settings(BaseModel):
     """Root settings object."""
 
     session: SessionSettings = Field(default_factory=SessionSettings)
+    llm: LlmSettings = Field(default_factory=LlmSettings)
     data_dir: Path = PROJECT_ROOT / "data"
     resumes_dir: Path = PROJECT_ROOT / "resumes"
     answers_path: Path | None = None
+
+    @property
+    def agent_fill_enabled(self) -> bool:
+        """True when Task 4's LLM agent should drive steps 2-3.
+
+        Requires the feature gate, a configured model, and an OpenRouter API key
+        in the environment; otherwise the deterministic fill is used.
+        """
+        return (
+            self.session.agent_fill
+            and self.llm.configured
+            and bool(os.environ.get("OPENROUTER_API_KEY", "").strip())
+        )
 
     @property
     def profile_dir(self) -> Path:
@@ -139,15 +180,20 @@ def load_settings(env_file: Path | None = None) -> Settings:
             easy_apply_timeout_seconds=_get_float(
                 "AUTOJOB_SESSION_EASY_APPLY_TIMEOUT_SECONDS", 20.0
             ),
-            ai_search_timeout_seconds=_get_float(
-                "AUTOJOB_SESSION_AI_SEARCH_TIMEOUT_SECONDS", 5.0
-            ),
+            ai_search_timeout_seconds=_get_float("AUTOJOB_SESSION_AI_SEARCH_TIMEOUT_SECONDS", 5.0),
             step_delay_seconds=_get_float("AUTOJOB_SESSION_STEP_DELAY_SECONDS", 0.0),
             ask_human=_get_bool("AUTOJOB_SESSION_ASK_HUMAN", True),
             ask_timeout_seconds=_get_float("AUTOJOB_SESSION_ASK_TIMEOUT_SECONDS", 300.0),
             ask_poll_seconds=_get_float("AUTOJOB_SESSION_ASK_POLL_SECONDS", 1.0),
             clean_stale_profile=_get_bool("AUTOJOB_SESSION_CLEAN_STALE_PROFILE", True),
             skip_applied=_get_bool("AUTOJOB_SESSION_SKIP_APPLIED", True),
+            agent_fill=_get_bool("AUTOJOB_SESSION_AGENT_FILL", True),
+        ),
+        llm=LlmSettings(
+            model=_get_str("AUTOJOB_LLM_MODEL", "") or "",
+            temperature=_get_float("AUTOJOB_LLM_TEMPERATURE", 0.0),
+            timeout_seconds=_get_float("AUTOJOB_LLM_TIMEOUT_SECONDS", 180.0),
+            max_steps=_get_int("AUTOJOB_LLM_MAX_STEPS", 20),
         ),
         data_dir=Path(data_dir).expanduser() if data_dir else PROJECT_ROOT / "data",
         resumes_dir=(Path(resumes_dir).expanduser() if resumes_dir else PROJECT_ROOT / "resumes"),

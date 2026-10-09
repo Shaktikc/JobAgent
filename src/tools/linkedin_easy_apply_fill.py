@@ -15,8 +15,13 @@ The form is dynamic, so its steps, fields, and resume control (a radio list, a
 discovered at runtime rather than assumed. Task 5's ask-the-human code lives in
 :mod:`src.tools.browser` and is called from here when a question is unknown.
 
-The interaction uses browser-use's deterministic CDP actor API (``Page`` /
-``Element``); no LLM is involved.
+Steps 2-3 are driven by browser-use's LLM agent (see
+:mod:`src.tools.agent_fill`): when a model and an OpenRouter key are configured,
+the agent is the **sole** mechanism that decides which enumerated fields already
+have a known answer and fills them, behind a navigation/submit guard. The
+deterministic store fill is then disabled for that run; fields the agent leaves
+empty are handed to Task 5. With no model configured the deterministic fill is
+used instead (fully offline, no LLM involved).
 """
 
 from __future__ import annotations
@@ -27,6 +32,7 @@ from pathlib import Path
 
 from src.configuration import Settings
 from src.state import FormField, Task4Outcome, Task5Outcome
+from src.tools.agent_fill import fill_known_fields_with_agent
 from src.tools.answers import lookup_answer
 from src.tools.browser import (
     FIND_APPLY_ROOT_JS,
@@ -414,7 +420,6 @@ async def read_form_buttons(page) -> list[dict]:
     return list(payload.get("buttons") or [])
 
 
-
 # Placeholder values a <select> may show before a real choice is made. A select
 # holding one of these is still unanswered; anything else is treated as answered.
 _SELECT_PLACEHOLDERS = {
@@ -475,7 +480,6 @@ def _select_value_for(answer: str, options: list[dict]) -> str | None:
     return None
 
 
-
 async def _fill_field(element, field: dict, answer: str) -> tuple[bool, str]:
     """Fill one known field with the right control action; return ``(ok, error)``."""
     kind = field.get("kind")
@@ -502,6 +506,7 @@ async def _fill_step(
     settings: Settings,
     ask=None,
     human: Task5Outcome | None = None,
+    use_store: bool = True,
 ) -> tuple[int, int, list[str], list[FormField]]:
     """Fill the known fields of one form step; leave the rest unknown.
 
@@ -509,6 +514,11 @@ async def _fill_step(
     callable. When the store cannot answer a question (or a stored radio answer
     matches none of the step's options), it is used to ask the human; a returned
     answer is filled, remembered in the store, and reused for later occurrences.
+
+    ``use_store`` is the deterministic known-answer path. It is disabled when
+    browser-use's LLM agent is the **sole** mechanism for Task 4 steps 2-3: fields
+    the agent already filled show up as "already answered", any other field is
+    left to Task 5, and nothing is filled from the store here.
     """
     known = filled = 0
     unknown: list[str] = []
@@ -562,7 +572,7 @@ async def _fill_step(
             filled += 1
             records.append(record)
             continue
-        found = lookup_answer(answers, [question, key])
+        found = lookup_answer(answers, [question, key]) if use_store else None
         answer = found[1] if found else None
         source = "store" if found else "human"
         option = (
@@ -614,7 +624,7 @@ async def _fill_step(
             filled += 1
             records.append(record)
             continue
-        found = lookup_answer(answers, [question, field.get("name", "")])
+        found = lookup_answer(answers, [question, field.get("name", "")]) if use_store else None
         answer = found[1] if found else None
         source = "store" if found else "human"
         if answer is None and ask is not None:
@@ -655,7 +665,6 @@ async def _fill_step(
 
     await _pace(settings)
     return known, filled, unknown, records
-
 
 
 async def upload_file_via_cdp(session, page, selector: str, file_path: str) -> None:
@@ -780,7 +789,6 @@ async def _attach_resume(
     notify(f"Task 4: uploaded resume {Path(resume_path).name!r}.")
 
 
-
 def _form_signature(title: str, fields: list[dict]) -> str:
     """A stable fingerprint of a form step, to detect that Next did not advance."""
     parts = [title or ""]
@@ -827,11 +835,13 @@ async def _task4_on_page(
     discovered at runtime rather than assumed. The walk stops at the terminal
     step (only Submit is left), or as soon as a step fails to advance.
 
-    Task 5 rides along: when a question is unknown and ``ask_human`` is on, the
-    run pauses on a browser banner and reads the answer the human types into the
-    form field. Answers are remembered so the same question is filled
-    automatically next time. The optional ``human`` tracker records the questions
-    asked, answered, skipped, and timed out.
+    Steps 2-3 are handled by browser-use's LLM agent when it is enabled; the
+    deterministic store fill is then disabled so the agent is the sole filler.
+    Task 5 rides along: when a question is unknown (including anything the agent
+    left empty) and ``ask_human`` is on, the run pauses on a browser banner and
+    reads the answer the human types into the form field. Answers are remembered
+    so the same question is filled automatically next time. The optional
+    ``human`` tracker records the questions asked, answered, skipped, and timed out.
     """
     outcome = Task4Outcome(resume_path=resume_path or "")
     human = human if human is not None else Task5Outcome()
@@ -878,9 +888,29 @@ async def _task4_on_page(
         previous = signature
 
         outcome.form_open = True
+        # Task 4 steps 2-3: browser-use's LLM agent is the SOLE mechanism that
+        # decides which fields are already known (from the answer store) and fills
+        # them. It runs behind a navigation/submit guard. When enabled, the
+        # deterministic store fill below is disabled (`use_store=False`) so the
+        # store is never applied as a fallback: fields the agent did not fill are
+        # left to Task 5, which asks the human.
+        agent_enabled = settings.agent_fill_enabled
+        if agent_enabled:
+            report = await fill_known_fields_with_agent(page, session, answers, settings, notify)
+            if report is not None and report.note:
+                outcome.notes = _append_note(outcome.notes, f"agent fill: {report.note}")
+            # Re-read the step so the checks below see the agent's edits (fresh
+            # values/checked state) instead of the pre-fill snapshot.
+            opened, title, fields = await read_form(page)
+            if not opened:
+                outcome.notes = _append_note(
+                    outcome.notes, "Easy Apply form closed during the agent fill"
+                )
+                break
+
         outcome.fields_enumerated += len(fields)
         known, filled, unknown, records = await _fill_step(
-            page, fields, answers, settings, ask=asker, human=human
+            page, fields, answers, settings, ask=asker, human=human, use_store=not agent_enabled
         )
         outcome.known_fields += known
         outcome.filled_fields += filled

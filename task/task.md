@@ -139,8 +139,11 @@ submit the application.
 **Steps**
 1. Enumerate the form's fields and controls (text inputs, selects, radio buttons,
    checkboxes, date pickers, and the resume upload control).
-2. For each field, determine whether the answer is already known.
-3. Fill the fields whose answers are known.
+2. For each field, determine whether the answer is already known — via
+   browser-use's LLM agent (open-source `Agent` + OpenRouter) as the **sole**
+   mechanism for this step, guided by the answer store.
+3. Fill the fields whose answers are known — the agent fills them. 
+
 4. Attach the resume chosen in Task 3:
    a. Check the resume options already listed on the form (e.g. LinkedIn's
       "Select a resume" list).
@@ -161,6 +164,11 @@ submit the application.
 
 **Notes**
 - Never type credentials; the login gate remains human.
+- Steps 2-3 are agent-driven: browser-use's LLM agent decides which answers are
+  already known and fills them, behind a navigation/submit click guard and a
+  restricted toolset. The deterministic store fill is disabled in this mode
+  (there is no fallback); when no model/key is configured, the deterministic fill
+  is used instead. Unfilled fields go to Task 5.
 - Resume matching is by name: compare the Task 3 file name (without extension,
   normalized) against the names shown in the form's resume list. When a match is
   found, select it instead of uploading, so no duplicate resume is created.
