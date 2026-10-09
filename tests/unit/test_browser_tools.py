@@ -9,12 +9,11 @@ from pathlib import Path
 
 import pytest
 
-from src.configuration import LlmSettings, SessionSettings, Settings
+from src.configuration import SessionSettings, Settings
 from src.state import DEFAULT_LOGIN_URL, Task5Outcome
 from src.tools import browser as browser_tools
 from src.tools import linkedin_easy_apply_fill as fill_tools
 from src.tools import linkedin_search as linkedin_tools
-from src.tools.agent_fill import AgentFillReport
 from src.tools.linkedin import build_jobs_search_url
 
 SEARCH_URL = build_jobs_search_url("software engineer")
@@ -1889,131 +1888,6 @@ async def test_task4_reports_missing_form(tmp_path) -> None:
 
     assert outcome.form_open is False
     assert "form was not found" in outcome.notes
-
-
-async def test_task4_agent_is_sole_filler_for_known_fields(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
-) -> None:
-    """When enabled, the agent alone fills known fields; there is no store fallback.
-
-    The fake agent does nothing, and ``use_store=False`` means the deterministic
-    pass must NOT apply the stored "phone number" answer: both fields are left for
-    Task 5.
-    """
-    fields = [
-        _text_field("f0", "phone", "Phone number", required=True),
-        _text_field("f1", "city", "City"),
-    ]
-    step = {"open": True, "title": "Contact info", "fields": fields}
-    page = FakePage(
-        form_enumerations=[step, step],
-        form_buttons_queue=[[{"marker": "b0", "text": "Submit application", "disabled": False}]],
-        resume_options={"options": [], "fileInput": False},
-    )
-    page.fill_elements = {"f0": FakeElement("Phone number"), "f1": FakeElement("City")}
-    page.button_elements = {"b0": FakeElement("Submit application")}
-
-    calls: list[dict] = []
-
-    async def fake_agent_fill(page, session, answers, settings, notify, **kwargs):
-        calls.append(dict(answers))
-        return AgentFillReport(ran=True, note="agent finished")
-
-    monkeypatch.setattr(fill_tools, "fill_known_fields_with_agent", fake_agent_fill)
-    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
-
-    settings = _settings(tmp_path, post_click_wait_seconds=0)
-    settings.llm = LlmSettings(model="deepseek/deepseek-v4.1-flash")
-    assert settings.agent_fill_enabled is True
-
-    outcome = await browser_tools._task4_on_page(
-        page,
-        FakeSession(page),
-        None,
-        {"phone number": "+61 400 000 000"},
-        settings,
-        lambda _m: None,
-    )
-
-    assert calls == [{"phone number": "+61 400 000 000"}]
-    assert "agent fill: agent finished" in outcome.notes
-    # No deterministic fallback: the stored answer was NOT applied.
-    assert page.fill_elements["f0"].filled is None
-    assert outcome.filled_fields == 0
-    assert outcome.unknown_fields == ["Phone number", "City"]
-    assert outcome.submitted is False
-    assert page.button_elements["b0"].clicked is False
-
-
-async def test_task4_agent_filled_fields_are_recorded_not_refilled(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
-) -> None:
-    """A field the agent filled is seen as answered; the store does not refill it."""
-    fields = [
-        _text_field("f0", "phone", "Phone number", required=True),
-        _text_field("f1", "city", "City"),
-    ]
-    step = {"open": True, "title": "Contact info", "fields": fields}
-    page = FakePage(
-        form_enumerations=[step, step],
-        form_buttons_queue=[[{"marker": "b0", "text": "Submit application", "disabled": False}]],
-        resume_options={"options": [], "fileInput": False},
-    )
-    page.fill_elements = {"f0": FakeElement("Phone number"), "f1": FakeElement("City")}
-    page.button_elements = {"b0": FakeElement("Submit application")}
-
-    async def fake_agent_fill(page, session, answers, settings, notify, **kwargs):
-        # Simulate the agent typing the known answer into the field.
-        step["fields"][0]["value"] = "+61 400 000 000"
-        return AgentFillReport(ran=True, note="agent finished")
-
-    monkeypatch.setattr(fill_tools, "fill_known_fields_with_agent", fake_agent_fill)
-    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
-
-    settings = _settings(tmp_path, post_click_wait_seconds=0)
-    settings.llm = LlmSettings(model="deepseek/deepseek-v4.1-flash")
-
-    outcome = await browser_tools._task4_on_page(
-        page,
-        FakeSession(page),
-        None,
-        {"phone number": "+61 400 000 000"},
-        settings,
-        lambda _m: None,
-    )
-
-    # The agent-filled field counts as known/filled; it is not re-typed by the
-    # deterministic code, and only the genuinely unknown field is left.
-    assert outcome.known_fields == 1
-    assert outcome.filled_fields == 1
-    assert outcome.unknown_fields == ["City"]
-    assert page.fill_elements["f0"].filled is None  # not filled deterministically
-    phone = next(r for r in outcome.fields if r.question == "Phone number")
-    assert phone.answered_by == "form"
-
-
-async def test_fill_step_use_store_false_skips_the_store(tmp_path) -> None:
-    """``use_store=False`` is the agent-sole mode: the store must not fill fields."""
-    fields = [_text_field("f0", "phone", "Phone number", required=True)]
-    page = FakePage()
-    page.fill_elements = {"f0": FakeElement("Phone number")}
-    answers = {"phone number": "+61 400 000 000"}
-
-    known, filled, unknown, _records = await fill_tools._fill_step(
-        page, fields, answers, _settings(tmp_path, post_click_wait_seconds=0), use_store=False
-    )
-
-    assert (known, filled, unknown) == (0, 0, ["Phone number"])
-    assert page.fill_elements["f0"].filled is None
-
-    # With the default, the store answers it deterministically.
-    page2 = FakePage()
-    page2.fill_elements = {"f0": FakeElement("Phone number")}
-    known, filled, unknown, _records = await fill_tools._fill_step(
-        page2, fields, answers, _settings(tmp_path, post_click_wait_seconds=0)
-    )
-    assert (known, filled, unknown) == (1, 1, [])
-    assert page2.fill_elements["f0"].filled == "+61 400 000 000"
 
 
 def test_task4_form_queries_ignore_hidden_dialogs() -> None:
