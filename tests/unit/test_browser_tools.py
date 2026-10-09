@@ -580,6 +580,21 @@ async def test_find_job_apply_button_reads_details_pane() -> None:
     assert label == "Easy Apply to Data Engineer at Acme"
 
 
+async def test_find_job_apply_button_matches_semantic_layout_label() -> None:
+    """The AI/semantic layout's apply button has hashed classes, so it is matched
+    by its accessible label ("Easy Apply to this job") rather than a CSS class."""
+    page = FakePage(
+        by_selector={
+            'button[aria-label^="Easy Apply to" i]': [FakeElement("Easy Apply to this job")]
+        }
+    )
+
+    button, label = await browser_tools.find_job_apply_button(page)
+
+    assert button is not None
+    assert label == "Easy Apply to this job"
+
+
 async def test_find_job_apply_button_none_without_selection() -> None:
     assert await browser_tools.find_job_apply_button(FakePage()) == (None, "")
 
@@ -1873,6 +1888,32 @@ async def test_task4_reports_missing_form(tmp_path) -> None:
 
     assert outcome.form_open is False
     assert "form was not found" in outcome.notes
+
+
+def test_task4_form_queries_ignore_hidden_dialogs() -> None:
+    """All Task 4 queries pick the visible Easy Apply modal, not merely the first match.
+
+    A real jobs page can carry an unrelated hidden ``.artdeco-modal`` (e.g.
+    "Save this job") earlier in the DOM. A bare ``document.querySelector`` would
+    pick it, enumerate zero fields, and fill nothing, so every Task 4 query must
+    resolve the modal through the shared visibility-aware helper.
+    """
+    queries = {
+        "enumerate": fill_tools._ENUMERATE_FORM_QUERY,
+        "resume": fill_tools._RESUME_OPTIONS_QUERY,
+        "buttons": fill_tools._FORM_BUTTONS_QUERY,
+    }
+    for name, query in queries.items():
+        assert "findApplyRoot" in query, f"{name} query lost the form finder"
+        assert "getClientRects" in query, f"{name} query no longer checks visibility"
+        assert "const modal = document.querySelector(" not in query, name
+
+
+def test_task2_apply_modal_query_uses_shared_form_finder() -> None:
+    """Task 2 must detect both the classic modal and the inline semantic form."""
+    query = browser_tools._APPLY_MODAL_QUERY
+    assert "findApplyRoot" in query
+    assert "getClientRects" in query
 
 
 def _radio_field(

@@ -20,6 +20,7 @@ The interaction uses browser-use's deterministic CDP actor API (``Page`` /
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 
 from src.configuration import Settings
@@ -28,6 +29,7 @@ from src.tools.browser import (
     _APPLY_POLL_SECONDS,
     _JOB_CARD_ATTR,
     _RESULTS_WAIT_SECONDS,
+    FIND_APPLY_ROOT_JS,
     _append_note,
     _element_label,
     _first_element,
@@ -46,11 +48,14 @@ from src.tools.linkedin import (
     pick_easy_apply_action_index,
 )
 
-# Job cards in the left-hand search-results list (Task 2).
+# Job cards in the left-hand search-results list (Task 2). This mirrors the
+# selector union :func:`results_count` uses, so a card style that ``results_count``
+# can see is never invisible to ``read_job_cards`` (which would stall the run).
 _JOB_CARD_SELECTORS = (
     "li.jobs-search-results__list-item",
     "li.scaffold-layout__list-item",
     "div.job-card-container",
+    "div.jobs-search-results-list__list-item",
     "ul.jobs-search__results-list > li",
     # AI/semantic results page (origin=SEMANTIC_SEARCH_LANDING_PAGE): the job
     # cards are rendered as div[role="button"], not classic <li> items. Their
@@ -59,28 +64,38 @@ _JOB_CARD_SELECTORS = (
     "[data-autojob-card]",
 )
 
+# How many job cards to try before giving up on the results page. The list is
+# re-read after every click (LinkedIn re-renders it), so this is only a safety cap.
+_MAX_JOB_ATTEMPTS = 40
+
 # The job's apply button in the right-hand details pane (Task 2). Its label is
-# "Easy Apply" for Easy Apply jobs and "Apply" for external ones.
+# "Easy Apply" for Easy Apply jobs and "Apply"/"Apply on company website" for
+# external ones. The AI/semantic results layout renders the button with hashed
+# CSS-in-JS classes (no ``jobs-apply-button``), so also match its accessible
+# label: ``^="Easy Apply to"`` finds "Easy Apply to this job" / "Easy Apply to
+# <job> at <company>", and deliberately does not match the results filter pill
+# ("Easy Apply filter.").
 _JOB_DETAILS_APPLY_SELECTORS = (
     "div.jobs-search__job-details--container button.jobs-apply-button",
     "div.scaffold-layout__detail button.jobs-apply-button",
     "div.job-view-layout button.jobs-apply-button",
     "div.jobs-details button.jobs-apply-button",
     "button.jobs-apply-button",
+    "[data-live-test-job-apply-button]",
+    'button[aria-label^="Easy Apply to" i]',
+    'a[aria-label^="Easy Apply to" i]',
 )
 
-_APPLY_MODAL_QUERY = """
-() => {
-  const modal = document.querySelector(
-    'div.jobs-easy-apply-modal, div[data-test-modal-container], '
-    + 'div[role="dialog"].artdeco-modal, .artdeco-modal--layer-default'
-  );
-  return JSON.stringify({
-    open: !!modal,
-    text: modal ? (modal.innerText || '').slice(0, 1000) : ''
-  });
-}
-"""
+_APPLY_MODAL_QUERY = (
+    "() => {\n"
+    + FIND_APPLY_ROOT_JS
+    + "\n  const root = findApplyRoot();\n"
+    + "  return JSON.stringify({\n"
+    + "    open: !!root,\n"
+    + "    text: root ? (root.innerText || '').slice(0, 1000) : ''\n"
+    + "  });\n"
+    + "}\n"
+)
 
 
 def _first_line(text: str) -> str:
@@ -90,6 +105,12 @@ def _first_line(text: str) -> str:
         if line:
             return line[:200]
     return ""
+
+
+def _job_key(title: str, index: int) -> str:
+    """Stable identity for a results-list job (its title, or index when blank)."""
+    normalized = re.sub(r"\s+", " ", (title or "").strip().lower())
+    return normalized or f"#{index}"
 
 
 async def read_job_cards(page) -> list:
@@ -180,7 +201,14 @@ async def wait_for_easy_apply_modal(page, settings: Settings) -> tuple[bool, str
 
 
 async def _task2_on_page(page, settings: Settings, notify) -> Task2Outcome:
-    """Run Task 2 steps on the results page left open by Task 1."""
+    """Run Task 2 steps on the results page left open by Task 1.
+
+    The results list is re-read on every attempt: clicking a card on LinkedIn's
+    semantic results page navigates to the job and re-renders the list, which
+    detaches every previously resolved card element. Reusing those stale handles
+    silently clicks nothing, leaving the details pane on the first job so every
+    later job is skipped. Re-reading gives fresh handles each time.
+    """
     outcome = Task2Outcome()
 
     cards = await read_job_cards(page)
@@ -192,17 +220,50 @@ async def _task2_on_page(page, settings: Settings, notify) -> Task2Outcome:
     notify(f"Task 2: {outcome.jobs_seen} job(s) in the list.")
     await _pace(settings)
 
-    for index, card in enumerate(cards):
-        label = await _element_label(card)
-        title = _first_line(label)
-        # Task 6: skip cards already marked "Applied" (never click them). The
-        # status text is read from the card itself; a card with no readable
-        # status is treated as unapplied and left to the Easy Apply check.
-        if settings.session.skip_applied and card_is_applied(label):
-            outcome.applied_jobs_skipped += 1
-            outcome.applied_skipped_cards.append({"index": index, "title": title})
-            notify(f"Task 2: job {index + 1} is already applied; skipping.")
-            continue
+    tried: set[str] = set()
+    applied_seen: set[str] = set()
+
+    for _attempt in range(_MAX_JOB_ATTEMPTS):
+        # Re-read the list so every card handle is fresh (the previous click may
+        # have navigated and re-rendered it).
+        cards = await read_job_cards(page)
+        if not cards:
+            # LinkedIn can briefly leave the list empty while it swaps layouts
+            # (classic -> AI/semantic) after the "Try AI job search" detour.
+            # Wait for it to settle instead of stopping with nothing to open.
+            settle_deadline = time.monotonic() + _RESULTS_WAIT_SECONDS
+            while not cards and time.monotonic() < settle_deadline:
+                await asyncio.sleep(0.5)
+                cards = await read_job_cards(page)
+            if not cards:
+                break
+
+        candidate = None
+        for index, card in enumerate(cards):
+            label = await _element_label(card)
+            title = _first_line(label)
+            # Task 6: skip cards already marked "Applied" (never click them). The
+            # status text is read from the card itself; a card with no readable
+            # status is treated as unapplied and left to the Easy Apply check.
+            if settings.session.skip_applied and card_is_applied(label):
+                key = _job_key(title, index)
+                if key not in applied_seen:
+                    applied_seen.add(key)
+                    outcome.applied_jobs_skipped += 1
+                    outcome.applied_skipped_cards.append({"index": index, "title": title})
+                    notify(f"Task 2: job {index + 1} is already applied; skipping.")
+                continue
+            key = _job_key(title, index)
+            if key in tried:
+                continue
+            candidate = (index, card, title, key)
+            break
+
+        if candidate is None:
+            break
+
+        index, card, title, key = candidate
+        tried.add(key)
         outcome.job_index = index
         outcome.job_title = title
         notify(f"Task 2: opening job {index + 1}: {title or '(untitled)'}")

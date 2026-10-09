@@ -29,6 +29,7 @@ from src.configuration import Settings
 from src.state import FormField, Task4Outcome, Task5Outcome
 from src.tools.answers import lookup_answer
 from src.tools.browser import (
+    FIND_APPLY_ROOT_JS,
     _append_note,
     _first_element,
     _loads,
@@ -56,10 +57,7 @@ _MAX_FORM_STEPS = 10
 # Element; radio/checkbox markers sit on the clickable label.
 _ENUMERATE_FORM_QUERY = r"""
 () => {
-  const modal = document.querySelector(
-    'div.jobs-easy-apply-modal, div[role="dialog"].artdeco-modal, '
-    + '.artdeco-modal--layer-default, div[data-test-modal-container], .artdeco-modal'
-  );
+  const modal = findApplyRoot();
   if (!modal) return JSON.stringify({ open: false, title: '', fields: [] });
 
   const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
@@ -188,10 +186,7 @@ _ENUMERATE_FORM_QUERY = r"""
 # input, or an "Upload resume" button that reveals the file input only on click.
 _RESUME_OPTIONS_QUERY = r"""
 () => {
-  const modal = document.querySelector(
-    'div.jobs-easy-apply-modal, div[role="dialog"].artdeco-modal, '
-    + '.artdeco-modal--layer-default, div[data-test-modal-container], .artdeco-modal'
-  );
+  const modal = findApplyRoot();
   if (!modal) {
     return JSON.stringify({
       options: [], fileInput: false, select: null, uploadButton: null
@@ -309,10 +304,7 @@ _RESUME_OPTIONS_QUERY = r"""
 # List the modal's buttons so the agent can advance a form (never submit).
 _FORM_BUTTONS_QUERY = r"""
 () => {
-  const modal = document.querySelector(
-    'div.jobs-easy-apply-modal, div[role="dialog"].artdeco-modal, '
-    + '.artdeco-modal--layer-default, div[data-test-modal-container], .artdeco-modal'
-  );
+  const modal = findApplyRoot();
   if (!modal) return JSON.stringify({ buttons: [] });
 
   const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
@@ -360,6 +352,23 @@ _FILL_SELECT_JS = r"""
 }
 """
 
+
+def _with_apply_root(query: str) -> str:
+    """Make ``findApplyRoot()`` available inside a Task 4 query.
+
+    The three form queries are self-contained IIFEs, so the shared root finder
+    (:data:`FIND_APPLY_ROOT_JS`) is injected where they resolve the form. This
+    keeps the classic-modal and inline layouts on one code path.
+    """
+    return query.replace(
+        "const modal = findApplyRoot();",
+        FIND_APPLY_ROOT_JS + "\n  const modal = findApplyRoot();",
+    )
+
+
+_ENUMERATE_FORM_QUERY = _with_apply_root(_ENUMERATE_FORM_QUERY)
+_RESUME_OPTIONS_QUERY = _with_apply_root(_RESUME_OPTIONS_QUERY)
+_FORM_BUTTONS_QUERY = _with_apply_root(_FORM_BUTTONS_QUERY)
 
 
 async def read_form(page) -> tuple[bool, str, list[dict]]:

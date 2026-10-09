@@ -190,3 +190,83 @@ async def test_task2_stops_when_every_card_is_applied(tmp_path: Path) -> None:
     assert outcome.application_form_opened is False
     assert outcome.job_index is None
     assert "no unapplied job found" in outcome.notes
+
+
+# Reproduces LinkedIn's AI/semantic results layout (origin=SEMANTIC_SEARCH_LANDING_PAGE),
+# which the user hit: the job cards are div[role="button"], the details-pane apply
+# button uses hashed CSS-in-JS classes (so it matches none of the ``jobs-apply-button``
+# selectors) and is identifiable only by its label, and clicking a card re-renders the
+# whole list — detaching every previously resolved card element. Card 0 is an external
+# "Apply" job, so the agent must skip it and then click card 1 with a *fresh* handle.
+_SEMANTIC_LAYOUT_HTML = """<!doctype html>
+<html><head><meta charset="utf-8"><title>Jobs</title></head>
+<body>
+<div id="list"></div>
+<div class="details">
+  <button id="apply" class="fmx1a fmx2b" type="button"
+          aria-label="Apply to this job" style="display:none">Apply</button>
+</div>
+<div class="jobs-easy-apply-modal artdeco-modal" role="dialog" style="display:none">
+  <div class="artdeco-modal__content">Easy Apply. Review your application.</div>
+</div>
+<script>
+  var apply = document.getElementById('apply');
+  var modal = document.querySelector('.jobs-easy-apply-modal');
+  var list = document.getElementById('list');
+  var jobs = [
+    { title: 'Backend Engineer', company: 'Acme',
+      meta: 'Sydney, NSW (On-site) Actively reviewing applicants' },
+    { title: 'Data Engineer', company: 'Beta', meta: 'Melbourne, VIC (Remote) Viewed' }
+  ];
+  function render() {
+    // Re-rendering replaces the nodes, detaching any element handles a caller kept.
+    list.innerHTML = jobs.map(function (j, i) {
+      return '<div role="button" class="jobcard" data-index="' + i + '">'
+        + j.title + ' ' + j.company + ' ' + j.meta + ' Easy Apply</div>';
+    }).join('');
+    list.querySelectorAll('.jobcard').forEach(function (card) {
+      card.addEventListener('click', function () {
+        var i = card.getAttribute('data-index');
+        apply.style.display = 'inline-block';
+        if (i === '0') {
+          apply.setAttribute('aria-label', 'Apply to this job');
+          apply.textContent = 'Apply';
+        } else {
+          apply.setAttribute('aria-label', 'Easy Apply to this job');
+          apply.textContent = 'Easy Apply';
+        }
+        // Re-render after selecting, as LinkedIn does when it navigates the job.
+        render();
+      });
+    });
+  }
+  render();
+  apply.addEventListener('click', function () { modal.style.display = 'block'; });
+</script>
+</body></html>
+"""
+
+
+async def test_task2_semantic_layout_uses_label_and_fresh_handles(tmp_path: Path) -> None:
+    """The label-only apply button is found and the re-rendered list is re-read."""
+    page_file = tmp_path / "semantic_layout.html"
+    page_file.write_text(_SEMANTIC_LAYOUT_HTML, encoding="utf-8")
+
+    settings = _settings(tmp_path)
+    browser = browser_tools.build_browser(settings)
+    try:
+        await browser.start()
+        page = await browser.new_page()
+        await page.goto(page_file.as_uri())
+        await browser_tools._wait_for_load(page, 10)
+        outcome = await browser_tools._task2_on_page(page, settings, lambda _m: None)
+    finally:
+        await browser.kill()
+
+    assert outcome.jobs_seen == 2
+    # The external card 0 was skipped, then card 1 was opened with a fresh handle.
+    assert outcome.skipped_jobs == 1
+    assert "Data Engineer" in outcome.job_title
+    assert outcome.easy_apply_button_found is True
+    assert outcome.easy_apply_clicked is True
+    assert outcome.application_form_opened is True

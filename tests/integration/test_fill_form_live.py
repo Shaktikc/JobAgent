@@ -409,6 +409,156 @@ async def test_task4_uploads_resume_when_not_listed(tmp_path: Path) -> None:
     assert observed["submitted"] is False
 
 
+# A page that also carries an unrelated, hidden dialog *earlier in the DOM* than
+# the real Easy Apply modal. A naive ``document.querySelector`` picks the hidden
+# one and fills nothing, so Task 4 must select the visible Easy Apply modal.
+_FORM_HTML_WITH_HIDDEN_DIALOG = """<!doctype html>
+<html><head><meta charset="utf-8"><title>Easy Apply</title></head>
+<body>
+<div class="artdeco-modal" role="dialog" style="display:none">
+  <div class="artdeco-modal__content">
+    <h3>Save this job</h3>
+    <input id="note" name="note" type="text">
+  </div>
+</div>
+<div class="artdeco-modal jobs-easy-apply-modal" role="dialog">
+  <div class="artdeco-modal__content">
+    <section data-step="1">
+      <div class="fb-dash-form-element">
+        <label for="phone">Phone number</label>
+        <input id="phone" name="phone" type="text" required>
+      </div>
+    </section>
+  </div>
+  <footer class="artdeco-modal__actionbar">
+    <button type="button" id="submit-btn">Submit application</button>
+  </footer>
+</div>
+</body></html>
+"""
+
+_READ_HIDDEN_DIALOG_STATE_JS = """() => JSON.stringify({
+  phone_value: document.getElementById('phone').value
+})"""
+
+
+async def test_task4_ignores_a_hidden_dialog_before_the_easy_apply_modal(
+    tmp_path: Path,
+) -> None:
+    """An unrelated hidden .artdeco-modal earlier in the DOM must not shadow the form.
+
+    Regression: the modal lookup used the *first* matching element, so a hidden
+    dialog (e.g. "Save this job") appearing before the Easy Apply modal made the
+    fill walk enumerate zero fields and fill nothing.
+    """
+    resume_file = tmp_path / "resumes" / _RESUME_NAME
+    resume_file.parent.mkdir(parents=True, exist_ok=True)
+    resume_file.write_text("Senior Python engineer", encoding="utf-8")
+
+    form_file = tmp_path / "easy_apply_hidden_dialog.html"
+    form_file.write_text(_FORM_HTML_WITH_HIDDEN_DIALOG, encoding="utf-8")
+
+    settings = _settings(tmp_path)
+    browser = browser_tools.build_browser(settings)
+    await browser.start()
+    try:
+        page = await browser.new_page()
+        await page.goto(form_file.as_uri())
+        await browser_tools._wait_for_load(page, 10)
+
+        outcome = await browser_tools._task4_on_page(
+            page,
+            browser,
+            str(resume_file),
+            {"phone number": "+61 400 000 000"},
+            settings,
+            lambda _m: None,
+        )
+        observed = json.loads(await page.evaluate(_READ_HIDDEN_DIALOG_STATE_JS))
+    finally:
+        await browser.kill()
+
+    # The real (visible) Easy Apply modal was chosen, not the hidden dialog.
+    assert outcome.form_open is True
+    assert outcome.fields_enumerated >= 1
+    assert observed["phone_value"] == "+61 400 000 000"
+    assert outcome.submitted is False
+
+
+# LinkedIn's AI/semantic job view renders Easy Apply as an **inline** full-page
+# form with hashed CSS-in-JS classes (no artdeco/jobs-easy-apply-modal classes).
+# It is identifiable only by its "Apply to <company>" heading and application
+# controls, so Task 4 must find the form via the shared root finder.
+_INLINE_FORM_HTML = """<!doctype html>
+<html><head><meta charset="utf-8"><title>Apply</title></head>
+<body>
+<div class="fmwrap">
+  <h2>Apply to Acme</h2>
+  <div class="fmrow">
+    <label for="email">Email address*</label>
+    <select id="email" name="email">
+      <option value="me@example.com" selected>me@example.com</option>
+    </select>
+  </div>
+  <div class="fmrow">
+    <label for="phone">Mobile phone number*</label>
+    <input id="phone" name="phone" type="tel">
+  </div>
+  <input id="resume-file" name="resume" type="file">
+  <footer><button type="button" id="submit">Submit application</button></footer>
+</div>
+</body></html>
+"""
+
+_READ_INLINE_FORM_JS = """() => JSON.stringify({
+  phone_value: document.getElementById('phone').value,
+  email_value: document.getElementById('email').value,
+  files: (() => {
+    const f = document.getElementById('resume-file');
+    return f && f.files ? f.files.length : -1;
+  })()
+})"""
+
+
+async def test_task4_fills_inline_hashed_class_form(tmp_path: Path) -> None:
+    """The inline full-page form (hashed classes, no modal) is found and filled."""
+    resume_file = tmp_path / "resumes" / _RESUME_NAME
+    resume_file.parent.mkdir(parents=True, exist_ok=True)
+    resume_file.write_text("Senior Python engineer", encoding="utf-8")
+
+    form_file = tmp_path / "inline_apply.html"
+    form_file.write_text(_INLINE_FORM_HTML, encoding="utf-8")
+
+    settings = _settings(tmp_path)
+    browser = browser_tools.build_browser(settings)
+    await browser.start()
+    try:
+        page = await browser.new_page()
+        await page.goto(form_file.as_uri())
+        await browser_tools._wait_for_load(page, 10)
+
+        outcome = await browser_tools._task4_on_page(
+            page,
+            browser,
+            str(resume_file),
+            {"mobile phone number": "+61 400 000 000"},
+            settings,
+            lambda _m: None,
+        )
+        observed = json.loads(await page.evaluate(_READ_INLINE_FORM_JS))
+    finally:
+        await browser.kill()
+
+    assert outcome.form_open is True
+    # The pre-filled email select is left alone; the phone is filled from the store.
+    assert observed["email_value"] == "me@example.com"
+    assert observed["phone_value"] == "+61 400 000 000"
+    assert outcome.filled_fields >= 1
+    assert outcome.resume_attached is True
+    assert observed["files"] == 1
+    assert outcome.submitted is False
+
+
 # A one-step form with a single required, unknown question. The agent must pause
 # on the Task 5 banner; the test plays the human, types an answer, and submits it.
 _TASK5_FORM_HTML = """<!doctype html>

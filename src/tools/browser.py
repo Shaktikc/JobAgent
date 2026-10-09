@@ -112,6 +112,61 @@ _AI_JOB_CARDS_JS = r"""
 """
 
 
+# Locate the open Easy Apply surface (shared by Tasks 2 and 4). LinkedIn renders
+# it in one of two ways:
+#   * the classic artdeco dialog (``.jobs-easy-apply-modal`` / ``.artdeco-modal``),
+#   * or, on the AI/semantic job view, an **inline** full-page form whose classes
+#     are hashed (no artdeco classes), identified by the "Apply to <company>"
+#     heading and its application controls.
+# This snippet is injected into a query and defines ``findApplyRoot()``, which
+# returns the container element for either form (or ``null`` when none is open).
+FIND_APPLY_ROOT_JS = r"""
+  const findApplyRoot = () => {
+    const isVisible = (el) => !!el && el.getClientRects().length > 0;
+    const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+    // 1) The classic Easy Apply dialog. A page can also carry unrelated, hidden
+    //    dialogs (e.g. "Save this job") earlier in the DOM, so never trust the
+    //    first match: prefer the Easy Apply dialog, then the first *visible*
+    //    dialog holding form controls or Easy Apply text.
+    const candidates = Array.from(document.querySelectorAll(
+      'div.jobs-easy-apply-modal, div[role="dialog"].artdeco-modal, '
+      + '.artdeco-modal--layer-default, div[data-test-modal-container], .artdeco-modal'
+    ));
+    const easy = candidates.find((el) => el.classList.contains('jobs-easy-apply-modal'));
+    if (easy && isVisible(easy)) return easy;
+    const visible = candidates.filter(isVisible);
+    const applyish = visible.find((el) => /easy apply|application/i.test(el.innerText || ''));
+    const formish = visible.find((el) => el.querySelector(
+      'input:not([type=hidden]), textarea, select, [role="radio"], [role="checkbox"]'
+    ));
+    const dialog = applyish || formish || visible[0] || easy || null;
+    if (dialog) return dialog;
+
+    // 2) The inline full-page form. Anchor on an application control (a phone
+    //    field or a select holding an email), then climb to the closest ancestor
+    //    that also holds a navigation/submit button.
+    const anchor = Array.from(document.querySelectorAll('input[type="tel"], select'))
+      .filter(isVisible)
+      .find((el) => (el.getAttribute('type') || '').toLowerCase() === 'tel'
+        || /@/.test(el.value || ''));
+    const heading = Array.from(document.querySelectorAll('h1, h2, h3, h4'))
+      .find((h) => /^apply to\b/i.test(norm(h.innerText)));
+    if (!anchor && !heading) return null;
+    let el = anchor || heading;
+    for (let i = 0; i < 16 && el; i++) {
+      const hasNav = Array.from(el.querySelectorAll('button, [role="button"]')).some((b) =>
+        /next|continue|submit application|review/i.test(
+          norm(b.innerText) + ' ' + (b.getAttribute('aria-label') || '')
+        )
+      );
+      if (hasNav && (!anchor || el.contains(anchor))) return el;
+      el = el.parentElement;
+    }
+    return heading || null;
+  };
+"""
+
+
 # Task 5: a visible banner that tells the human the agent cannot answer a
 # question and asks them to type the answer into the form field itself. The
 # question text is set via ``textContent`` so page content can never inject
