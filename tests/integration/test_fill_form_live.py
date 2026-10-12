@@ -34,8 +34,29 @@ import pytest
 from src.configuration import SessionSettings, Settings
 from src.state import Task5Outcome
 from src.tools import browser as browser_tools
+from src.tools.answers import normalize_question
+from src.tools.llm_answers import QuestionDecision
 
 pytest.importorskip("browser_use")
+
+
+def _store_chooser(answers: dict):
+    """Stand in for the Task 4.1 LLM so the live tests never hit the network."""
+
+    async def choose(question: str, field_type: str, options: list[str]) -> QuestionDecision:
+        key = normalize_question(question)
+        for stored_key, value in answers.items():
+            if stored_key == key or (stored_key and stored_key in key):
+                return QuestionDecision(
+                    question=question,
+                    category="test",
+                    answer=value,
+                    matched_key=stored_key,
+                    rationale="test chooser",
+                )
+        return QuestionDecision(question=question)
+
+    return choose
 
 _RESUME_NAME = "ShaktiKC_Resume_python_Node_Senior.txt"
 
@@ -195,8 +216,15 @@ async def _run_task4_on_fixture(
         await page.goto(form_file.as_uri())
         await browser_tools._wait_for_load(page, 10)
 
+        answers = dict(_ANSWERS)
         outcome = await browser_tools._task4_on_page(
-            page, browser, str(resume_file), dict(_ANSWERS), settings, lambda _m: None
+            page,
+            browser,
+            str(resume_file),
+            answers,
+            settings,
+            lambda _m: None,
+            chooser=_store_chooser(answers),
         )
 
         # Capture page-observed facts before the session is closed.
@@ -312,8 +340,15 @@ async def _run_task4_on_fixture_2026(
         await page.goto(form_file.as_uri())
         await browser_tools._wait_for_load(page, 10)
 
+        answers = dict(answers or _ANSWERS)
         outcome = await browser_tools._task4_on_page(
-            page, browser, str(resume_file), dict(answers or _ANSWERS), settings, lambda _m: None
+            page,
+            browser,
+            str(resume_file),
+            answers,
+            settings,
+            lambda _m: None,
+            chooser=_store_chooser(answers),
         )
         observed = json.loads(await page.evaluate(_READ_STATE_JS_2026))
         return outcome, observed
@@ -466,13 +501,15 @@ async def test_task4_ignores_a_hidden_dialog_before_the_easy_apply_modal(
         await page.goto(form_file.as_uri())
         await browser_tools._wait_for_load(page, 10)
 
+        answers = {"phone number": "+61 400 000 000"}
         outcome = await browser_tools._task4_on_page(
             page,
             browser,
             str(resume_file),
-            {"phone number": "+61 400 000 000"},
+            answers,
             settings,
             lambda _m: None,
+            chooser=_store_chooser(answers),
         )
         observed = json.loads(await page.evaluate(_READ_HIDDEN_DIALOG_STATE_JS))
     finally:
@@ -537,13 +574,15 @@ async def test_task4_fills_inline_hashed_class_form(tmp_path: Path) -> None:
         await page.goto(form_file.as_uri())
         await browser_tools._wait_for_load(page, 10)
 
+        answers = {"mobile phone number": "+61 400 000 000"}
         outcome = await browser_tools._task4_on_page(
             page,
             browser,
             str(resume_file),
-            {"mobile phone number": "+61 400 000 000"},
+            answers,
             settings,
             lambda _m: None,
+            chooser=_store_chooser(answers),
         )
         observed = json.loads(await page.evaluate(_READ_INLINE_FORM_JS))
     finally:

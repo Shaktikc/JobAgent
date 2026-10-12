@@ -1,6 +1,6 @@
 """Tools used by the agent graph nodes."""
 
-from src.tools.answers import load_answers, lookup_answer, normalize_question, save_answer
+from src.tools.answers import load_answers, normalize_question, save_answer
 from src.tools.forms import (
     answers_match,
     looks_like_next,
@@ -51,7 +51,6 @@ __all__ = [
     "looks_like_next",
     "looks_like_resume_field",
     "looks_like_submit",
-    "lookup_answer",
     "normalize_question",
     "normalize_resume_name",
     "pick_easy_apply_action_index",

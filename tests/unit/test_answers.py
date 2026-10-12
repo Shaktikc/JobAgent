@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from src.tools.answers import load_answers, lookup_answer, normalize_question, save_answer
+from src.tools.answers import load_answers, normalize_question, save_answer
 
 
 def test_normalize_question_trims_case_and_punctuation() -> None:
@@ -43,11 +43,3 @@ def test_save_answer_updates_existing_mapping(tmp_path) -> None:
     save_answer(path, "city", "Melbourne")
     answers = load_answers(path)
     assert answers == {"city": "Melbourne"}
-
-
-def test_lookup_answer_matches_any_candidate() -> None:
-    answers = {"phone number": "+61", "city": "Sydney"}
-    assert lookup_answer(answers, ["Phone Number"]) == ("phone number", "+61")
-    assert lookup_answer(answers, ["nope", "City"]) == ("city", "Sydney")
-    assert lookup_answer(answers, ["unknown"]) is None
-    assert lookup_answer({}, ["anything"]) is None

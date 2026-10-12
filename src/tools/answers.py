@@ -1,9 +1,9 @@
-"""Persistent question → answer store (Task 4 reads, Task 5 writes).
+"""Persistent question → answer store (read during Task 4, written by Task 5).
 
-Task 4 answers any form question it already knows from this store; Task 5 pauses
-for the human on unknown questions and saves their answers here. Keys are
-normalized (trimmed, lowercased, whitespace collapsed, trailing punctuation
-dropped) so near-identical questions reuse the same answer. The store must never
+Task 5 saves the human's answers here; Task 4's LLM reads the whole store and
+chooses the appropriate answer for each form question (see
+:mod:`src.tools.llm_answers`). Keys are normalized (trimmed, lowercased,
+whitespace collapsed, trailing punctuation dropped). The store must never
 contain credentials.
 """
 
@@ -61,12 +61,3 @@ def save_answer(path: str | Path, question: str, answer: str) -> str:
         json.dumps(existing, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
     return key
-
-
-def lookup_answer(answers: dict[str, str], candidates: list[str]) -> tuple[str, str] | None:
-    """Return ``(key, answer)`` for the first candidate present in ``answers``."""
-    for candidate in candidates:
-        key = normalize_question(candidate)
-        if key and key in answers:
-            return key, answers[key]
-    return None

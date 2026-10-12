@@ -3,18 +3,14 @@
 This module owns Task 5's ask-the-human flow, split out of
 :mod:`src.tools.browser`:
 
-1. Detect a form question the agent cannot answer with confidence.
-2. Look it up in the answer store (normalized key, ignoring case/whitespace) and
-   reuse a stored answer automatically.
-3. Otherwise show a visible browser banner saying the agent does not know the
-   answer, pause the run, and read the answer the human types into the form
-   field itself.
-4. Remember the normalized question -> answer mapping so the same question is
-   filled automatically next time.
+1. Receive a form question the LLM (Task 4.1) could not answer from the store.
+2. Show a visible browser banner saying the agent does not know the answer, pause
+   the run, and read the answer the human types into the form field itself.
+3. Remember the question -> answer mapping so Task 4.1 can reuse it next time.
 
 The banner has no input: the human edits the real form control and this module
 reads it. The interaction uses browser-use's deterministic CDP actor API
-(``Page`` / ``Element``); no LLM is involved.
+(``Page`` / ``Element``); no LLM is involved here.
 """
 
 from __future__ import annotations

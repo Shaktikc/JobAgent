@@ -8,6 +8,7 @@ authors = [{ name = "AutoJobApply" }]
 
 dependencies = [
     "langgraph>=1.0,<2.0",
+    "openai>=1.40",
     "pydantic>=2.7",
     "python-dotenv>=1.0",
     "pypdf>=5.0",

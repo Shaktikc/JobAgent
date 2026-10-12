@@ -103,6 +103,27 @@ def test_answers_file_default_and_override(monkeypatch: pytest.MonkeyPatch, tmp_
     assert load_settings().answers_file == custom
 
 
+def test_llm_settings_default_and_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("AUTOJOB_LLM_API_KEY", raising=False)
+    assert load_settings().llm.configured is False
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "secret")
+    monkeypatch.setenv("AUTOJOB_LLM_MODEL", "deepseek/x")
+    monkeypatch.setenv("AUTOJOB_LLM_TEMPERATURE", "0.5")
+    monkeypatch.setenv("AUTOJOB_LLM_TIMEOUT_SECONDS", "30")
+    monkeypatch.setenv("AUTOJOB_LLM_MAX_RETRIES", "1")
+
+    llm = load_settings().llm
+    assert llm.configured is True
+    assert llm.api_key == "secret"
+    assert llm.model == "deepseek/x"
+    assert llm.base_url == "https://openrouter.ai/api/v1"
+    assert llm.temperature == 0.5
+    assert llm.timeout_seconds == 30.0
+    assert llm.max_retries == 1
+
+
 def test_invalid_values_are_rejected() -> None:
     from pydantic import ValidationError
 

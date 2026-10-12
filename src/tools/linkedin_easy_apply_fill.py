@@ -5,19 +5,22 @@ This module owns Task 4's interactive fill flow, split out of
 
 1. Enumerate the form's fields and controls (text inputs, selects, radio buttons,
    checkboxes, date pickers, and the resume upload control).
-2. Fill every field whose answer is already known; leave unknown fields for
-   Task 5 (or flag them), and attach the resume chosen by Task 3, preferring a
-   resume already listed on the form over uploading a duplicate.
+2. For each question, ask the LLM (Task 4.1) to classify it and choose the right
+   answer from the store (``data/answers.json``) — see
+   :mod:`src.tools.llm_answers`. Questions the LLM cannot answer are left for
+   Task 5 (or flagged). Attach the resume chosen by Task 3, preferring a resume
+   already listed on the form over uploading a duplicate.
 3. Advance through multi-step forms, stopping before **Submit application**.
 
 The form is dynamic, so its steps, fields, and resume control (a radio list, a
 ``<select>``, a file input, or an "Upload resume" button that reveals one) are
 discovered at runtime rather than assumed. Task 5's ask-the-human code lives in
-:mod:`src.tools.linkedin_ask_human` and is called from here when a question is
-unknown.
+:mod:`src.tools.linkedin_ask_human` and is called from here when the LLM cannot
+answer a question.
 
-The interaction uses browser-use's deterministic CDP actor API (``Page`` /
-``Element``); no LLM is involved.
+The browser interaction uses browser-use's deterministic CDP actor API
+(``Page`` / ``Element``); the LLM is used only to choose answers, never to drive
+the browser.
 """
 
 from __future__ import annotations
@@ -28,7 +31,6 @@ from pathlib import Path
 
 from src.configuration import Settings
 from src.state import FormField, Task4Outcome, Task5Outcome
-from src.tools.answers import lookup_answer
 from src.tools.browser import (
     FIND_APPLY_ROOT_JS,
     _append_note,
@@ -46,6 +48,7 @@ from src.tools.forms import (
     pick_next_button,
 )
 from src.tools.linkedin_ask_human import _remember_answer, ask_human_for_answer
+from src.tools.llm_answers import AnswerChooser, QuestionDecision, build_answer_chooser
 
 # How many steps of a multi-step Easy Apply form to walk before stopping. The
 # form is dynamic, so this is only a safety cap: the walk stops as soon as there
@@ -495,6 +498,22 @@ async def _fill_field(element, field: dict, answer: str) -> tuple[bool, str]:
         return False, f"{type(exc).__name__}: {exc}"
 
 
+async def _decide(
+    chooser: AnswerChooser | None,
+    question: str,
+    field_type: str,
+    options: list[str],
+) -> QuestionDecision:
+    """Ask the LLM which stored answer fits ``question`` (Task 4.1).
+
+    With no chooser (no model configured) the question is treated as unknown,
+    which hands it to Task 5.
+    """
+    if chooser is None:
+        return QuestionDecision(question=question)
+    return await chooser(question, field_type, options)
+
+
 async def _fill_step(
     page,
     fields: list[dict],
@@ -502,13 +521,16 @@ async def _fill_step(
     settings: Settings,
     ask=None,
     human: Task5Outcome | None = None,
+    chooser: AnswerChooser | None = None,
 ) -> tuple[int, int, list[str], list[FormField]]:
     """Fill the known fields of one form step; leave the rest unknown.
 
-    ``ask`` is Task 5's optional async ``(question, field) -> answer | None``
-    callable. When the store cannot answer a question (or a stored radio answer
-    matches none of the step's options), it is used to ask the human; a returned
-    answer is filled, remembered in the store, and reused for later occurrences.
+    Every question is first classified by the LLM (Task 4.1), which chooses an
+    answer from the store. ``ask`` is Task 5's optional async
+    ``(question, field) -> answer | None`` callable, used when the LLM cannot
+    choose a stored answer (or a chosen radio answer matches none of the step's
+    options); a returned answer is filled, remembered in the store, and reused
+    for later occurrences.
     """
     known = filled = 0
     unknown: list[str] = []
@@ -562,21 +584,26 @@ async def _fill_step(
             filled += 1
             records.append(record)
             continue
-        found = lookup_answer(answers, [question, key])
-        answer = found[1] if found else None
-        source = "store" if found else "human"
+        decision = await _decide(chooser, question, "radio", options)
+        answer = decision.answer
+        source = "llm" if decision.decided else "human"
+        if decision.decided:
+            record.question_type = decision.category
+            record.matched_key = decision.matched_key
+            record.rationale = decision.rationale
         option = (
             next((g for g in group if answers_match(g.get("option", ""), answer)), None)
             if answer is not None
             else None
         )
-        # Ask the human only when we have no usable answer: nothing stored, or a
-        # stored answer that matches none of this step's options.
+        # Ask the human only when we have no usable answer: the LLM chose none, or
+        # it chose one that matches none of this step's options.
         if option is None and ask is not None:
             answered = await ask(question, {"type": "radio", "options": options})
             if answered is not None:
                 _remember_answer(settings, answers, human, question, answered)
                 answer, source = answered, "human"
+                record.rationale = ""
                 option = next(
                     (g for g in group if answers_match(g.get("option", ""), answered)), None
                 )
@@ -614,14 +641,20 @@ async def _fill_step(
             filled += 1
             records.append(record)
             continue
-        found = lookup_answer(answers, [question, field.get("name", "")])
-        answer = found[1] if found else None
-        source = "store" if found else "human"
+        option_labels = [option.get("text", "") for option in field.get("options", [])]
+        decision = await _decide(chooser, question, str(field.get("type", "")), option_labels)
+        answer = decision.answer
+        source = "llm" if decision.decided else "human"
+        if decision.decided:
+            record.question_type = decision.category
+            record.matched_key = decision.matched_key
+            record.rationale = decision.rationale
         if answer is None and ask is not None:
             answered = await ask(question, field)
             if answered is not None:
                 _remember_answer(settings, answers, human, question, answered)
                 answer, source = answered, "human"
+                record.rationale = ""
         if answer is None:
             unknown.append(question)
             records.append(record)
@@ -819,6 +852,7 @@ async def _task4_on_page(
     settings: Settings,
     notify,
     human: Task5Outcome | None = None,
+    chooser: AnswerChooser | None = None,
 ) -> Task4Outcome:
     """Fill the open Easy Apply form and attach the resume, without submitting.
 
@@ -827,15 +861,19 @@ async def _task4_on_page(
     discovered at runtime rather than assumed. The walk stops at the terminal
     step (only Submit is left), or as soon as a step fails to advance.
 
-    Task 5 rides along: when a question is unknown and ``ask_human`` is on, the
-    run pauses on a browser banner and reads the answer the human types into the
-    form field. Answers are remembered so the same question is filled
-    automatically next time. The optional ``human`` tracker records the questions
-    asked, answered, skipped, and timed out.
+    Task 4.1 rides along: every question is classified by the LLM, which chooses
+    an answer from the store (``chooser``; built from ``settings`` when not
+    supplied). Task 5 rides along too: when the LLM cannot choose an answer and
+    ``ask_human`` is on, the run pauses on a browser banner and reads the answer
+    the human types into the form field. Answers are remembered so the same
+    question is answered automatically next time. The optional ``human`` tracker
+    records the questions asked, answered, skipped, and timed out.
     """
     outcome = Task4Outcome(resume_path=resume_path or "")
     human = human if human is not None else Task5Outcome()
     human.enabled = bool(settings.session.ask_human)
+    if chooser is None:
+        chooser = build_answer_chooser(settings, answers)
 
     asker = None
     if human.enabled:
@@ -880,7 +918,7 @@ async def _task4_on_page(
         outcome.form_open = True
         outcome.fields_enumerated += len(fields)
         known, filled, unknown, records = await _fill_step(
-            page, fields, answers, settings, ask=asker, human=human
+            page, fields, answers, settings, ask=asker, human=human, chooser=chooser
         )
         outcome.known_fields += known
         outcome.filled_fields += filled

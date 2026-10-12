@@ -14,7 +14,9 @@ from src.state import DEFAULT_LOGIN_URL, Task5Outcome
 from src.tools import browser as browser_tools
 from src.tools import linkedin_easy_apply_fill as fill_tools
 from src.tools import linkedin_search as linkedin_tools
+from src.tools.answers import normalize_question
 from src.tools.linkedin import build_jobs_search_url
+from src.tools.llm_answers import QuestionDecision
 
 SEARCH_URL = build_jobs_search_url("software engineer")
 
@@ -1572,6 +1574,7 @@ async def test_task4_fills_form_and_selects_listed_resume(tmp_path) -> None:
         answers,
         _settings(tmp_path, post_click_wait_seconds=0),
         lambda _m: None,
+        chooser=_store_chooser(answers),
     )
 
     assert outcome.form_open is True
@@ -1586,6 +1589,13 @@ async def test_task4_fills_form_and_selects_listed_resume(tmp_path) -> None:
     assert outcome.resume_attached is True
     assert outcome.resume_selection == "listed"
     assert page.resume_elements["r0"].clicked is True
+    # Each LLM (Task 4.1) decision records the classification, chosen key, and why.
+    llm_fields = [f for f in outcome.fields if f.answered_by == "llm"]
+    assert llm_fields
+    assert all(
+        f.question_type == "test" and f.matched_key and f.rationale == "test chooser"
+        for f in llm_fields
+    )
     # The one available button is Submit; it must never be clicked.
     assert outcome.submitted is False
     assert outcome.steps_advanced == 0
@@ -1657,6 +1667,7 @@ async def test_task4_advances_steps_but_never_submits(tmp_path) -> None:
         {"phone number": "+61", "city": "Sydney"},
         _settings(tmp_path, post_click_wait_seconds=0),
         lambda _m: None,
+        chooser=_store_chooser({"phone number": "+61", "city": "Sydney"}),
     )
 
     assert outcome.steps_advanced == 1
@@ -1733,17 +1744,19 @@ async def test_task4_follows_dynamic_form_and_selects_resume_from_select(tmp_pat
     page.select_elements = {"s0": FakeElement("Select a resume")}
     page.button_elements = {"b0": FakeElement("Next")}
 
+    answers = {
+        "email address": "me@example.com",
+        "phone country code": "Australia (+61)",
+        "mobile phone number": "400000000",
+    }
     outcome = await browser_tools._task4_on_page(
         page,
         FakeSession(page),
         "resumes/ShaktiKC_Resume_python_Node_Senior.pdf",
-        {
-            "email address": "me@example.com",
-            "phone country code": "Australia (+61)",
-            "mobile phone number": "400000000",
-        },
+        answers,
         _settings(tmp_path, post_click_wait_seconds=0),
         lambda _m: None,
+        chooser=_store_chooser(answers),
     )
 
     assert outcome.form_open is True
@@ -1955,6 +1968,29 @@ def _human_asker(
     monkeypatch.setattr(fill_tools, "ask_human_for_answer", fake_ask)
 
 
+def _store_chooser(answers: dict[str, str]):
+    """Stand in for the Task 4.1 LLM: choose the stored answer that fits.
+
+    It reads ``answers`` live, so an answer Task 5 just remembered is reused on
+    the next step exactly as the real model would reuse it.
+    """
+
+    async def choose(question: str, field_type: str, options: list[str]) -> QuestionDecision:
+        key = normalize_question(question)
+        for stored_key, value in answers.items():
+            if stored_key == key or (stored_key and stored_key in key):
+                return QuestionDecision(
+                    question=question,
+                    category="test",
+                    answer=value,
+                    matched_key=stored_key,
+                    rationale="test chooser",
+                )
+        return QuestionDecision(question=question)
+
+    return choose
+
+
 async def test_task5_asks_human_and_remembers_the_answer(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
@@ -1979,7 +2015,14 @@ async def test_task5_asks_human_and_remembers_the_answer(
     settings = _settings(tmp_path, ask_human=True, post_click_wait_seconds=0)
 
     outcome = await browser_tools._task4_on_page(
-        page, FakeSession(page), None, answers, settings, lambda _m: None, human=human
+        page,
+        FakeSession(page),
+        None,
+        answers,
+        settings,
+        lambda _m: None,
+        human=human,
+        chooser=_store_chooser(answers),
     )
 
     # Asked exactly once: step 2 reused the remembered answer with no prompt.
@@ -1995,8 +2038,9 @@ async def test_task5_asks_human_and_remembers_the_answer(
     assert outcome.filled_fields == 2
     assert outcome.unknown_fields == []
     assert outcome.submitted is False
-    # The first record came from the human, the repeat from the store.
-    assert [r.answered_by for r in outcome.fields if r.question == "City"] == ["human", "store"]
+    # The first record came from the human, the repeat from the LLM (which now
+    # finds the remembered answer in the store).
+    assert [r.answered_by for r in outcome.fields if r.question == "City"] == ["human", "llm"]
 
     # Persisted (normalized) and updated in memory for the rest of this run.
     assert browser_tools.load_answers(settings.answers_file)["city"] == "Sydney"
@@ -2380,6 +2424,11 @@ async def test_run_full_agent_end_to_end_offline(monkeypatch: pytest.MonkeyPatch
 
     session = FakeSession(page)
     monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+    # Task 4.1's LLM is a stand-in here (no network in unit tests): it chooses
+    # stored answers exactly as the model is expected to.
+    monkeypatch.setattr(
+        fill_tools, "build_answer_chooser", lambda settings, answers: _store_chooser(answers)
+    )
 
     settings = Settings(
         session=SessionSettings(

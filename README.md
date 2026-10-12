@@ -10,8 +10,10 @@ filling the form — all through a real browser (via
 > Apply filter, open a job's Easy Apply form, read the job description, select the
 > best-matching resume, fill known fields + attach the resume, and ask you in the
 > browser about any question it cannot answer, remembering your answer for next
-> time. The graph runs end-to-end in **dry-run** mode (no browser, no network);
-> the browser layer is wired but opt-in. **No application is ever submitted.**
+> time. For each form question an **LLM (Task 4.1)** classifies the question and
+> chooses the right answer from the store. The graph runs end-to-end in
+> **dry-run** mode (no browser, no network); the browser layer is wired but
+> opt-in. **No application is ever submitted.**
 
 ## Behaviour
 
@@ -42,21 +44,24 @@ The graph is `START -> ingest -> browse -> match -> fill -> cleanup -> verify ->
    (`.pdf`, `.docx`, `.txt`, `.md`), extracts its text, scores it against the job
    description, and selects the highest scorer with a written rationale. Ties go
    to the most recently modified file. Resume files are never modified.
-4. **fill** — **Task 4:** enumerates the still-open Easy Apply form, answers every
-   question it already knows from the answer store (`data/answers.json`), attaches
-   the chosen resume — preferring a resume already listed on the form over
-   uploading a duplicate — and advances multi-step forms. It **stops before
-   Submit application** and never clicks it.
-   - **Task 5 (inside fill):** when a question is not in the store, the agent shows
-     a banner in the browser window saying it does not know the answer, **pauses
-     for you to type it into the form field on the page** (the banner has no input
-     of its own), reads the value you enter, fills the field, and saves the
-     normalized question → answer mapping. The same question is answered
-     automatically next run. Choice fields (selects/radios) list their allowed
-     options in the banner, and an answer that matches a visible option label is
-     mapped to the right value. Controls the form has **already filled** (e.g.
-     LinkedIn's pre-filled *Email address* / *Phone country code* selects) are left
-     as-is and never asked about. Click **Skip** in the banner to skip on purpose.
+4. **fill** — **Task 4:** enumerates the still-open Easy Apply form and answers
+   each question. **Task 4.1** classifies every question with an LLM
+   (`OPENROUTER_API_KEY` + `AUTOJOB_LLM_MODEL`) and chooses the appropriate
+   answer from the store (`data/answers.json`) by meaning — the model never
+   invents an answer, it only selects among stored ones. It also attaches the
+   chosen resume — preferring a resume already listed on the form over uploading
+   a duplicate — and advances multi-step forms. It **stops before Submit
+   application** and never clicks it.
+   - **Task 5 (inside fill):** when the LLM cannot choose an answer, the agent
+     shows a banner in the browser window saying it does not know the answer,
+     **pauses for you to type it into the form field on the page** (the banner has
+     no input of its own), reads the value you enter, fills the field, and saves
+     the question → answer mapping. Task 4.1 reuses that answer next run. Choice
+     fields (selects/radios) list their allowed options in the banner, and an
+     answer that matches a visible option label is mapped to the right value.
+     Controls the form has **already filled** (e.g. LinkedIn's pre-filled *Email
+     address* / *Phone country code* selects) are left as-is and never asked
+     about. Click **Skip** in the banner to skip on purpose.
      Set `AUTOJOB_SESSION_ASK_HUMAN=false` to leave unknown questions unanswered
      instead of prompting. Questions you skip or leave unanswered are recorded and
      can be answered on a later run.
@@ -66,7 +71,8 @@ The graph is `START -> ingest -> browse -> match -> fill -> cleanup -> verify ->
    `data/debug/`.
 
 The browser interaction is deterministic (browser-use's CDP actor API) and the
-resume matching is deterministic keyword/weight scoring; **no LLM is involved**.
+resume matching is deterministic keyword/weight scoring. Task 4.1 uses an LLM
+only to choose answers; it never drives the browser or submits anything.
 The login gate is human: your session is stored in the persistent Chromium
 profile under `data/profile`, so later runs skip the wait.
 
@@ -84,10 +90,23 @@ cp .env.example .env           # optional; defaults are safe
 
 Put one or more resumes in `resumes/` (supported: `.pdf`, `.docx`, `.txt`, `.md`).
 
+Task 4.1 needs an LLM to classify and choose answers. Set it in `.env`:
+
+```bash
+OPENROUTER_API_KEY=sk-or-...          # required for Task 4.1
+AUTOJOB_LLM_MODEL=deepseek/deepseek-v4.1-flash
+```
+
+Any OpenAI-compatible endpoint works via `AUTOJOB_LLM_BASE_URL`. Without a key
+and model, no answer is chosen and **every** question is handed to Task 5 (ask
+the human), so the run still works — it just prompts for every question.
+
 To answer form questions automatically, add them to the answer store
-`data/answers.json` (keys are normalized automatically). Task 5 also writes to
-this file when it asks you a new question in the browser, so answers persist
-across runs. For example:
+`data/answers.json`. Task 4.1's LLM reads it and picks the right answer for each
+question (matching by meaning, not exact wording); Task 5 also writes to this
+file when it asks you a new question in the browser, so answers persist across
+runs. The model only chooses among these stored answers — it never invents one.
+For example:
 
 ```json
 {
@@ -149,8 +168,9 @@ src/
     linkedin_best_matching_resume.py
                      Task 3: read the job description, pick the best-matching resume
     linkedin_easy_apply_fill.py    Task 4: fill the Easy Apply form, attach the resume
+    llm_answers.py   Task 4.1: LLM classifies a question and picks the stored answer
     matching.py      Pure resume-to-job scoring (explainable, deterministic)
-    answers.py       Question -> answer store (read by Task 4, written by Task 5)
+    answers.py       Question -> answer store (read by Task 4.1, written by Task 5)
     forms.py         Pure Easy Apply form helpers (resume match, next/submit)
   main.py            CLI entry point
 resumes/             Candidate resumes (.pdf, .docx, .txt, .md)
@@ -190,11 +210,12 @@ tests/
 
 - The browser is **opt-in**: `--no-dry-run` is required to launch it.
 - **Login gate:** a real run pauses until you log in; it never types credentials.
-- Task 4 fills **known** answers only, attaches the chosen resume, and **never
+- Task 4 answers via the LLM (Task 4.1), which only **selects among stored
+  answers** — it can never invent one — attaches the chosen resume, and **never
   clicks Submit application** — submission stays a manual human step.
-- Task 5 never guesses: an unknown question pauses on a browser banner and waits
-  for you to type the answer into the form field. Answers are stored in
-  `data/answers.json` (no credentials) and reused.
+- Task 5 never guesses: when the LLM cannot choose an answer, the run pauses on a
+  browser banner and waits for you to type the answer into the form field. Answers
+  are stored in `data/answers.json` (no credentials) and reused by Task 4.1.
 - Unknown questions that you skip or leave unanswered are recorded rather than
   guessed.
 - Task 3 only **reads** resumes — it never renames, moves, or edits them.

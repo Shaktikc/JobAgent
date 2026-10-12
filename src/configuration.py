@@ -1,11 +1,11 @@
 """Typed, validated configuration loaded from the environment.
 
 The agent drives a browser (log in, search, select the Easy Apply filter, open a
-job's Easy Apply form, read the job description) and then matches resumes
-offline, so this exposes the browser session settings, the resumes folder, and
-the data directory used for the persistent profile and debug screenshots.
-Variable names follow the flat ``AUTOJOB_*`` scheme documented in
-``.env.example``.
+job's Easy Apply form, read the job description), matches resumes offline, and
+uses an LLM (Task 4.1) to choose answers from the store, so this exposes the
+browser session settings, the LLM settings, the resumes folder, and the data
+directory used for the persistent profile and debug screenshots. Variable names
+follow the flat ``AUTOJOB_*`` scheme documented in ``.env.example``.
 """
 
 from __future__ import annotations
@@ -75,9 +75,9 @@ class SessionSettings(BaseModel):
     # Slow-motion delay inserted between visible steps so a human can follow the
     # run. 0 disables it (the default); set it high for a watchable demo.
     step_delay_seconds: float = Field(default=0.0, ge=0)
-    # Task 5: pause and ask the human (via a browser banner) when the form asks a
-    # question the answer store cannot answer. Off means unknown questions are
-    # just left for a later run.
+    # Task 5: pause and ask the human (via a browser banner) when Task 4.1's LLM
+    # cannot choose an answer for a question. Off means those questions are left
+    # unanswered instead of prompting.
     ask_human: bool = True
     ask_timeout_seconds: float = Field(default=300.0, gt=0)
     ask_poll_seconds: float = Field(default=1.0, gt=0)
@@ -96,10 +96,32 @@ class SessionSettings(BaseModel):
         return {"width": self.viewport_width, "height": self.viewport_height}
 
 
+class LLMSettings(BaseModel):
+    """OpenRouter (OpenAI-compatible) text model used to answer form questions.
+
+    Task 4.1 asks this model to classify each form question and choose the right
+    answer from the answer store. When it is not configured (no key or model),
+    no answer is chosen and every question is handed to Task 5 instead.
+    """
+
+    api_key: str | None = None
+    base_url: str = "https://openrouter.ai/api/v1"
+    model: str | None = None
+    temperature: float = Field(default=0.0, ge=0, le=2)
+    timeout_seconds: float = Field(default=60.0, gt=0)
+    max_retries: int = Field(default=3, ge=0)
+
+    @property
+    def configured(self) -> bool:
+        """True when a key and a model are present, so a request can be made."""
+        return bool(self.api_key and self.model)
+
+
 class Settings(BaseModel):
     """Root settings object."""
 
     session: SessionSettings = Field(default_factory=SessionSettings)
+    llm: LLMSettings = Field(default_factory=LLMSettings)
     data_dir: Path = PROJECT_ROOT / "data"
     resumes_dir: Path = PROJECT_ROOT / "resumes"
     answers_path: Path | None = None
@@ -148,6 +170,14 @@ def load_settings(env_file: Path | None = None) -> Settings:
             ask_poll_seconds=_get_float("AUTOJOB_SESSION_ASK_POLL_SECONDS", 1.0),
             clean_stale_profile=_get_bool("AUTOJOB_SESSION_CLEAN_STALE_PROFILE", True),
             skip_applied=_get_bool("AUTOJOB_SESSION_SKIP_APPLIED", True),
+        ),
+        llm=LLMSettings(
+            api_key=_get_str("OPENROUTER_API_KEY") or _get_str("AUTOJOB_LLM_API_KEY"),
+            base_url=_get_str("AUTOJOB_LLM_BASE_URL", "https://openrouter.ai/api/v1"),
+            model=_get_str("AUTOJOB_LLM_MODEL"),
+            temperature=_get_float("AUTOJOB_LLM_TEMPERATURE", 0.0),
+            timeout_seconds=_get_float("AUTOJOB_LLM_TIMEOUT_SECONDS", 60.0),
+            max_retries=_get_int("AUTOJOB_LLM_MAX_RETRIES", 3),
         ),
         data_dir=Path(data_dir).expanduser() if data_dir else PROJECT_ROOT / "data",
         resumes_dir=(Path(resumes_dir).expanduser() if resumes_dir else PROJECT_ROOT / "resumes"),

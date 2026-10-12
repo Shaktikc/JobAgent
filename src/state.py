@@ -4,9 +4,10 @@ Task 1 logs in, searches jobs, and selects the **Easy Apply** filter. Task 2 pic
 a job from those results and clicks its **Easy Apply** button, confirming the
 application form opens. Task 3 reads the open job's description and chooses the
 best-matching resume from the ``resumes/`` folder. Task 4 fills the open Easy
-Apply form with known answers and attaches that resume — without submitting.
-Task 5 runs inside that fill: when a question is unknown it pauses for the human
-(in the browser), remembers the answer, and reuses it next time.
+Apply form: the LLM (Task 4.1) classifies each question and chooses the answer
+from the store, and attaches that resume — without submitting. Task 5 runs
+inside that fill: when the LLM cannot answer a question it pauses for the human
+(in the browser) and remembers the answer for next time.
 
 The state is a plain ``TypedDict`` so LangGraph can pass partial updates between
 nodes. The ``log``/``errors`` channels use ``operator.add`` so every node can
@@ -119,7 +120,13 @@ class Task3Outcome(BaseModel):
 
 
 class FormField(BaseModel):
-    """One question encountered on the Easy Apply form (Task 4)."""
+    """One question encountered on the Easy Apply form (Task 4).
+
+    ``answered_by`` records who answered it: ``"llm"`` (Task 4.1 classified the
+    question and chose a stored answer), ``"human"`` (Task 5 asked), or
+    ``"form"`` (LinkedIn had already filled it). ``question_type`` and
+    ``rationale`` carry the LLM's decision so it stays explainable.
+    """
 
     question: str = ""
     option: str = ""
@@ -130,17 +137,21 @@ class FormField(BaseModel):
     value: str = ""
     options: list[str] = Field(default_factory=list)
     required: bool = False
-    answered_by: str = ""  # "store" (already known) or "human" (Task 5)
+    answered_by: str = ""  # "llm" (Task 4.1), "human" (Task 5), or "form"
+    question_type: str = ""  # the LLM's classification of the question
+    matched_key: str = ""  # the stored question the LLM chose the answer from
+    rationale: str = ""  # why the LLM chose this answer
     error: str = ""
 
 
 class Task4Outcome(BaseModel):
     """What happened while filling the Easy Apply form (Task 4).
 
-    Known questions are answered from the answer store; unknown ones are left for
-    Task 5 and recorded in ``unknown_fields``. The chosen resume is preferred from
-    the form's own resume list; it is only uploaded when nothing listed matches.
-    The application is never submitted.
+    Each question is classified by the LLM (Task 4.1), which chooses a stored
+    answer; questions it cannot answer are left for Task 5 and recorded in
+    ``unknown_fields``. The chosen resume is preferred from the form's own resume
+    list; it is only uploaded when nothing listed matches. The application is
+    never submitted.
     """
 
     form_open: bool = False
@@ -164,10 +175,10 @@ class Task4Outcome(BaseModel):
 class Task5Outcome(BaseModel):
     """What happened while asking the human about unknown questions (Task 5).
 
-    Task 5 runs inside the Task 4 fill: an unknown question pauses the run, shows
-    a browser banner explaining the agent does not know the answer, and waits for
-    the human to type the answer into the form field. The answer is remembered in
-    the answer store so the same (normalized) question is answered automatically
+    Task 5 runs inside the Task 4 fill: a question the LLM (Task 4.1) cannot
+    answer pauses the run, shows a browser banner explaining the agent does not
+    know the answer, and waits for the human to type the answer into the form
+    field. The answer is remembered in the answer store so Task 4.1 can reuse it
     next time.
     """
 
