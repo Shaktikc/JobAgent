@@ -10,6 +10,9 @@
   other tasks. Do not leave other parts of the codebase inconsistent.
 - Always verify that changed code works by testing it (run the relevant tests,
   build, or a manual check) before declaring the task complete.
+- When implementing a new feature, create an entirely new file for it rather
+  than adding it to an existing file. Before creating the file, ask the human
+  for feedback on the file name and wait for their approval.
 
 ## Browser automation
 
