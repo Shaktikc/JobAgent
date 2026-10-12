@@ -293,7 +293,7 @@ def test_match_node_selects_best_resume(tmp_path) -> None:
             body="We need Python, AWS and Docker. 5+ years required.",
         ),
     )
-    result = match(state)
+    result = asyncio.run(match(state))
 
     assert result["status"] == "matched"
     assert result["task3"].selected_path.endswith("python.txt")
@@ -309,7 +309,7 @@ def test_match_node_reports_empty_folder(tmp_path) -> None:
         resumes_dir=str(tmp_path),
         job_description=JobDescription(title="Engineer", body="Python"),
     )
-    result = match(state)
+    result = asyncio.run(match(state))
 
     assert result["task3"].resumes_found == 0
     assert result["task3"].selected_path is None
@@ -317,7 +317,7 @@ def test_match_node_reports_empty_folder(tmp_path) -> None:
 
 
 def test_match_node_skips_on_dry_run() -> None:
-    result = match(ApplyState(dry_run=True))
+    result = asyncio.run(match(ApplyState(dry_run=True)))
     assert result["status"] == "matched"
     assert "task3" not in result
     assert any("dry-run" in entry for entry in result["log"])

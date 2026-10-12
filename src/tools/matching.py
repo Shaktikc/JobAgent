@@ -159,6 +159,11 @@ def _title_tokens(title: str) -> list[str]:
     return [token for token in tokens if token not in _TITLE_STOPWORDS and len(token) >= 3]
 
 
+def title_tokens(title: str) -> list[str]:
+    """Public alias: significant words in a job title (Task 3.1 job profiles)."""
+    return _title_tokens(title)
+
+
 def _build_rationale(
     matched: list[str],
     title_hits: list[str],

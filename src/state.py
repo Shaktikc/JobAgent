@@ -106,7 +106,13 @@ class ResumeCandidate(BaseModel):
 
 
 class Task3Outcome(BaseModel):
-    """The resume the agent chose and why (Task 3)."""
+    """The resume the agent chose and why (Task 3).
+
+    Also carries Task 3.1: when no resume matched the job (``no_match``), the
+    agent may ask the human for one in the browser (``asked_human`` /
+    ``human_resume_path``), or reuse a resume it remembered for a similar job
+    (``reused_from_library``).
+    """
 
     job_description: JobDescription = Field(default_factory=JobDescription)
     resumes_dir: str = ""
@@ -116,6 +122,11 @@ class Task3Outcome(BaseModel):
     selected_score: float | None = None
     rationale: str = ""
     tie_break: str = ""
+    # Task 3.1: the "nothing matched, so ask the human" fallback.
+    no_match: bool = False
+    asked_human: bool = False
+    human_resume_path: str = ""
+    reused_from_library: str = ""
     notes: str = ""
 
 

@@ -125,6 +125,11 @@ class Settings(BaseModel):
     data_dir: Path = PROJECT_ROOT / "data"
     resumes_dir: Path = PROJECT_ROOT / "resumes"
     answers_path: Path | None = None
+    # Task 3.1: a job whose best resume fit is at or below this score counts as
+    # "no match at all" and falls back to asking the human for a resume. 0.0 means
+    # only a job that shares *no* signal with any resume triggers the fallback.
+    resume_min_score: float = Field(default=0.0, ge=0)
+    resume_library_path: Path | None = None
 
     @property
     def profile_dir(self) -> Path:
@@ -141,6 +146,11 @@ class Settings(BaseModel):
         """Question → answer store used by Tasks 4-5."""
         return self.answers_path or (self.data_dir / "answers.json")
 
+    @property
+    def resume_library_file(self) -> Path:
+        """Job profile → human-provided resume store used by Task 3.1."""
+        return self.resume_library_path or (self.data_dir / "resume_library.json")
+
 
 def load_settings(env_file: Path | None = None) -> Settings:
     """Read settings from ``.env`` and the process environment."""
@@ -148,6 +158,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
     data_dir = _get_str("AUTOJOB_DATA_DIR")
     resumes_dir = _get_str("AUTOJOB_RESUMES_DIR")
     answers_path = _get_str("AUTOJOB_ANSWERS_FILE")
+    resume_library_path = _get_str("AUTOJOB_RESUME_LIBRARY")
     return Settings(
         session=SessionSettings(
             headless=_get_bool("AUTOJOB_SESSION_HEADLESS", False),
@@ -182,4 +193,8 @@ def load_settings(env_file: Path | None = None) -> Settings:
         data_dir=Path(data_dir).expanduser() if data_dir else PROJECT_ROOT / "data",
         resumes_dir=(Path(resumes_dir).expanduser() if resumes_dir else PROJECT_ROOT / "resumes"),
         answers_path=Path(answers_path).expanduser() if answers_path else None,
+        resume_min_score=_get_float("AUTOJOB_RESUME_MIN_SCORE", 0.0),
+        resume_library_path=(
+            Path(resume_library_path).expanduser() if resume_library_path else None
+        ),
     )

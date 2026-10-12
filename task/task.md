@@ -78,7 +78,7 @@ button.
 
 ## Task 3 — Read the job description and pick the best-matching resume
 
-**Status:** ✅ Done
+**Status:** 🟡 In progress — main flow done; Subtask 3.1 pending
 
 **Goal:** Read the description of the job that is open in the details pane, then
 choose the resume from the `resumes/` folder that best fits that description.
@@ -115,6 +115,58 @@ choose the resume from the `resumes/` folder that best fits that description.
   choice must be explainable (the rationale is stored).
 - Do not rename, move, or modify the resume files.
 - If two resumes tie, prefer the most recently modified file and note the tie.
+
+### Subtask 3.1 — Ask the human for a resume when nothing matches, and remember it
+
+**Status:** 🟡 In progress — implemented; pending review
+
+**Goal:** When no resume in `resumes/` matches the open job's description at all,
+pause and ask the human to upload a resume in the browser. Store the uploaded
+file in the resumes pool and remember which *kind* of job it was provided for, so
+a later similar job reuses it automatically instead of asking again.
+
+**Preconditions**
+- Task 3 is in progress: the job description has been read and the resumes scored.
+- Task 2 is complete: the Easy Apply form is open and the browser session is live.
+- The human is available to answer (see `AUTOJOB_SESSION_ASK_HUMAN`).
+
+**Inputs**
+- The scored candidates and the best fit score, with `AUTOJOB_RESUME_MIN_SCORE`
+  (default `0`) deciding what counts as "no match at all".
+- The remembered-resume library (`data/resume_library.json`).
+- The resume the human uploads in the browser banner (`.pdf`, `.docx`, `.txt`, `.md`).
+
+**Steps**
+1. After scoring every resume, decide whether the job matched: the best score must
+   be above `AUTOJOB_RESUME_MIN_SCORE`; an empty or unreadable pool counts as no
+   match.
+2. If no resume matched, first look in the remembered-resume library for a resume
+   provided earlier for a **similar** job (overlapping skills, title words, and
+   seniority). If one is found and its file still exists, reuse it and stop.
+3. Otherwise, when asking is enabled, show a browser banner with a file picker and
+   pause; read the file the human uploads and confirm the upload finished.
+4. Validate (supported format, non-empty) and store the uploaded resume in the
+   resumes pool without overwriting an existing file, then remember
+   `job profile → resume` in the library.
+5. Use that resume for this job (Task 4 attaches it) and for later similar jobs.
+6. If the human skips, times out, or asking is off, record it and leave the normal
+   error path in place rather than applying with no resume.
+
+**Acceptance criteria**
+- A job that shares no signal with any resume is detected as "no match".
+- The human is prompted in the browser and the uploaded resume is stored in the pool.
+- The uploaded resume's job profile is remembered, and a later similar job reuses
+  it without asking again.
+- Resume files already in the pool are never overwritten or modified.
+- If the human does not provide a resume, the run fails cleanly instead of applying
+  with no resume.
+
+**Notes**
+- The "similar job" test is explainable and deterministic (shared skills, title
+  words, seniority) — no LLM is involved.
+- The uploaded file is checked by extension and non-empty content before storage.
+- The library holds job profiles and resume paths only; it never contains credentials.
+- This subtask does **not** submit the application.
 
 ---
 

@@ -589,14 +589,21 @@ async def run_full_agent(
     progress=None,
 ) -> AgentOutcome:
     """Run Tasks 1-4 end-to-end in one browser session (nothing is submitted)."""
-    from src.tools.linkedin_best_matching_resume import select_best_resume  # keep light
+    from src.tools.linkedin_best_matching_resume import ensure_resume  # keep light
 
     settings = settings or load_settings()
     outcome, run_id = await start_tasks(url, search_query, settings, progress)
     if run_id is None:
         return outcome
     try:
-        outcome.task3 = select_best_resume(outcome.job_description, settings.resumes_dir)
+        run = get_run(run_id)
+        outcome.task3 = await ensure_resume(
+            outcome.job_description,
+            settings.resumes_dir,
+            settings,
+            page=run.page if run is not None else None,
+            notify=progress or (lambda _message: None),
+        )
         if outcome.task3.selected_path:
             outcome.task4, outcome.task5 = await fill_application(
                 run_id, outcome.task3.selected_path, settings, progress
