@@ -120,7 +120,7 @@ choose the resume from the `resumes/` folder that best fits that description.
 
 ## Task 4 — Open Easy Apply and start filling the application form
 
-**Status:** 🟡 In progress — main flow done; Subtask 4.1 pending
+**Status:** ✅ Done
 
 **Goal:** Open the Easy Apply form and begin filling it: attach the resume chosen
 in Task 3 and populate every field whose answer is already known. Do **not**
@@ -170,6 +170,8 @@ submit the application.
 - Never click **Submit application** — submission stays a manual human step.
 
 ### Subtask 4.1 — LLM decides the answer for each question
+
+**Status:** ✅ Done
 
 **Goal:** While filling the form, for every question the LLM first reads the
 question to determine **what kind of question it is**, then consults the answer
