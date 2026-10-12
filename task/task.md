@@ -176,58 +176,81 @@ a later similar job reuses it automatically instead of asking again.
 **Status:** ⬜ Not started
 
 **Goal:** Whenever a new resume enters the pool (in particular the resume the human
-uploads in Subtask 3.1), create a short description of it and map that description
-to the resume file. Job matching then scores the open job description against each
-resume's stored description — instead of re-extracting and comparing the whole
-file every time — and the best-matching resume is the one handed to Task 4 to
-attach/upload.
+uploads in Subtask 3.1), use the **LLM** to create a short description of it and
+map that description to the resume file. Job matching then scores the open job
+description against each resume's stored description — instead of re-extracting and
+comparing the whole file every time — and the best-matching resume is the one
+handed to Task 4 to attach/upload.
 
 **Preconditions**
 - Task 3 is in progress: the job description has been read.
 - A resume was just added to the pool (uploaded by the human in Subtask 3.1, or
   otherwise newly placed in `resumes/`) and has no stored description yet.
+- The LLM is configured (`OPENROUTER_API_KEY` + `AUTOJOB_LLM_MODEL`); if it is not,
+  raise an error and stop instead of describing the resume another way.
 
 **Inputs**
 - The newly stored resume file and its extracted text (`extract_resume_text`).
+- The LLM client built from `LLMSettings` (same OpenRouter/OpenAI-compatible model
+  as Task 4.1).
 - The resume-description map (`data/resume_descriptions.json`), keyed by the
   canonical resume file path.
-- The kept data from the existing deterministic extractors
-  (`skills_in_text`, `title_tokens`, `find_seniority`, and the years-of-experience
-  reader in `src.tools.matching`).
 
 **Steps**
-1. When a resume is added to the pool, build a short description of its text:
-   shared skills/technologies, title words, seniority, years of experience, and a
-   one-line plain-language summary. Keep it deterministic and explainable.
-2. Map the description to the resume file in the resume-description store, keyed by
+1. When a resume is added to the pool, extract its readable text
+   (`extract_resume_text`).
+2. Confirm the LLM is configured; if it is not, record an error and stop before
+   matching — there is no fallback description.
+3. Ask the **LLM** for a short, structured description of that resume: a one-line
+   summary plus its skills/technologies, likely title(s), seniority, years of
+   experience, and the domain/industry. The model must summarise only what is in
+   the resume — never invent experience or credentials.
+4. If the LLM call fails or returns an unusable reply, record an error and stop;
+   do not substitute a deterministic description.
+5. Parse the model's reply into the same compact fields the deterministic matching
+   uses, so the description can be scored by `score_resume`.
+6. Map the description to the resume file in the resume-description store, keyed by
    the resume's canonical path; update the entry when the same file is
    re-described so no duplicate entries pile up.
-3. Never rename, move, or modify the resume file — only the sidecar store changes.
-4. When scoring resumes for a job (Task 3's `select_best_resume`), score the job
-   description against each resume's stored description when one exists, falling
-   back to the extracted file text when it does not, reusing the existing weighted
-   scorer (`score_resume`) so the result stays explainable.
-5. Refresh the stored description only when the resume file changed (its mtime or
+7. Never rename, move, or modify the resume file — only the sidecar store changes.
+8. When scoring resumes for a job (Task 3's `select_best_resume`), score the job
+   description against each resume's stored LLM description, reusing the existing
+   weighted scorer (`score_resume`) so the result stays explainable. If a resume has
+   no stored description, record an error and stop — do **not** score its raw text.
+9. Refresh the stored description only when the resume file changed (its mtime or
    size differs from what was recorded).
-6. Select the highest-scoring resume as the best match and record the rationale
-   (as Task 3 already does); Task 4 then attaches/uploads that chosen resume.
+10. Select the highest-scoring resume as the best match and record the rationale
+    (as Task 3 already does); Task 4 then attaches/uploads that chosen resume.
 
 **Acceptance criteria**
-- A newly uploaded resume gets a short description that is stored and mapped to its
-  file.
+- A newly uploaded resume gets a short description produced by the LLM, stored and
+  mapped to its file.
+- The LLM description is validated/normalised into the fields the scorer uses, and
+  the raw resume text still round-trips (the model summarises, it does not invent).
 - On later jobs the stored description is reused, so the resume is not re-extracted
-  to rebuild the description.
+  or re-summarised to rebuild the description.
 - Job matching scores the job description against the resume description and
   selects the best-matching resume.
+- Every resume considered for a job has an LLM description; a resume without one is
+  an error, not scored from its raw text.
 - Re-describing the same file updates its entry instead of creating a duplicate.
+- If the LLM is not configured, or the call fails or returns an unusable reply, an
+  error is recorded and the run stops cleanly — no deterministic fallback is used.
 - Resume files are never modified, renamed, or moved.
 - The chosen resume's path and matching rationale are recorded, and the selected
   resume is the one Task 4 attaches/uploads.
 
 **Notes**
-- The description is a compact, structured summary (skills, title words, seniority,
-  years, one line), so matching stays deterministic and explainable — no LLM.
-- The store maps resume path → description and never contains credentials.
+- The short description is generated by the **LLM** (same configured model as
+  Task 4.1, temperature 0) from the raw resume text. There is **no deterministic
+  fallback**: if the LLM is unconfigured, errors, or returns an unusable reply, the
+  subtask records an error and stops rather than describing the resume another way.
+- Matching uses only the stored LLM description. A resume with no stored description
+  is an error rather than being scored from its raw text.
+- The LLM only summarises the resume it is given — it must not add skills, titles,
+  or years that are not present in the file.
+- The store maps resume path → description (plus the file's mtime/size) and never
+  contains credentials.
 - Uploading/attaching the resume is still Task 4's job; this subtask only chooses
   the resume using its description.
 - Depends on Subtask 3.1: the human-uploaded resume is the main source of new
