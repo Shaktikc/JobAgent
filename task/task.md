@@ -120,7 +120,7 @@ choose the resume from the `resumes/` folder that best fits that description.
 
 ## Task 4 — Open Easy Apply and start filling the application form
 
-**Status:** ✅ Done
+**Status:** 🟡 In progress — main flow done; Subtask 4.1 pending
 
 **Goal:** Open the Easy Apply form and begin filling it: attach the resume chosen
 in Task 3 and populate every field whose answer is already known. Do **not**
@@ -169,6 +169,64 @@ submit the application.
   debugging.
 - Never click **Submit application** — submission stays a manual human step.
 
+### Subtask 4.1 — LLM decides the answer for each question
+
+**Goal:** While filling the form, for every question the LLM first reads the
+question to determine **what kind of question it is**, then consults the answer
+store (`data/answers.json`), and then decides **which stored answer is
+appropriate** for that question. Only when no stored answer fits does the
+question become unknown and get handed to **Task 5**.
+
+**Preconditions**
+- Task 4 is in progress: the Easy Apply form is open and its fields are
+  enumerated.
+- An answer store is available (`data/answers.json`, via
+  `src.tools.answers.load_answers`).
+
+**Inputs**
+- Each field's question context: label, help/placeholder text, field type
+  (text, select, radio, checkbox, date), and its available options.
+- The answer store entries (normalized question → answer).
+- An LLM client (text model) used to classify the question and choose the answer.
+
+**Steps**
+1. For each enumerated field, build the question context (label, help text, field
+   type, and option labels).
+2. Ask the LLM to **classify what kind of question it is** (for example: years of
+   experience, salary expectation, work authorization, notice period, a yes/no
+   question, a location/relocation question, etc.).
+3. Pass the answer store's question → answer entries to the LLM together with the
+   question context.
+4. Ask the LLM to **decide which stored answer is appropriate** for the given
+   question by matching on meaning. It returns either a chosen stored answer
+   (with the matching key and a short rationale) or "unknown".
+5. **If the LLM chooses an answer:** fill the field with it and record the decision
+   (question, chosen key, rationale) in the run state/log.
+6. **If the LLM returns "unknown"** (no stored answer fits, or it cannot answer
+   with confidence): do **not** guess — leave the field for **Task 5** to ask the
+   human and remember the answer.
+7. Repeat for each field; never overwrite an existing mapping silently, and never
+   click **Submit application**.
+
+**Acceptance criteria**
+- Every question is classified by the LLM before it is answered.
+- The LLM is shown the answer store and decides the appropriate answer for the
+  question.
+- A stored answer is reused even when the wording differs but the meaning matches.
+- Questions with no matching/confident answer are deferred to **Task 5** as
+  unknown rather than guessed.
+- Each decision is explainable and recorded (chosen key + rationale).
+- The application is **not** submitted.
+
+**Notes**
+- The LLM decision is the **only** answering path — there is no deterministic
+  exact-key lookup fallback. The LLM reads the answer store and chooses the
+  answer itself.
+- If the LLM cannot choose a stored answer (no match, or low confidence), the
+  question is treated as unknown and handed to **Task 5**.
+- The store and the LLM prompt must not contain credentials or other secrets.
+- This subtask does **not** submit the application.
+
 ---
 
 ## Task 5 — Ask the human for unknown answers, remember them, and show UI feedback
@@ -176,9 +234,9 @@ submit the application.
 **Status:** ✅ Done
 
 **Goal:** When the form asks a question the agent cannot answer with confidence,
-pause and wait for the human's answer. Store the answer keyed by the question so
-the same question is answered automatically next time. While waiting, show a
-feedback message in the browser UI saying that the agent does not know the answer.
+pause and wait for the human's answer. Store the answer in the answer store so
+Task 4's LLM can reuse it on a later run. While waiting, show a feedback message
+in the browser UI saying that the agent does not know the answer.
 
 **Preconditions**
 - Task 4 is in progress: the Easy Apply form is open and being filled.
@@ -187,35 +245,30 @@ feedback message in the browser UI saying that the agent does not know the answe
 **Inputs**
 - The unknown question text (label, help text, and field type).
 - The human's answer (entered interactively).
-- Previously stored question → answer mappings.
 
 **Steps**
-1. Detect a form question the agent cannot answer with confidence.
-2. Look the question up in the answer store (normalized key, ignoring
-   whitespace/case).
-3. **If a stored answer exists:** apply it automatically and continue — do not
-   ask again.
-4. **If no stored answer exists:**
-   a. Show a feedback message in the browser UI stating that the agent does not
-      know the answer (e.g. a visible banner/overlay near the field or modal).
-   b. Pause the run and wait for the human to provide the answer.
-   c. On receiving the answer, fill the field.
-   d. Save the normalized question → answer mapping to the answer store.
-5. Repeat for each subsequent unknown question.
-6. Continue filling the form until all questions are answered or the run is
+1. Detect a form question the agent cannot answer with confidence (the Task 4
+   LLM could not decide it from the store, so the answer is unknown).
+2. Show a feedback message in the browser UI stating that the agent does not know
+   the answer (e.g. a visible banner/overlay near the field or modal).
+3. Pause the run and wait for the human to provide the answer.
+4. On receiving the answer, fill the field.
+5. Save the question → answer mapping to the answer store.
+6. Repeat for each subsequent unknown question.
+7. Continue filling the form until all questions are answered or the run is
    stopped.
 
 **Acceptance criteria**
 - Unknown questions pause the run and wait for human input.
 - A browser-UI feedback message clearly says the agent does not know the answer.
 - The human's answer is stored, mapped to the question.
-- When the same (normalized) question later appears, it is answered automatically
-  from the store with no further prompting.
+- When the same question later appears, Task 4's LLM answers it from the store
+  with no further prompting.
 - The answer store persists across runs.
 
 **Notes**
-- Normalize keys (trim, lowercase, collapse whitespace) so near-identical
-  questions reuse the stored answer.
+- Store each answer against its question; Task 4's LLM matches questions by
+  meaning, so an exact key wording is not required.
 - Never overwrite an existing mapping silently; if the human changes an answer,
   record the update explicitly.
 - The store must not contain credentials or other secrets.
