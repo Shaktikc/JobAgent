@@ -167,6 +167,9 @@ class Task4Outcome(BaseModel):
 
     form_open: bool = False
     steps_advanced: int = 0
+    # Task 4: the walk stopped at the terminal step (only **Submit application**
+    # remains), so the browser is left open for the human to submit and close.
+    reached_terminal_step: bool = False
     fields: list[FormField] = Field(default_factory=list)
     fields_enumerated: int = 0
     known_fields: int = 0
@@ -181,6 +184,15 @@ class Task4Outcome(BaseModel):
     screenshot_path: str | None = None
     page_url: str | None = None
     notes: str = ""
+
+    @property
+    def awaiting_human_submit(self) -> bool:
+        """True when the walk stopped at the last step and nothing was submitted.
+
+        The human owns the final **Submit application** action, so the browser is
+        left open for them to review, submit, and close it themselves.
+        """
+        return self.reached_terminal_step and not self.submitted
 
 
 class Task5Outcome(BaseModel):

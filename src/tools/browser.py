@@ -525,6 +525,78 @@ async def close_run(run_id: str | None) -> None:
         await run.session.kill()
 
 
+def run_is_connected(run_id: str | None) -> bool:
+    """True while the run's browser still has a live CDP connection.
+
+    A missing run is treated as not connected; a session that does not expose
+    ``is_cdp_connected`` is treated as still alive, so the caller never closes a
+    window it cannot confirm is gone.
+    """
+    run = get_run(run_id)
+    if run is None:
+        return False
+    return bool(getattr(run.session, "is_cdp_connected", True))
+
+
+async def wait_for_human_close(
+    run_id: str | None,
+    settings: Settings | None = None,
+    progress=None,
+) -> bool:
+    """Leave the run's browser open and wait for the human to close it.
+
+    Used when Task 4 stops at the terminal step (only **Submit application**
+    remains): the window stays open so the human can review and submit the
+    application manually, then closes it. Returns ``True`` once the browser is
+    gone (closed by the human), or ``False`` when the wait times out — the
+    session is then closed for them. ``AUTOJOB_SESSION_KEEP_OPEN_TIMEOUT_SECONDS``
+    of ``0`` waits indefinitely.
+    """
+    settings = settings or load_settings()
+    notify = progress or (lambda _message: None)
+    run = get_run(run_id)
+    if run is None:
+        return True
+
+    timeout = settings.session.keep_open_timeout_seconds
+    poll = settings.session.keep_open_poll_seconds
+    notify(
+        "Task 4: reached the last step; leaving the browser open. Review and "
+        "submit the application yourself, then close the browser window to "
+        "finish the run."
+    )
+    deadline = None if timeout <= 0 else time.monotonic() + timeout
+    while True:
+        if not run_is_connected(run_id):
+            _ACTIVE_RUNS.pop(run_id, None)
+            return True
+        if deadline is not None and time.monotonic() >= deadline:
+            notify("Task 4: browser still open after the wait; closing it.")
+            await close_run(run_id)
+            return False
+        await asyncio.sleep(poll)
+
+
+async def release_run(
+    run_id: str | None,
+    task4: Task4Outcome | None = None,
+    settings: Settings | None = None,
+    progress=None,
+) -> str:
+    """Release the run's browser, respecting the human's final Submit step.
+
+    When Task 4 stopped at the terminal step (only **Submit application** remains)
+    the window is left open and this waits for the human to close it (see
+    :func:`wait_for_human_close`). On every other path the session is closed.
+    Returns ``"human"`` (closed by the human), ``"timeout"`` (wait timed out and
+    the session was closed), or ``"closed"`` (closed by the agent).
+    """
+    if task4 is not None and task4.awaiting_human_submit:
+        return "human" if await wait_for_human_close(run_id, settings, progress) else "timeout"
+    await close_run(run_id)
+    return "closed"
+
+
 async def fill_application(
     run_id: str | None,
     resume_path: str | None,
@@ -588,7 +660,12 @@ async def run_full_agent(
     settings: Settings | None = None,
     progress=None,
 ) -> AgentOutcome:
-    """Run Tasks 1-4 end-to-end in one browser session (nothing is submitted)."""
+    """Run Tasks 1-4 end-to-end in one browser session (nothing is submitted).
+
+    When Task 4 reaches the terminal step (only **Submit application** remains)
+    the browser is left open and the call waits for the human to close it (see
+    :func:`release_run`); otherwise the session is closed at the end.
+    """
     from src.tools.linkedin_best_matching_resume import ensure_resume  # keep light
 
     settings = settings or load_settings()
@@ -609,7 +686,7 @@ async def run_full_agent(
                 run_id, outcome.task3.selected_path, settings, progress
             )
     finally:
-        await close_run(run_id)
+        await release_run(run_id, outcome.task4, settings, progress)
     return outcome
 
 

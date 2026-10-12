@@ -357,3 +357,72 @@ def test_fill_node_records_task5(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_cleanup_node_is_noop_without_a_run() -> None:
     assert asyncio.run(cleanup(ApplyState(dry_run=False))) == {}
+
+
+def test_cleanup_leaves_browser_open_for_the_human_at_the_terminal_step(monkeypatch) -> None:
+    """At the last step the browser is released to the human, not closed."""
+    import src.tools.browser as browser_tools
+
+    calls: dict = {}
+
+    async def fake_release(run_id, task4=None, settings=None, progress=None):
+        calls["released"] = run_id
+        calls["task4"] = task4
+        return "human"
+
+    monkeypatch.setattr(browser_tools, "release_run", fake_release)
+    state = ApplyState(
+        dry_run=False,
+        browser_run_id="run-1",
+        task4=Task4Outcome(form_open=True, reached_terminal_step=True),
+    )
+
+    result = asyncio.run(cleanup(state))
+
+    assert calls["released"] == "run-1"
+    assert calls["task4"].awaiting_human_submit is True
+    assert result["log"] == ["cleanup: browser left open for the human; closed by the human"]
+
+
+def test_cleanup_logs_a_wait_timeout(monkeypatch) -> None:
+    import src.tools.browser as browser_tools
+
+    async def fake_release(run_id, task4=None, settings=None, progress=None):
+        return "timeout"
+
+    monkeypatch.setattr(browser_tools, "release_run", fake_release)
+    state = ApplyState(
+        dry_run=False,
+        browser_run_id="run-1",
+        task4=Task4Outcome(form_open=True, reached_terminal_step=True),
+    )
+
+    result = asyncio.run(cleanup(state))
+
+    assert result["log"] == [
+        "cleanup: browser left open for the human; wait timed out, session closed"
+    ]
+
+
+def test_cleanup_closes_the_browser_when_not_at_the_terminal_step(monkeypatch) -> None:
+    import src.tools.browser as browser_tools
+
+    calls: dict = {}
+
+    async def fake_release(run_id, task4=None, settings=None, progress=None):
+        calls["released"] = run_id
+        calls["task4"] = task4
+        return "closed"
+
+    monkeypatch.setattr(browser_tools, "release_run", fake_release)
+    state = ApplyState(
+        dry_run=False,
+        browser_run_id="run-1",
+        task4=Task4Outcome(form_open=True, reached_terminal_step=False),
+    )
+
+    result = asyncio.run(cleanup(state))
+
+    assert calls["released"] == "run-1"
+    assert calls["task4"].awaiting_human_submit is False
+    assert result["log"] == ["cleanup: browser session closed"]

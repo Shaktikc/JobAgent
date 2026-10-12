@@ -78,7 +78,7 @@ button.
 
 ## Task 3 — Read the job description and pick the best-matching resume
 
-**Status:** 🟡 In progress — main flow done; Subtask 3.1 pending
+**Status:** 🟡 In progress — main flow done; Subtasks 3.1–3.2 pending
 
 **Goal:** Read the description of the job that is open in the details pane, then
 choose the resume from the `resumes/` folder that best fits that description.
@@ -115,6 +115,9 @@ choose the resume from the `resumes/` folder that best fits that description.
   choice must be explainable (the rationale is stored).
 - Do not rename, move, or modify the resume files.
 - If two resumes tie, prefer the most recently modified file and note the tie.
+- Subtask 3.2: when a resume has a stored description, score the job against that
+  description instead of the full file text; the selected resume is what Task 4
+  attaches/uploads.
 
 ### Subtask 3.1 — Ask the human for a resume when nothing matches, and remember it
 
@@ -168,6 +171,68 @@ a later similar job reuses it automatically instead of asking again.
 - The library holds job profiles and resume paths only; it never contains credentials.
 - This subtask does **not** submit the application.
 
+### Subtask 3.2 — Summarize an uploaded resume and match jobs against that summary
+
+**Status:** ⬜ Not started
+
+**Goal:** Whenever a new resume enters the pool (in particular the resume the human
+uploads in Subtask 3.1), create a short description of it and map that description
+to the resume file. Job matching then scores the open job description against each
+resume's stored description — instead of re-extracting and comparing the whole
+file every time — and the best-matching resume is the one handed to Task 4 to
+attach/upload.
+
+**Preconditions**
+- Task 3 is in progress: the job description has been read.
+- A resume was just added to the pool (uploaded by the human in Subtask 3.1, or
+  otherwise newly placed in `resumes/`) and has no stored description yet.
+
+**Inputs**
+- The newly stored resume file and its extracted text (`extract_resume_text`).
+- The resume-description map (`data/resume_descriptions.json`), keyed by the
+  canonical resume file path.
+- The kept data from the existing deterministic extractors
+  (`skills_in_text`, `title_tokens`, `find_seniority`, and the years-of-experience
+  reader in `src.tools.matching`).
+
+**Steps**
+1. When a resume is added to the pool, build a short description of its text:
+   shared skills/technologies, title words, seniority, years of experience, and a
+   one-line plain-language summary. Keep it deterministic and explainable.
+2. Map the description to the resume file in the resume-description store, keyed by
+   the resume's canonical path; update the entry when the same file is
+   re-described so no duplicate entries pile up.
+3. Never rename, move, or modify the resume file — only the sidecar store changes.
+4. When scoring resumes for a job (Task 3's `select_best_resume`), score the job
+   description against each resume's stored description when one exists, falling
+   back to the extracted file text when it does not, reusing the existing weighted
+   scorer (`score_resume`) so the result stays explainable.
+5. Refresh the stored description only when the resume file changed (its mtime or
+   size differs from what was recorded).
+6. Select the highest-scoring resume as the best match and record the rationale
+   (as Task 3 already does); Task 4 then attaches/uploads that chosen resume.
+
+**Acceptance criteria**
+- A newly uploaded resume gets a short description that is stored and mapped to its
+  file.
+- On later jobs the stored description is reused, so the resume is not re-extracted
+  to rebuild the description.
+- Job matching scores the job description against the resume description and
+  selects the best-matching resume.
+- Re-describing the same file updates its entry instead of creating a duplicate.
+- Resume files are never modified, renamed, or moved.
+- The chosen resume's path and matching rationale are recorded, and the selected
+  resume is the one Task 4 attaches/uploads.
+
+**Notes**
+- The description is a compact, structured summary (skills, title words, seniority,
+  years, one line), so matching stays deterministic and explainable — no LLM.
+- The store maps resume path → description and never contains credentials.
+- Uploading/attaching the resume is still Task 4's job; this subtask only chooses
+  the resume using its description.
+- Depends on Subtask 3.1: the human-uploaded resume is the main source of new
+  resumes, so describing it at upload time is the natural hook.
+
 ---
 
 ## Task 4 — Open Easy Apply and start filling the application form
@@ -200,7 +265,9 @@ submit the application.
       select that listed resume directly — do **not** upload the file again.
    c. Otherwise, upload the resume file through the resume/attachment control.
 5. Advance through multi-step forms as needed, continuing to fill known fields.
-6. Stop before the final **Submit application** action.
+6. Stop before the final **Submit application** action. When the terminal step is
+   reached, **leave the browser open** and wait for the human to review, submit,
+   and close the window themselves (see Subtask 4.2).
 
 **Acceptance criteria**
 - The Easy Apply form is open and its fields are enumerated.
@@ -210,6 +277,9 @@ submit the application.
 - Every field with a known answer is filled.
 - Unknown fields are left for Task 5 (or flagged) rather than guessed.
 - The application is **not** submitted.
+- At the terminal step (only **Submit application** remains) the browser is left
+  open and the run waits for the human to close it — it is never closed
+  automatically before that.
 
 **Notes**
 - Never type credentials; the login gate remains human.
@@ -280,6 +350,60 @@ question become unknown and get handed to **Task 5**.
   question is treated as unknown and handed to **Task 5**.
 - The store and the LLM prompt must not contain credentials or other secrets.
 - This subtask does **not** submit the application.
+
+### Subtask 4.2 — Leave the browser open at the last step and wait for the human
+
+**Status:** 🟡 In progress — implemented; pending review
+
+**Goal:** When the Easy Apply walk reaches its **terminal step** (only the
+**Submit application** button remains), do **not** close the browser. Keep the
+window open so the human can review and submit the application manually, and make
+the run wait until the human closes the browser window themselves.
+
+**Preconditions**
+- Task 4 is in progress: the Easy Apply form is open and being walked step by step.
+- The terminal step has been detected: there is no enabled Next/Continue control
+  and no disabled next-like control (the only action left is **Submit
+  application**).
+
+**Inputs**
+- The Task 4 outcome flag that records the walk stopped at the terminal step.
+- The live browser session (kept open by the ``browse`` node).
+- `AUTOJOB_SESSION_KEEP_OPEN_TIMEOUT_SECONDS` (default `1800`, `0` = wait
+  indefinitely) and `AUTOJOB_SESSION_KEEP_OPEN_POLL_SECONDS` (default `1.0`).
+
+**Steps**
+1. When the walk stops with only **Submit application** remaining, mark the Task 4
+   outcome as having reached the terminal step.
+2. In the ``cleanup`` node, if that flag is set and the application was not
+   submitted, **do not** close the session: leave the window open for the human.
+3. Wait for the human to close the browser window: poll the session's live CDP
+   connection until it drops, up to `AUTOJOB_SESSION_KEEP_OPEN_TIMEOUT_SECONDS`.
+4. When the human closes the window, forget the session and finish the run
+   normally (verify/summary).
+5. If the wait times out (a positive `AUTOJOB_SESSION_KEEP_OPEN_TIMEOUT_SECONDS`
+   elapsed), close the session for the human and record that the wait timed out in
+   the log. A timeout of `0` waits indefinitely, so this branch never triggers.
+6. On every other path (a fill failure, a matching failure, no terminal step),
+   keep the existing behaviour: close the session so no Chromium window is left
+   behind.
+
+**Acceptance criteria**
+- Reaching the terminal step leaves the browser open instead of closing it.
+- The run waits for the human to close the window before finishing.
+- The browser is never closed automatically while it is sitting on the last step
+  (before the wait times out).
+- A timeout closes the session and records that the wait timed out.
+- Non-terminal paths still close the session as before.
+
+**Notes**
+- This subtask does **not** click **Submit application**; submission stays a
+  manual human step. The human submits and closes the window when ready.
+- The wait is bounded by `AUTOJOB_SESSION_KEEP_OPEN_TIMEOUT_SECONDS` so a window
+  left open forever cannot hang the run indefinitely (set `0` to opt into waiting
+  indefinitely).
+- "Reached the last step" is an explicit outcome flag
+  (`Task4Outcome.reached_terminal_step`), not a string match on the note.
 
 ---
 

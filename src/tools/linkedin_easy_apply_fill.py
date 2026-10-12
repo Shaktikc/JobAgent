@@ -940,6 +940,7 @@ async def _task4_on_page(
                     outcome.notes, _blocked_note("the only navigation button is disabled", blocking)
                 )
             else:
+                outcome.reached_terminal_step = True
                 outcome.notes = _append_note(
                     outcome.notes, "reached the last step (only Submit remains)"
                 )

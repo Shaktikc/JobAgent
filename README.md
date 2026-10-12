@@ -72,7 +72,10 @@ The graph is `START -> ingest -> browse -> match -> fill -> cleanup -> verify ->
      Set `AUTOJOB_SESSION_ASK_HUMAN=false` to leave unknown questions unanswered
      instead of prompting. Questions you skip or leave unanswered are recorded and
      can be answered on a later run.
-5. **cleanup** — closes the shared browser session on every path.
+5. **cleanup** — closes the shared browser session on every path, **except** when
+   Task 4 reached the last step (only **Submit application** remains): the window
+   is left open so you can review and submit manually, and the run waits until you
+   close it (or `AUTOJOB_SESSION_KEEP_OPEN_TIMEOUT_SECONDS` elapses).
 6. **verify** — passes only when all of the above succeeded. Otherwise the run
    fails and a full-page screenshot plus the page URL are recorded under
    `data/debug/`.
@@ -164,7 +167,7 @@ src/
     browse.py        Tasks 1-3 browser work (login, search, Easy Apply, description)
     match.py         Task 3: select the best-matching resume (offline)
     fill.py          Task 4: fill the Easy Apply form + attach the resume
-    cleanup.py       Close the shared browser session
+    cleanup.py       Close the shared browser session (or leave it open at the last step)
     verify.py        Confirm every task's acceptance criteria
   tools/
     browser.py       browser-use session wrapper (opt-in); shared browser primitives,

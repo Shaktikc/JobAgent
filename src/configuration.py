@@ -90,6 +90,13 @@ class SessionSettings(BaseModel):
     # unapplied job instead. Set false to ignore the Applied status (open the
     # first Easy Apply card regardless).
     skip_applied: bool = True
+    # Task 4: when the walk stops at the terminal step (only **Submit
+    # application** remains) the browser is left open for the human to review and
+    # submit the application manually. The run waits for the human to close the
+    # window, up to this many seconds, then closes it for them. 0 waits
+    # indefinitely.
+    keep_open_timeout_seconds: float = Field(default=1800.0, ge=0)
+    keep_open_poll_seconds: float = Field(default=1.0, gt=0)
 
     @property
     def viewport(self) -> dict[str, int]:
@@ -181,6 +188,10 @@ def load_settings(env_file: Path | None = None) -> Settings:
             ask_poll_seconds=_get_float("AUTOJOB_SESSION_ASK_POLL_SECONDS", 1.0),
             clean_stale_profile=_get_bool("AUTOJOB_SESSION_CLEAN_STALE_PROFILE", True),
             skip_applied=_get_bool("AUTOJOB_SESSION_SKIP_APPLIED", True),
+            keep_open_timeout_seconds=_get_float(
+                "AUTOJOB_SESSION_KEEP_OPEN_TIMEOUT_SECONDS", 1800.0
+            ),
+            keep_open_poll_seconds=_get_float("AUTOJOB_SESSION_KEEP_OPEN_POLL_SECONDS", 1.0),
         ),
         llm=LLMSettings(
             api_key=_get_str("OPENROUTER_API_KEY") or _get_str("AUTOJOB_LLM_API_KEY"),

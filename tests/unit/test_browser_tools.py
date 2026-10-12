@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from src.configuration import SessionSettings, Settings
-from src.state import DEFAULT_LOGIN_URL, Task5Outcome
+from src.state import DEFAULT_LOGIN_URL, Task4Outcome, Task5Outcome
 from src.tools import browser as browser_tools
 from src.tools import linkedin_easy_apply_fill as fill_tools
 from src.tools import linkedin_search as linkedin_tools
@@ -300,6 +300,10 @@ def _settings(tmp_path, **session) -> Settings:
     session.setdefault("ask_human", False)
     # Task 1's optional AI-button wait is skipped by default so tests stay fast.
     session.setdefault("ai_search_timeout_seconds", 0)
+    # At the terminal step the browser is left open for the human; keep the wait
+    # short in tests so the run still closes the session and finishes quickly.
+    session.setdefault("keep_open_timeout_seconds", 0.05)
+    session.setdefault("keep_open_poll_seconds", 0.01)
     return Settings(session=SessionSettings(**session), data_dir=tmp_path)
 
 
@@ -1599,6 +1603,9 @@ async def test_task4_fills_form_and_selects_listed_resume(tmp_path) -> None:
     # The one available button is Submit; it must never be clicked.
     assert outcome.submitted is False
     assert outcome.steps_advanced == 0
+    # Only Submit remains, so this is the terminal step: the browser is left open
+    # for the human (see cleanup).
+    assert outcome.reached_terminal_step is True
     assert page.button_elements["b0"].clicked is False
 
 
@@ -2377,6 +2384,95 @@ async def test_start_tasks_keeps_the_session_open(
     assert browser_tools.get_run(run_id) is None
 
 
+def test_run_is_connected_is_false_without_a_run() -> None:
+    assert browser_tools.run_is_connected(None) is False
+    assert browser_tools.run_is_connected("missing") is False
+
+
+async def test_wait_for_human_close_returns_when_the_human_closes(tmp_path) -> None:
+    page = FakePage()
+    session = FakeSession(page)
+    session.is_cdp_connected = False  # the human has closed the window
+    run_id = "run-closed"
+    browser_tools._ACTIVE_RUNS[run_id] = browser_tools._Run(session=session, page=page)
+
+    try:
+        closed = await browser_tools.wait_for_human_close(run_id, _settings(tmp_path))
+    finally:
+        browser_tools._ACTIVE_RUNS.pop(run_id, None)
+
+    assert closed is True
+    # The window is already gone; nothing to kill.
+    assert session.killed is False
+    assert browser_tools.get_run(run_id) is None
+
+
+async def test_wait_for_human_close_times_out_and_closes(tmp_path) -> None:
+    page = FakePage()
+    session = FakeSession(page)
+    session.is_cdp_connected = True  # the window stays open
+    run_id = "run-timeout"
+    browser_tools._ACTIVE_RUNS[run_id] = browser_tools._Run(session=session, page=page)
+
+    try:
+        closed = await browser_tools.wait_for_human_close(
+            run_id,
+            _settings(tmp_path, keep_open_timeout_seconds=0.05, keep_open_poll_seconds=0.01),
+        )
+    finally:
+        browser_tools._ACTIVE_RUNS.pop(run_id, None)
+
+    assert closed is False
+    assert session.killed is True
+    assert browser_tools.get_run(run_id) is None
+
+
+async def test_release_run_waits_for_the_human_at_the_terminal_step(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    calls: dict = {}
+
+    async def fake_wait(run_id, settings=None, progress=None):
+        calls["waited"] = run_id
+        return True
+
+    async def fake_close(run_id):
+        calls["closed"] = run_id
+
+    monkeypatch.setattr(browser_tools, "wait_for_human_close", fake_wait)
+    monkeypatch.setattr(browser_tools, "close_run", fake_close)
+
+    released = await browser_tools.release_run(
+        "run-1", Task4Outcome(reached_terminal_step=True), _settings(tmp_path)
+    )
+
+    assert released == "human"
+    assert calls["waited"] == "run-1"
+    assert "closed" not in calls
+
+
+async def test_release_run_closes_when_not_at_the_terminal_step(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    calls: dict = {}
+
+    async def fake_wait(run_id, settings=None, progress=None):
+        calls["waited"] = run_id
+        return True
+
+    async def fake_close(run_id):
+        calls["closed"] = run_id
+
+    monkeypatch.setattr(browser_tools, "wait_for_human_close", fake_wait)
+    monkeypatch.setattr(browser_tools, "close_run", fake_close)
+
+    released = await browser_tools.release_run("run-1", Task4Outcome(), _settings(tmp_path))
+
+    assert released == "closed"
+    assert calls["closed"] == "run-1"
+    assert "waited" not in calls
+
+
 async def test_upload_file_via_cdp_rejects_missing_file(tmp_path) -> None:
     with pytest.raises(RuntimeError):
         await browser_tools.upload_file_via_cdp(
@@ -2437,6 +2533,10 @@ async def test_run_full_agent_end_to_end_offline(monkeypatch: pytest.MonkeyPatch
             post_click_wait_seconds=0,
             ai_search_timeout_seconds=0,
             ask_human=False,
+            # The form stops at the last step; keep the human-close wait short so
+            # the offline run still closes the session and finishes.
+            keep_open_timeout_seconds=0.05,
+            keep_open_poll_seconds=0.01,
         ),
         data_dir=tmp_path,
         resumes_dir=resume_dir,
