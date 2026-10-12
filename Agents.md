@@ -1,10 +1,13 @@
 # Agent Guidelines
 
 - Do not commit or push code unless explicitly told to do so.
-- Do not edit anything in the task files (`task/task.md`)
-  unless the user has reviewed the change and given explicit approval.
-- Task tracking: tasks live in `task/task.md`. Once the user has reviewed and
-  approved the completed work, mark the task ✅ Done in `task.md`.
+- Do not edit anything in the task files (the `task/` folder: the `task/task.md`
+  index and each `task/task_N.md`) unless the user has reviewed the change and
+  given explicit approval.
+- Task tracking: each task lives in its own file, `task/task_N.md`, listed in the
+  `task/task.md` index. Once the user has reviewed and approved the completed
+  work, mark the task ✅ Done in its `task/task_N.md` file and update the status
+  shown in `task/task.md`.
 - Whenever you change code for any task (for example a bug fix), also update
   any interrelated code that the change could affect, including code used by
   other tasks. Do not leave other parts of the codebase inconsistent.
