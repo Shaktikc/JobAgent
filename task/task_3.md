@@ -7,6 +7,13 @@ ask an LLM to choose the resume from the `resumes/` folder that best fits that
 description. The LLM is the **only** matching path — there is no deterministic
 scoring fallback.
 
+**Implementation order (bottom-up, easy to test):**
+Build and verify the pieces in this order, one slice at a time:
+1. **Subtask 3.1** — Ask the human for a resume when nothing matches, and remember it.
+2. **Subtask 3.2** — Describe each resume with the LLM and let the LLM pick the match.
+3. **Main flow** (at the end of this file) — Read the job description and pick the
+   best-matching resume (LLM), wiring 3.1 and 3.2 together into the end-to-end path.
+
 **Preconditions**
 - Task 2 is complete: a job is open and its **Easy Apply** form has been reached.
 - The `resumes/` folder contains one or more candidate resumes (supported
@@ -19,47 +26,6 @@ scoring fallback.
 - Each resume's stored LLM description (Subtask 3.2), used as the candidate's
   profile for matching.
 - The LLM client used to choose the best match.
-
-**Steps**
-1. Read the job description from the open job (title, company, location, and the
-   full description body).
-2. List the files in `resumes/`.
-3. If the folder is empty, stop and report that no resumes are available.
-4. Build the candidate list from the resumes and their stored LLM descriptions
-   (Subtask 3.2). A resume with no stored description is an error, not matched
-   from its raw text.
-5. Ask the LLM to **choose the single best-matching resume** from the candidates,
-   or to answer **none** when nothing fits. It returns the chosen candidate id and
-   a short rationale.
-6. Validate the choice: it must reference a real candidate in the list.
-7. Record the selected file path and the LLM's rationale.
-8. If the LLM answers **none** (or returns an invalid choice), treat the job as a
-   **no match** and hand off to Subtask 3.1 (reuse a remembered resume, or ask the
-   human). Do not guess.
-
-**Acceptance criteria**
-- The job description is read successfully.
-- Every resume in `resumes/` is considered by the LLM.
-- The LLM is the only resume-matching path — there is **no** deterministic
-  keyword/weight scoring fallback.
-- Exactly one resume is selected as the best match (or the LLM answers none).
-- The chosen resume path and the LLM's matching rationale are recorded in the run
-  state/log.
-- An LLM "none" (or an invalid choice) is a no-match handled by Subtask 3.1,
-  never a guessed or deterministic lowest-score pick.
-
-**Notes**
-- **No fallback:** the deterministic keyword/weight scorer is removed from the
-  matching path. The LLM decision is the only path.
-- The LLM may choose **only** among the provided candidates; it must never invent
-  a file name or path.
-- The choice must be explainable: the LLM's rationale is stored.
-- Do not rename, move, or modify the resume files.
-- The prompt and stored rationale must not contain credentials or other secrets.
-- Subtask 3.2 supplies the per-resume descriptions the LLM matches against;
-  Subtask 3.1 handles the "no match" fallback (remembered resume / ask human).
-- The selected resume is the one Task 4 attaches/uploads; this task does **not**
-  submit the application.
 
 ## Subtask 3.1 — Ask the human for a resume when nothing matches, and remember it
 
@@ -210,3 +176,53 @@ descriptions. There is no deterministic scorer anywhere in the match.
   LLM-described **before** it is used. Subtask 3.1 then uses that resume directly
   for the current job (no re-match); the stored description is what later jobs
   match against.
+
+## Main flow — Read the job description and pick the best-matching resume (LLM)
+
+**Status:** 🟡 In progress — implementation pending
+
+**Goal:** The end-to-end path that ties the pieces together: read the open job's
+description, let the LLM choose the best-matching resume using the stored
+descriptions from Subtask 3.2, and hand the chosen resume to Task 4. This is the
+last piece to build, after 3.1 and 3.2 are in place and tested.
+
+**Steps**
+1. Read the job description from the open job (title, company, location, and the
+   full description body).
+2. List the files in `resumes/`.
+3. If the folder is empty, stop and report that no resumes are available.
+4. Build the candidate list from the resumes and their stored LLM descriptions
+   (Subtask 3.2). A resume with no stored description is an error, not matched
+   from its raw text.
+5. Ask the LLM to **choose the single best-matching resume** from the candidates,
+   or to answer **none** when nothing fits. It returns the chosen candidate id and
+   a short rationale.
+6. Validate the choice: it must reference a real candidate in the list.
+7. Record the selected file path and the LLM's rationale.
+8. If the LLM answers **none** (or returns an invalid choice), treat the job as a
+   **no match** and hand off to Subtask 3.1 (reuse a remembered resume, or ask the
+   human). Do not guess.
+
+**Acceptance criteria**
+- The job description is read successfully.
+- Every resume in `resumes/` is considered by the LLM.
+- The LLM is the only resume-matching path — there is **no** deterministic
+  keyword/weight scoring fallback.
+- Exactly one resume is selected as the best match (or the LLM answers none).
+- The chosen resume path and the LLM's matching rationale are recorded in the run
+  state/log.
+- An LLM "none" (or an invalid choice) is a no-match handled by Subtask 3.1,
+  never a guessed or deterministic lowest-score pick.
+
+**Notes**
+- **No fallback:** the deterministic keyword/weight scorer is removed from the
+  matching path. The LLM decision is the only path.
+- The LLM may choose **only** among the provided candidates; it must never invent
+  a file name or path.
+- The choice must be explainable: the LLM's rationale is stored.
+- Do not rename, move, or modify the resume files.
+- The prompt and stored rationale must not contain credentials or other secrets.
+- Subtask 3.2 supplies the per-resume descriptions the LLM matches against;
+  Subtask 3.1 handles the "no match" fallback (remembered resume / ask human).
+- The selected resume is the one Task 4 attaches/uploads; this task does **not**
+  submit the application.
