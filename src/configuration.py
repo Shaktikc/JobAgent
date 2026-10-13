@@ -137,6 +137,9 @@ class Settings(BaseModel):
     # only a job that shares *no* signal with any resume triggers the fallback.
     resume_min_score: float = Field(default=0.0, ge=0)
     resume_library_path: Path | None = None
+    # Task 3.2: the LLM-written profile for each resume, keyed by its canonical
+    # path (see src/tools/resume_descriptions.py).
+    resume_descriptions_path: Path | None = None
 
     @property
     def profile_dir(self) -> Path:
@@ -158,6 +161,11 @@ class Settings(BaseModel):
         """Job profile → human-provided resume store used by Task 3.1."""
         return self.resume_library_path or (self.data_dir / "resume_library.json")
 
+    @property
+    def resume_descriptions_file(self) -> Path:
+        """Resume path → LLM-written description store used by Task 3.2."""
+        return self.resume_descriptions_path or (self.data_dir / "resume_descriptions.json")
+
 
 def load_settings(env_file: Path | None = None) -> Settings:
     """Read settings from ``.env`` and the process environment."""
@@ -166,6 +174,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
     resumes_dir = _get_str("AUTOJOB_RESUMES_DIR")
     answers_path = _get_str("AUTOJOB_ANSWERS_FILE")
     resume_library_path = _get_str("AUTOJOB_RESUME_LIBRARY")
+    resume_descriptions_path = _get_str("AUTOJOB_RESUME_DESCRIPTIONS")
     return Settings(
         session=SessionSettings(
             headless=_get_bool("AUTOJOB_SESSION_HEADLESS", False),
@@ -207,5 +216,8 @@ def load_settings(env_file: Path | None = None) -> Settings:
         resume_min_score=_get_float("AUTOJOB_RESUME_MIN_SCORE", 0.0),
         resume_library_path=(
             Path(resume_library_path).expanduser() if resume_library_path else None
+        ),
+        resume_descriptions_path=(
+            Path(resume_descriptions_path).expanduser() if resume_descriptions_path else None
         ),
     )

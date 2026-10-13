@@ -29,7 +29,7 @@ Build and verify the pieces in this order, one slice at a time:
 
 ## Subtask 3.1 — Ask the human for a resume when nothing matches, and remember it
 
-**Status:** 🟡 In progress — implemented; pending review
+**Status:** ✅ Done
 
 **Goal:** When no resume in `resumes/` matches the open job's description at all,
 pause and ask the human to upload a resume in the browser. Store the uploaded
@@ -93,7 +93,7 @@ a later similar job reuses it automatically instead of asking again.
 
 ## Subtask 3.2 — Describe each resume with the LLM and let the LLM pick the match
 
-**Status:** ⬜ Not started
+**Status:** ✅ Done
 
 **Goal:** Keep a short, LLM-written description for every resume in the pool, and
 have the **LLM** choose the best-matching resume for a job directly from those
