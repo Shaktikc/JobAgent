@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -399,6 +399,7 @@ async def ensure_descriptions(
     settings: Settings,
     *,
     files: Sequence[str | Path] | None = None,
+    describe: Callable[[str | Path], Awaitable[ResumeDescription]] | None = None,
     client=None,
     extract_text: Callable[[str | Path], str] | None = None,
 ) -> dict[str, ResumeDescription]:
@@ -407,12 +408,15 @@ async def ensure_descriptions(
     Returns a mapping of canonical resume path -> description. A resume whose
     stored description is still fresh (same mtime and size) is reused without
     re-extracting or re-summarising it. A resume that cannot be described raises
-    (there is no fallback).
+    (there is no fallback). ``describe`` is injectable for tests.
     """
     if files is None:
         from src.tools.linkedin_best_matching_resume import list_resume_files
 
         files = list_resume_files(resumes_dir)
+    if describe is None:
+        def describe(path):
+            return describe_resume(path, settings, client=client, extract_text=extract_text)
 
     entries = load_descriptions(store_path)
     described: dict[str, ResumeDescription] = {}
@@ -422,9 +426,7 @@ async def ensure_descriptions(
         if isinstance(entry, dict) and is_fresh(entry, path):
             described[key] = ResumeDescription.model_validate(entry)
             continue
-        description = await describe_resume(
-            path, settings, client=client, extract_text=extract_text
-        )
+        description = await describe(path)
         store_description(store_path, path, description)
         described[key] = description
     return described

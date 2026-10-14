@@ -1,6 +1,6 @@
 # Task 3 — Read the job description and pick the best-matching resume (LLM)
 
-**Status:** 🟡 In progress — main flow rewritten to LLM matching; implementation pending
+**Status:** ✅ Done
 
 **Goal:** Read the description of the job that is open in the details pane, then
 ask an LLM to choose the resume from the `resumes/` folder that best fits that
@@ -179,7 +179,7 @@ descriptions. There is no deterministic scorer anywhere in the match.
 
 ## Main flow — Read the job description and pick the best-matching resume (LLM)
 
-**Status:** 🟡 In progress — implementation pending
+**Status:** ✅ Done
 
 **Goal:** The end-to-end path that ties the pieces together: read the open job's
 description, let the LLM choose the best-matching resume using the stored
@@ -190,7 +190,9 @@ last piece to build, after 3.1 and 3.2 are in place and tested.
 1. Read the job description from the open job (title, company, location, and the
    full description body).
 2. List the files in `resumes/`.
-3. If the folder is empty, stop and report that no resumes are available.
+3. If the folder is empty, there is nothing for the LLM to choose: treat the job
+   as a **no match** and hand off to Subtask 3.1, which reuses a remembered resume
+   or asks the human (an empty pool is a no-match, not an error).
 4. Build the candidate list from the resumes and their stored LLM descriptions
    (Subtask 3.2). A resume with no stored description is an error, not matched
    from its raw text.

@@ -12,11 +12,13 @@ import pytest
 from src.configuration import SessionSettings, Settings
 from src.state import DEFAULT_LOGIN_URL, Task4Outcome, Task5Outcome
 from src.tools import browser as browser_tools
+from src.tools import linkedin_best_matching_resume as resume_tools
 from src.tools import linkedin_easy_apply_fill as fill_tools
 from src.tools import linkedin_search as linkedin_tools
 from src.tools.answers import normalize_question
 from src.tools.linkedin import build_jobs_search_url
 from src.tools.llm_answers import QuestionDecision
+from src.tools.resume_descriptions import ResumeDescription, ResumeMatch
 
 SEARCH_URL = build_jobs_search_url("software engineer")
 
@@ -2584,6 +2586,18 @@ async def test_run_full_agent_end_to_end_offline(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(
         fill_tools, "build_answer_chooser", lambda settings, answers: _store_chooser(answers)
     )
+    # Task 3.2's LLM is a stand-in here too (no network in unit tests): it describes
+    # the pool and picks the only resume.
+    async def fake_describe(path, settings, **kwargs):
+        return ResumeDescription(summary="senior python engineer", skills=["python"])
+
+    async def fake_pick(job_description, candidates, settings, **kwargs):
+        return ResumeMatch(
+            selected_path=candidates[0][0] if candidates else None, rationale="best fit"
+        )
+
+    monkeypatch.setattr(resume_tools, "describe_resume", fake_describe)
+    monkeypatch.setattr(resume_tools, "pick_best_resume", fake_pick)
 
     settings = Settings(
         session=SessionSettings(

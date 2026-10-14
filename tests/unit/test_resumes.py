@@ -1,19 +1,16 @@
-"""Unit tests for resume discovery, extraction, and selection (no browser)."""
+"""Unit tests for resume discovery and text extraction (no browser)."""
 
 from __future__ import annotations
 
-import os
 import zipfile
 
 import pytest
 
-from src.state import JobDescription
 from src.tools import linkedin_best_matching_resume as resumes_tools
 from src.tools.linkedin_best_matching_resume import (
     RESUME_SUFFIXES,
     extract_resume_text,
     list_resume_files,
-    select_best_resume,
 )
 
 
@@ -74,66 +71,6 @@ def test_extract_unknown_suffix_returns_empty(tmp_path) -> None:
     unknown = tmp_path / "resume.rtf"
     unknown.write_text("nope", encoding="utf-8")
     assert extract_resume_text(unknown) == ""
-
-
-def test_select_best_resume_chooses_highest_score(tmp_path) -> None:
-    (tmp_path / "python.txt").write_text(
-        "Senior Python engineer. Python, AWS, Docker, 8 years.", encoding="utf-8"
-    )
-    (tmp_path / "frontend.txt").write_text(
-        "Frontend developer. React, CSS, 2 years.", encoding="utf-8"
-    )
-    description = JobDescription(
-        title="Senior Python Engineer",
-        body="Python, AWS and Docker. 5+ years required.",
-    )
-
-    outcome = select_best_resume(description, tmp_path)
-
-    assert outcome.resumes_found == 2
-    assert len(outcome.candidates) == 2
-    assert outcome.selected_path is not None
-    assert outcome.selected_path.endswith("python.txt")
-    assert outcome.rationale
-
-
-def test_select_best_resume_empty_folder(tmp_path) -> None:
-    outcome = select_best_resume(JobDescription(title="Engineer", body="Python"), tmp_path)
-
-    assert outcome.resumes_found == 0
-    assert outcome.selected_path is None
-    assert "no resumes" in outcome.notes
-
-
-def test_select_best_resume_tie_breaks_on_mtime(tmp_path) -> None:
-    older = tmp_path / "older.txt"
-    newer = tmp_path / "newer.txt"
-    content = "Python AWS Docker"
-    older.write_text(content, encoding="utf-8")
-    newer.write_text(content, encoding="utf-8")
-    os.utime(older, (1_000_000, 1_000_000))
-    os.utime(newer, (2_000_000, 2_000_000))
-
-    outcome = select_best_resume(JobDescription(title="Engineer", body="Python AWS"), tmp_path)
-
-    assert outcome.selected_path.endswith("newer.txt")
-    assert outcome.tie_break
-    assert "tie" in outcome.notes.lower()
-
-
-def test_select_best_resume_handles_unreadable_file(tmp_path) -> None:
-    good = tmp_path / "good.txt"
-    good.write_text("Python AWS Docker engineer", encoding="utf-8")
-    bad = tmp_path / "bad.pdf"
-    bad.write_bytes(b"not really a pdf")
-
-    outcome = select_best_resume(JobDescription(title="Engineer", body="Python AWS"), tmp_path)
-
-    # The readable resume wins even though a corrupt file was also present.
-    assert outcome.resumes_found == 2
-    assert len(outcome.candidates) == 2
-    assert outcome.selected_path.endswith("good.txt")
-    assert "could not read" in outcome.notes
 
 
 @pytest.mark.parametrize("name", ["resume.txt", "resume.md"])

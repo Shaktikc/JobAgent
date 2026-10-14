@@ -1,13 +1,13 @@
 """Task 3: pick the best-matching resume for the open job description.
 
 The browser node already read the job description into
-``state['job_description']``; here we read the resumes folder, score every
-resume, and select the highest fit. Resume files are not modified.
+``state['job_description']``; here the **LLM** (Task 3.2) describes every resume in
+the pool and chooses the best fit. Resume files are not modified.
 
-Subtask 3.1: when nothing in the folder matches the job at all, the agent reuses
-a resume it remembered for a similar job, or asks the human to upload one in the
+Subtask 3.1: when the LLM finds nothing that matches the job, the agent reuses a
+resume it remembered for a similar job, or asks the human to upload one in the
 browser (the live session is still registered under ``state['browser_run_id']``),
-stores that file in the pool, and remembers it for similar jobs.
+stores that file in the pool, has the LLM describe it, and remembers it.
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ async def match(state: ApplyState) -> ApplyState:
 
     log = [
         f"match: resumes_dir={outcome.resumes_dir} found={outcome.resumes_found}",
-        f"match: selected={outcome.selected_path} score={outcome.selected_score}",
+        f"match: selected={outcome.selected_path}",
         f"match: rationale={outcome.rationale or '(none)'}",
     ]
     if outcome.no_match:
@@ -74,11 +74,10 @@ async def match(state: ApplyState) -> ApplyState:
     update: ApplyState = {"task3": outcome, "status": "matched", "log": log}
 
     errors: list[str] = []
-    if not outcome.selected_path:
-        if outcome.resumes_found == 0:
-            errors.append(f"match: no resumes available in {outcome.resumes_dir}")
-        else:
-            errors.append("match: no resume could be selected")
+    if outcome.error:
+        errors.append(outcome.error)
+    elif not outcome.selected_path:
+        errors.append("match: no resume could be selected")
     if errors:
         update["errors"] = errors
     return update

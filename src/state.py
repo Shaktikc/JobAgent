@@ -95,23 +95,29 @@ class JobDescription(BaseModel):
 
 
 class ResumeCandidate(BaseModel):
-    """A resume file that was considered, with its fit score."""
+    """A resume file that was considered for a job (Task 3.2).
+
+    Each resume is summarised by the LLM before matching; ``summary`` is that
+    one-line description, and ``described`` records that a description exists (a
+    resume without one is an error, never matched from its raw text).
+    """
 
     path: str
-    score: float = 0.0
-    matched_keywords: list[str] = Field(default_factory=list)
+    summary: str = ""
+    described: bool = False
     rationale: str = ""
-    extracted: bool = False
     error: str = ""
 
 
 class Task3Outcome(BaseModel):
     """The resume the agent chose and why (Task 3).
 
-    Also carries Task 3.1: when no resume matched the job (``no_match``), the
-    agent may ask the human for one in the browser (``asked_human`` /
-    ``human_resume_path``), or reuse a resume it remembered for a similar job
-    (``reused_from_library``).
+    The **LLM** chooses the best-matching resume from the per-resume descriptions
+    (Task 3.2); its decision and rationale are recorded here. When no resume
+    matched the job (``no_match``), the agent may ask the human for one in the
+    browser (``asked_human`` / ``human_resume_path``), or reuse a resume it
+    remembered for a similar job (``reused_from_library``). ``error`` carries a
+    Task 3.2 failure (there is no deterministic fallback).
     """
 
     job_description: JobDescription = Field(default_factory=JobDescription)
@@ -119,9 +125,8 @@ class Task3Outcome(BaseModel):
     resumes_found: int = 0
     candidates: list[ResumeCandidate] = Field(default_factory=list)
     selected_path: str | None = None
-    selected_score: float | None = None
     rationale: str = ""
-    tie_break: str = ""
+    error: str = ""
     # Task 3.1: the "nothing matched, so ask the human" fallback.
     no_match: bool = False
     asked_human: bool = False

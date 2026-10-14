@@ -41,16 +41,18 @@ The graph is `START -> ingest -> browse -> match -> fill -> cleanup -> verify ->
    The session is left **open** (registered under an opaque `browser_run_id`) so
    Task 4 can fill the same Easy Apply modal.
 3. **match** — Task 3's offline half: lists every resume in the folder
-   (`.pdf`, `.docx`, `.txt`, `.md`), extracts its text, scores it against the job
-   description, and selects the highest scorer with a written rationale. Ties go
-   to the most recently modified file. Resume files are never modified.
-   - **Task 3.1:** when nothing in the folder matches the job at all (best score
-     at or below `AUTOJOB_RESUME_MIN_SCORE`, default `0`), the agent first reuses
-     a resume it remembered for a similar job; otherwise it shows a banner with a
-     file picker, **pauses for you to upload a resume**, stores it in the folder,
-     and remembers its job profile (`data/resume_library.json`) so similar jobs
-     reuse it without asking again. If you skip and nothing is available, the run
-     stops instead of applying with an unmatching resume.
+   (`.pdf`, `.docx`, `.txt`, `.md`), has the **LLM** (Task 3.2) write a short
+   profile for each one (skills, titles, seniority, years, domain) into
+   `data/resume_descriptions.json`, then asks the LLM to pick the single
+   best-matching resume, or **none**. The LLM is the only matching path — there is
+   no deterministic scoring fallback. Resume files are never modified.
+   - **Task 3.1:** when the LLM answers **none**, the agent first reuses a resume
+     it remembered for a similar job; otherwise it shows a banner with a file
+     picker, **pauses for you to upload a resume**, stores it in the folder, has
+     the LLM describe it, and remembers its job profile
+     (`data/resume_library.json`) so similar jobs reuse it without asking again.
+     If you skip and nothing is available, the run stops instead of applying with
+     an unmatching resume.
 4. **fill** — **Task 4:** enumerates the still-open Easy Apply form and answers
    each question. **Task 4.1** classifies every question with an LLM
    (`OPENROUTER_API_KEY` + `AUTOJOB_LLM_MODEL`) and chooses the appropriate
@@ -80,9 +82,9 @@ The graph is `START -> ingest -> browse -> match -> fill -> cleanup -> verify ->
    fails and a full-page screenshot plus the page URL are recorded under
    `data/debug/`.
 
-The browser interaction is deterministic (browser-use's CDP actor API) and the
-resume matching is deterministic keyword/weight scoring. Task 4.1 uses an LLM
-only to choose answers; it never drives the browser or submits anything.
+The browser interaction is deterministic (browser-use's CDP actor API). The resume
+match (Task 3.2) and the answer choice (Task 4.1) use an LLM; the LLM never drives
+the browser or submits anything.
 The login gate is human: your session is stored in the persistent Chromium
 profile under `data/profile`, so later runs skip the wait.
 
@@ -165,7 +167,7 @@ src/
   nodes/
     ingest.py        Validate the LinkedIn URL and search query
     browse.py        Tasks 1-3 browser work (login, search, Easy Apply, description)
-    match.py         Task 3: select the best-matching resume (offline)
+    match.py         Task 3: describe the pool + LLM-pick the best resume (offline)
     fill.py          Task 4: fill the Easy Apply form + attach the resume
     cleanup.py       Close the shared browser session (or leave it open at the last step)
     verify.py        Confirm every task's acceptance criteria
@@ -176,11 +178,12 @@ src/
     linkedin_search.py             Task 1: log in, search jobs, select Easy Apply filter
     linkedin_job_selection.py      Task 2: select a job, open its Easy Apply form
     linkedin_best_matching_resume.py
-                     Task 3: read the job description, pick the best-matching resume;
+                     Task 3: read the job description, drive the LLM match;
                      Task 3.1: ask the human when nothing matches
+    resume_descriptions.py  Task 3.2: LLM resume profiles + the LLM pick
     linkedin_easy_apply_fill.py    Task 4: fill the Easy Apply form, attach the resume
     llm_answers.py   Task 4.1: LLM classifies a question and picks the stored answer
-    matching.py      Pure resume-to-job scoring (explainable, deterministic)
+    matching.py      Pure keyword helpers (skills, titles, seniority) for 3.1 profiles
     answers.py       Question -> answer store (read by Task 4.1, written by Task 5)
     resume_library.py  Task 3.1: job profiles -> human-provided resumes
     forms.py         Pure Easy Apply form helpers (resume match, next/submit)
@@ -231,8 +234,9 @@ tests/
 - Unknown questions that you skip or leave unanswered are recorded rather than
   guessed.
 - Task 3 only **reads** existing resumes — it never renames, moves, or edits them.
-  Task 3.1 may **add** a resume you upload when nothing matches (never overwriting
-  an existing file) and remembers its job profile in `data/resume_library.json`
+  Task 3.2 stores LLM-written profiles in `data/resume_descriptions.json`. Task 3.1
+  may **add** a resume you upload when nothing matches (never overwriting an
+  existing file) and remembers its job profile in `data/resume_library.json`
   (profiles and paths only, no credentials) so similar jobs reuse it.
 - On failure the page URL and a screenshot are saved for debugging.
 - The Chromium profile under `data/profile` persists logins and is gitignored.

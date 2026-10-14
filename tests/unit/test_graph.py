@@ -60,11 +60,10 @@ def _task3_ok() -> Task3Outcome:
         resumes_dir="resumes",
         resumes_found=1,
         candidates=[
-            ResumeCandidate(path="resumes/a.pdf", score=9.0, rationale="shared skills: python")
+            ResumeCandidate(path="resumes/a.pdf", summary="Python engineer", described=True)
         ],
         selected_path="resumes/a.pdf",
-        selected_score=9.0,
-        rationale="shared skills: python",
+        rationale="the LLM chose the best match",
     )
 
 
@@ -277,14 +276,23 @@ def test_verify_fails_when_a_human_question_is_unresolved() -> None:
     assert verify(state)["status"] == "failed"
 
 
-def test_match_node_selects_best_resume(tmp_path) -> None:
-    (tmp_path / "python.txt").write_text(
-        "Senior Software Engineer. Python, AWS, Docker, Kubernetes, 8 years.", encoding="utf-8"
-    )
-    (tmp_path / "frontend.txt").write_text(
-        "Frontend developer. React, CSS, HTML, 2 years.", encoding="utf-8"
-    )
+def test_match_node_selects_best_resume(tmp_path, monkeypatch) -> None:
+    import src.tools.linkedin_best_matching_resume as resume_tools
 
+    async def fake_ensure(description, resumes_dir, settings, page=None, notify=None, **kwargs):
+        return Task3Outcome(
+            job_description=description,
+            resumes_dir=str(resumes_dir),
+            resumes_found=2,
+            candidates=[
+                ResumeCandidate(path="resumes/python.txt", summary="Python", described=True),
+                ResumeCandidate(path="resumes/frontend.txt", summary="Frontend", described=True),
+            ],
+            selected_path="resumes/python.txt",
+            rationale="the LLM's reason",
+        )
+
+    monkeypatch.setattr(resume_tools, "ensure_resume", fake_ensure)
     state = ApplyState(
         dry_run=False,
         resumes_dir=str(tmp_path),
@@ -296,7 +304,7 @@ def test_match_node_selects_best_resume(tmp_path) -> None:
     result = asyncio.run(match(state))
 
     assert result["status"] == "matched"
-    assert result["task3"].selected_path.endswith("python.txt")
+    assert result["task3"].selected_path == "resumes/python.txt"
     assert result["task3"].resumes_found == 2
     assert len(result["task3"].candidates) == 2
     assert result["task3"].rationale

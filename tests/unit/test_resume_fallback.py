@@ -1,4 +1,8 @@
-"""Task 3.1: the no-match -> ask-the-human -> remember flow (no real browser)."""
+"""Task 3: describe the pool, let the LLM pick, and the 3.1 no-match fallback.
+
+These tests inject a fake LLM (``describer`` / ``matcher``) and a fake human
+(``asker``), so no browser or network is needed.
+"""
 
 from __future__ import annotations
 
@@ -9,11 +13,13 @@ from pathlib import Path
 
 from src.configuration import SessionSettings, Settings
 from src.state import JobDescription
-from src.tools.linkedin_best_matching_resume import (
-    ask_human_for_resume,
-    ensure_resume,
-    no_match,
-    select_best_resume,
+from src.tools.linkedin_best_matching_resume import ask_human_for_resume, ensure_resume
+from src.tools.resume_descriptions import (
+    ResumeDescription,
+    ResumeDescriptionError,
+    ResumeMatch,
+    description_for,
+    load_descriptions,
 )
 from src.tools.resume_library import load_library, remember_resume
 
@@ -24,6 +30,7 @@ def _settings(tmp_path: Path, **session) -> Settings:
         data_dir=tmp_path,
         resumes_dir=tmp_path,
         resume_library_path=tmp_path / "resume_library.json",
+        resume_descriptions_path=tmp_path / "resume_descriptions.json",
     )
 
 
@@ -34,38 +41,105 @@ def _asker(name: str, content: bytes):
     return asker
 
 
-def test_no_match_true_for_empty_pool(tmp_path) -> None:
-    outcome = select_best_resume(JobDescription(title="Engineer", body="Python"), tmp_path)
-    assert no_match(outcome, 0.0) is True
+def _describer(summary: str = "profile", *, error: str = ""):
+    async def describe(path):
+        if error:
+            raise ResumeDescriptionError(error)
+        return ResumeDescription(summary=summary)
+
+    return describe
 
 
-def test_ensure_resume_returns_a_normal_match(tmp_path) -> None:
+def _picks_first(rationale: str = "best fit"):
+    async def pick(job_description, candidates):
+        return ResumeMatch(
+            selected_path=candidates[0][0] if candidates else None, rationale=rationale
+        )
+
+    return pick
+
+
+def _picks_none(rationale: str = "nothing fits"):
+    async def pick(job_description, candidates):
+        return ResumeMatch(rationale=rationale)
+
+    return pick
+
+
+# --- the LLM match path -----------------------------------------------------
+
+
+async def test_ensure_resume_returns_the_llm_match(tmp_path) -> None:
     (tmp_path / "python.txt").write_text("Python AWS Docker", encoding="utf-8")
 
-    outcome = asyncio.run(
-        ensure_resume(
-            JobDescription(title="Python Engineer", body="Python AWS"),
-            tmp_path,
-            _settings(tmp_path),
-        )
+    outcome = await ensure_resume(
+        JobDescription(title="Python Engineer", body="Python AWS"),
+        tmp_path,
+        _settings(tmp_path),
+        describer=_describer(),
+        matcher=_picks_first("the LLM's reason"),
     )
 
     assert outcome.no_match is False
     assert outcome.selected_path.endswith("python.txt")
+    assert outcome.rationale == "the LLM's reason"
+    assert len(outcome.candidates) == 1
+    assert outcome.candidates[0].described is True
 
 
-def test_ensure_resume_stores_and_remembers_a_human_resume(tmp_path) -> None:
+async def test_ensure_resume_reports_a_describe_error(tmp_path) -> None:
+    (tmp_path / "python.txt").write_text("Python", encoding="utf-8")
+
+    outcome = await ensure_resume(
+        JobDescription(title="Python Engineer", body="Python"),
+        tmp_path,
+        _settings(tmp_path),
+        describer=_describer(error="the LLM call failed: boom"),
+        matcher=_picks_first(),
+    )
+
+    assert outcome.error
+    assert outcome.selected_path is None
+
+
+async def test_ensure_resume_reports_a_match_error(tmp_path) -> None:
+    (tmp_path / "python.txt").write_text("Python", encoding="utf-8")
+
+    async def failing_pick(job_description, candidates):
+        raise ResumeDescriptionError("the LLM call failed: boom")
+
+    outcome = await ensure_resume(
+        JobDescription(title="Python Engineer", body="Python"),
+        tmp_path,
+        _settings(tmp_path),
+        describer=_describer(),
+        matcher=failing_pick,
+    )
+
+    assert outcome.error
+    assert outcome.selected_path is None
+
+
+# --- the Task 3.1 no-match fallback ----------------------------------------
+
+
+async def test_ensure_resume_stores_describes_and_remembers_a_human_resume(tmp_path) -> None:
     (tmp_path / "pastry.txt").write_text("pastry chef, baking", encoding="utf-8")
     settings = _settings(tmp_path)
+    described: list[str] = []
 
-    outcome = asyncio.run(
-        ensure_resume(
-            JobDescription(title="Senior Python Engineer", body="Python AWS Docker"),
-            tmp_path,
-            settings,
-            page=object(),
-            asker=_asker("My Resume.txt", b"Senior Python engineer, AWS Docker, 8 years"),
-        )
+    async def describe(path):
+        described.append(str(path))
+        return ResumeDescription(summary="senior python engineer")
+
+    outcome = await ensure_resume(
+        JobDescription(title="Senior Python Engineer", body="Python AWS Docker"),
+        tmp_path,
+        settings,
+        page=object(),
+        asker=_asker("My Resume.txt", b"Senior Python engineer, AWS Docker, 8 years"),
+        describer=describe,
+        matcher=_picks_none(),
     )
 
     assert outcome.no_match is True
@@ -75,14 +149,42 @@ def test_ensure_resume_stores_and_remembers_a_human_resume(tmp_path) -> None:
     assert stored.name == "My Resume.txt"
     assert stored.read_bytes() == b"Senior Python engineer, AWS Docker, 8 years"
     assert outcome.selected_path == str(stored)
-    entries = load_library(settings.resume_library_file)
-    assert entries and entries[0]["resume"] == str(stored)
+    # The uploaded resume is described before it is used.
+    assert str(stored) in described
+    entries = load_descriptions(settings.resume_descriptions_file)
+    assert description_for(entries, stored).summary == "senior python engineer"
+    library = load_library(settings.resume_library_file)
+    assert library and library[0]["resume"] == str(stored)
 
 
-def test_ensure_resume_reuses_a_remembered_resume(tmp_path) -> None:
+async def test_ensure_resume_reports_a_describe_error_for_the_upload(tmp_path) -> None:
+    (tmp_path / "pastry.txt").write_text("pastry chef", encoding="utf-8")
+
+    async def describe(path):
+        if Path(path).name == "My Resume.txt":
+            raise ResumeDescriptionError("the LLM call failed: boom")
+        return ResumeDescription(summary="pool profile")
+
+    outcome = await ensure_resume(
+        JobDescription(title="Python Engineer", body="Python AWS"),
+        tmp_path,
+        _settings(tmp_path),
+        page=object(),
+        asker=_asker("My Resume.txt", b"Python engineer"),
+        describer=describe,
+        matcher=_picks_none(),
+    )
+
+    assert outcome.error
+    assert outcome.selected_path is None
+    # The file is stored, but never used without a description.
+    assert (tmp_path / "My Resume.txt").exists()
+
+
+async def test_ensure_resume_reuses_a_remembered_resume(tmp_path) -> None:
     (tmp_path / "pastry.txt").write_text("pastry chef, baking", encoding="utf-8")
     remembered = tmp_path / "cloud.txt"
-    remembered.write_text("pastry chef, baking", encoding="utf-8")  # shares no job skill itself
+    remembered.write_text("pastry chef, baking", encoding="utf-8")  # shares no job skill
     settings = _settings(tmp_path)
     remember_resume(
         settings.resume_library_file,
@@ -90,12 +192,12 @@ def test_ensure_resume_reuses_a_remembered_resume(tmp_path) -> None:
         str(remembered),
     )
 
-    outcome = asyncio.run(
-        ensure_resume(
-            JobDescription(title="Senior Cloud Engineer", body="AWS Kubernetes Terraform Docker"),
-            tmp_path,
-            settings,
-        )
+    outcome = await ensure_resume(
+        JobDescription(title="Senior Cloud Engineer", body="AWS Kubernetes Terraform Docker"),
+        tmp_path,
+        settings,
+        describer=_describer(),
+        matcher=_picks_none(),
     )
 
     assert outcome.no_match is True
@@ -104,15 +206,15 @@ def test_ensure_resume_reuses_a_remembered_resume(tmp_path) -> None:
     assert outcome.asked_human is False
 
 
-def test_ensure_resume_without_page_leaves_it_unselected(tmp_path) -> None:
+async def test_ensure_resume_without_page_leaves_it_unselected(tmp_path) -> None:
     (tmp_path / "pastry.txt").write_text("pastry chef", encoding="utf-8")
 
-    outcome = asyncio.run(
-        ensure_resume(
-            JobDescription(title="Python Engineer", body="Python AWS"),
-            tmp_path,
-            _settings(tmp_path),
-        )
+    outcome = await ensure_resume(
+        JobDescription(title="Python Engineer", body="Python AWS"),
+        tmp_path,
+        _settings(tmp_path),
+        describer=_describer(),
+        matcher=_picks_none(),
     )
 
     assert outcome.no_match is True
@@ -121,20 +223,20 @@ def test_ensure_resume_without_page_leaves_it_unselected(tmp_path) -> None:
     assert "no resume matched" in outcome.notes
 
 
-def test_ensure_resume_notes_when_the_human_skips(tmp_path) -> None:
+async def test_ensure_resume_notes_when_the_human_skips(tmp_path) -> None:
     (tmp_path / "pastry.txt").write_text("pastry chef", encoding="utf-8")
 
     async def skip(page, settings, notify):
         return None
 
-    outcome = asyncio.run(
-        ensure_resume(
-            JobDescription(title="Python Engineer", body="Python AWS"),
-            tmp_path,
-            _settings(tmp_path),
-            page=object(),
-            asker=skip,
-        )
+    outcome = await ensure_resume(
+        JobDescription(title="Python Engineer", body="Python AWS"),
+        tmp_path,
+        _settings(tmp_path),
+        page=object(),
+        asker=skip,
+        describer=_describer(),
+        matcher=_picks_none(),
     )
 
     assert outcome.asked_human is True
@@ -142,21 +244,40 @@ def test_ensure_resume_notes_when_the_human_skips(tmp_path) -> None:
     assert "did not provide" in outcome.notes
 
 
-def test_ensure_resume_notes_an_unstorable_upload(tmp_path) -> None:
+async def test_ensure_resume_notes_an_unstorable_upload(tmp_path) -> None:
     (tmp_path / "pastry.txt").write_text("pastry chef", encoding="utf-8")
 
-    outcome = asyncio.run(
-        ensure_resume(
-            JobDescription(title="Python Engineer", body="Python AWS"),
-            tmp_path,
-            _settings(tmp_path),
-            page=object(),
-            asker=_asker("resume.exe", b"not a resume"),
-        )
+    outcome = await ensure_resume(
+        JobDescription(title="Python Engineer", body="Python AWS"),
+        tmp_path,
+        _settings(tmp_path),
+        page=object(),
+        asker=_asker("resume.exe", b"not a resume"),
+        describer=_describer(),
+        matcher=_picks_none(),
     )
 
     assert outcome.selected_path is None
     assert "could not store" in outcome.notes
+
+
+async def test_ensure_resume_with_an_empty_pool_is_a_no_match(tmp_path) -> None:
+    # No resumes at all: the LLM has nothing to pick, so it is a no-match that
+    # falls through to Task 3.1 (which asks the human when a page is available).
+    outcome = await ensure_resume(
+        JobDescription(title="Python Engineer", body="Python AWS"),
+        tmp_path,
+        _settings(tmp_path),
+        describer=_describer(),
+        matcher=_picks_first(),
+    )
+
+    assert outcome.resumes_found == 0
+    assert outcome.no_match is True
+    assert outcome.selected_path is None
+
+
+# --- the browser banner (unchanged Task 3.1 UI) -----------------------------
 
 
 class _ResumeBannerPage:

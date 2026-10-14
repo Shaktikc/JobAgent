@@ -1,23 +1,21 @@
 """Task 3: read the open job's description and pick the best-matching resume.
 
-This module owns Task 3 in full, gathered from the two places its code used to
-live (the description reader in :mod:`src.tools.browser`, the resume selection in
-``src.tools.resumes``):
+This module owns Task 3 in full:
 
 1. Read the description of the job that is open in the details pane: title,
    company, location, and the full description body.
-2. Read every resume in the configured folder, extract its readable text
-   (``.pdf``, ``.docx``, ``.txt``, ``.md``), score each one against the job
-   description with :mod:`src.tools.matching`, and select the highest scorer.
+2. Ask the **LLM** (Task 3.2) to choose the resume from the pool that best fits
+   that description, using a short LLM-written profile of each resume
+   (:mod:`src.tools.resume_descriptions`). The LLM is the **only** matching path —
+   there is no deterministic scoring fallback.
 
-Ties are broken by the most recently modified file. Resume files are never
-modified. Reading the description is a deterministic CDP ``page.evaluate`` (no
-LLM), and the scoring is deterministic keyword/weight matching.
+Reading the description is a deterministic CDP ``page.evaluate`` (no LLM).
 
-**Subtask 3.1** extends the selection: when nothing in the folder matches the job
-at all, the agent first reuses a resume it already remembered for a similar job
+**Subtask 3.1** handles the "no match" case: when the LLM answers **none**, the
+agent first reuses a resume it already remembered for a similar job
 (:mod:`src.tools.resume_library`); otherwise it asks the human to upload one in
-the browser, stores that file in the pool, and remembers it for similar jobs.
+the browser, stores that file in the pool, has the **LLM** describe it, and
+remembers it for similar jobs. Resume files are never modified.
 """
 
 from __future__ import annotations
@@ -33,7 +31,15 @@ from xml.etree import ElementTree
 from src.configuration import Settings
 from src.state import JobDescription, ResumeCandidate, Task3Outcome
 from src.tools.browser import _append_note, _loads, _safe
-from src.tools.matching import score_resume
+from src.tools.resume_descriptions import (
+    ResumeDescriptionError,
+    describe_resume,
+    described_candidates,
+    ensure_descriptions,
+    load_descriptions,
+    pick_best_resume,
+    store_description,
+)
 from src.tools.resume_library import (
     RESUME_SUFFIXES,
     find_reusable_resume,
@@ -139,77 +145,6 @@ def _extract_docx(path: Path) -> str:
     except ElementTree.ParseError:
         return ""
     return " ".join(node.text or "" for node in root.iter(_DOCX_TEXT_TAG))
-
-
-def select_best_resume(
-    job_description: JobDescription,
-    resumes_dir: str | Path,
-) -> Task3Outcome:
-    """Score every resume in ``resumes_dir`` and select the best match."""
-    files = list_resume_files(resumes_dir)
-    outcome = Task3Outcome(
-        job_description=job_description,
-        resumes_dir=str(resumes_dir),
-        resumes_found=len(files),
-    )
-
-    if not files:
-        outcome.notes = "no resumes available in the folder"
-        return outcome
-
-    for path in files:
-        error = ""
-        try:
-            text = extract_resume_text(path)
-        except Exception as exc:  # noqa: BLE001 - a bad file must not stop the run
-            text = ""
-            error = f"{type(exc).__name__}: {exc}"
-
-        result = score_resume(job_description.title, job_description.full_text, text)
-        outcome.candidates.append(
-            ResumeCandidate(
-                path=str(path),
-                score=result.score,
-                matched_keywords=list(result.matched_skills),
-                rationale=result.rationale,
-                extracted=bool(text.strip()) and not error,
-                error=error,
-            )
-        )
-
-    # Prefer resumes whose text was read; only fall back to unreadable files when
-    # nothing could be extracted at all.
-    pool = [candidate for candidate in outcome.candidates if candidate.extracted] or list(
-        outcome.candidates
-    )
-    best_score = max(candidate.score for candidate in pool)
-    top = [candidate for candidate in pool if candidate.score == best_score]
-    if len(top) > 1:
-        # Tie-break: prefer the most recently modified file and record the tie.
-        top.sort(key=lambda candidate: _safe_mtime(candidate.path), reverse=True)
-        outcome.tie_break = (
-            f"tie at score {best_score} across {len(top)} resumes; "
-            "chose the most recently modified file"
-        )
-
-    best = top[0]
-    outcome.selected_path = best.path
-    outcome.selected_score = best.score
-    outcome.rationale = best.rationale
-
-    unreadable = [candidate.path for candidate in outcome.candidates if candidate.error]
-    notes = [outcome.tie_break] if outcome.tie_break else []
-    if unreadable:
-        notes.append(f"could not read {len(unreadable)} resume(s): {', '.join(unreadable)}")
-    outcome.notes = "; ".join(part for part in notes if part)
-    return outcome
-
-
-def _safe_mtime(path: str) -> float:
-    try:
-        return Path(path).stat().st_mtime
-    except OSError:
-        return 0.0
 
 
 # --- Task 3.1: ask the human for a resume when nothing matched -------------
@@ -410,20 +345,7 @@ async def ask_human_for_resume(
     return None
 
 
-def no_match(outcome: Task3Outcome, min_score: float = 0.0) -> bool:
-    """True when nothing in the pool matched the job (Task 3.1's trigger)."""
-    if outcome.selected_path is None:
-        return True
-    return (outcome.selected_score or 0.0) <= min_score
-
-
-def _score_path(description: JobDescription, path: str) -> float:
-    """Score one resume file against the job (0.0 when it cannot be read)."""
-    try:
-        text = extract_resume_text(path)
-    except Exception:  # noqa: BLE001 - an unreadable resume must not stop the run
-        return 0.0
-    return score_resume(description.title, description.full_text, text).score
+# --- Task 3 main flow: describe the pool, let the LLM pick, else fall back --
 
 
 async def ensure_resume(
@@ -433,31 +355,69 @@ async def ensure_resume(
     page=None,
     notify=None,
     asker=None,
+    describer=None,
+    matcher=None,
 ) -> Task3Outcome:
     """Select the best resume, falling back to the human when nothing matches.
 
-    Task 3.1: when no resume matches the job, reuse one already remembered for a
-    similar job; otherwise ask the human for a resume in the browser, store it in
-    the pool, remember its job profile, and use it. ``asker`` is injectable for
-    tests (it defaults to :func:`ask_human_for_resume`).
+    Task 3.2: every resume in the pool is described by the **LLM**, then the LLM
+    chooses the single best match (or **none**). Task 3.1: when the LLM answers
+    **none**, reuse a resume already remembered for a similar job; otherwise ask
+    the human for one in the browser, store it in the pool, have the **LLM**
+    describe it, and use it directly. ``asker``/``describer``/``matcher`` are
+    injectable for tests.
     """
     notify = notify or (lambda _message: None)
-    outcome = select_best_resume(description, resumes_dir)
-    if not no_match(outcome, settings.resume_min_score):
+    files = list_resume_files(resumes_dir)
+    outcome = Task3Outcome(
+        job_description=description,
+        resumes_dir=str(resumes_dir),
+        resumes_found=len(files),
+    )
+    store_path = settings.resume_descriptions_file
+    describe = describer or (lambda path: describe_resume(path, settings))
+    pick = matcher or (lambda job, candidates: pick_best_resume(job, candidates, settings))
+
+    # Task 3.2: describe every resume, then let the LLM choose (no fallback).
+    try:
+        await ensure_descriptions(
+            resumes_dir, store_path, settings, files=files, describe=describe
+        )
+        candidates = described_candidates(files, load_descriptions(store_path))
+    except ResumeDescriptionError as exc:
+        outcome.error = f"match: {exc}"
+        outcome.notes = _append_note(outcome.notes, "could not describe the resume pool")
+        notify(f"Task 3.2: {exc}")
         return outcome
 
+    for path, candidate in candidates:
+        outcome.candidates.append(
+            ResumeCandidate(path=path, summary=candidate.summary, described=True)
+        )
+
+    try:
+        result = await pick(description, candidates)
+    except ResumeDescriptionError as exc:
+        outcome.error = f"match: {exc}"
+        outcome.notes = _append_note(outcome.notes, "the LLM could not choose a resume")
+        notify(f"Task 3.2: {exc}")
+        return outcome
+
+    if result.selected_path:
+        outcome.selected_path = result.selected_path
+        outcome.rationale = result.rationale or "the LLM chose the best-matching resume"
+        outcome.notes = _append_note(outcome.notes, "the LLM chose the best-matching resume")
+        return outcome
+
+    # No resume matched the job: hand off to Task 3.1.
     outcome.no_match = True
-    # Nothing really matches, so do not apply with the (score-0) best candidate:
-    # only a remembered or human-provided resume is used from here on.
-    outcome.selected_path = None
-    outcome.selected_score = None
+    outcome.rationale = result.rationale or "the LLM found no matching resume"
     reusable = find_reusable_resume(
         load_library(settings.resume_library_file), description, resumes_dir
     )
     if reusable:
         outcome.selected_path = reusable
         outcome.reused_from_library = reusable
-        outcome.selected_score = _score_path(description, reusable)
         outcome.rationale = (
             f"no resume matched, but {Path(reusable).name!r} was remembered for a similar job"
         )
@@ -484,22 +444,36 @@ async def ensure_resume(
         outcome.notes = _append_note(outcome.notes, f"could not store the uploaded resume: {exc}")
         return outcome
 
+    # Task 3.2: describe the uploaded resume before it is used (no fallback).
+    try:
+        uploaded = await describe(stored)
+    except ResumeDescriptionError as exc:
+        outcome.error = f"match: {exc}"
+        outcome.notes = _append_note(outcome.notes, "the uploaded resume could not be described")
+        notify(f"Task 3.2: {exc}")
+        return outcome
+
+    store_description(store_path, stored, uploaded)
     remember_resume(settings.resume_library_file, description, str(stored))
     outcome.human_resume_path = str(stored)
     outcome.selected_path = str(stored)
-    outcome.selected_score = _score_path(description, str(stored))
     outcome.rationale = f"human-provided resume {stored.name!r} for a job nothing matched"
     outcome.resumes_found = len(list_resume_files(resumes_dir))
     outcome.candidates.append(
-        ResumeCandidate(
-            path=str(stored),
-            score=outcome.selected_score or 0.0,
-            rationale=outcome.rationale,
-            extracted=bool(extract_resume_text(stored).strip()),
-        )
+        ResumeCandidate(path=str(stored), summary=uploaded.summary, described=True)
     )
     outcome.notes = _append_note(
-        outcome.notes, f"stored and remembered the uploaded resume {stored!r}"
+        outcome.notes, f"stored, described and remembered the uploaded resume {stored!r}"
     )
-    notify(f"Task 3.1: stored {stored.name!r} and remembered it for similar jobs.")
+    notify(f"Task 3.1: stored {stored.name!r}, described it, and remembered it for similar jobs.")
     return outcome
+
+
+__all__ = [
+    "DEFAULT_RESUME_PROMPT",
+    "ask_human_for_resume",
+    "ensure_resume",
+    "extract_resume_text",
+    "list_resume_files",
+    "read_job_description",
+]

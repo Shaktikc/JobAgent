@@ -108,11 +108,9 @@ def _summary(state: ApplyState) -> str:
     if task3 is not None:
         lines += [
             f"resumes     : dir={task3.resumes_dir} found={task3.resumes_found}",
-            f"best resume : {task3.selected_path} (score={task3.selected_score})",
+            f"best resume : {task3.selected_path}",
             f"why         : {task3.rationale or '(none)'}",
         ]
-        if task3.tie_break:
-            lines.append(f"tie         : {task3.tie_break}")
     if task4 is not None:
         lines += [
             f"form        : open={task4.form_open} fields={task4.fields_enumerated} "

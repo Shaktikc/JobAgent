@@ -28,13 +28,11 @@ from src.tools.linkedin_best_matching_resume import (
     RESUME_SUFFIXES,
     extract_resume_text,
     list_resume_files,
-    select_best_resume,
 )
-from src.tools.matching import MatchResult, score_resume, skills_in_text
+from src.tools.matching import skills_in_text
 
 __all__ = [
     "RESUME_SUFFIXES",
-    "MatchResult",
     "answers_match",
     "build_jobs_search_url",
     "extract_resume_text",
@@ -59,7 +57,5 @@ __all__ = [
     "pick_listed_resume",
     "pick_next_button",
     "save_answer",
-    "score_resume",
-    "select_best_resume",
     "skills_in_text",
 ]
