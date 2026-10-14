@@ -413,7 +413,7 @@ def test_cleanup_leaves_browser_open_for_the_human_at_the_terminal_step(monkeypa
 
     assert calls["released"] == "run-1"
     assert calls["task4"].awaiting_human_submit is True
-    assert result["log"] == ["cleanup: browser left open for the human; closed by the human"]
+    assert result["log"] == ["cleanup: browser left open for the human"]
 
 
 def test_cleanup_logs_a_wait_timeout(monkeypatch) -> None:
@@ -432,11 +432,11 @@ def test_cleanup_logs_a_wait_timeout(monkeypatch) -> None:
     result = asyncio.run(cleanup(state))
 
     assert result["log"] == [
-        "cleanup: browser left open for the human; wait timed out, session closed"
+        "cleanup: browser left open for the human; wait ended"
     ]
 
 
-def test_cleanup_closes_the_browser_when_not_at_the_terminal_step(monkeypatch) -> None:
+def test_cleanup_releases_the_run_when_not_at_the_terminal_step(monkeypatch) -> None:
     import src.tools.browser as browser_tools
 
     calls: dict = {}
@@ -457,7 +457,7 @@ def test_cleanup_closes_the_browser_when_not_at_the_terminal_step(monkeypatch) -
 
     assert calls["released"] == "run-1"
     assert calls["task4"].awaiting_human_submit is False
-    assert result["log"] == ["cleanup: browser session closed"]
+    assert result["log"] == ["cleanup: browser left open (run released)"]
 
 
 # --- Task 8: the submit-and-repeat loop -----------------------------------
@@ -728,4 +728,4 @@ def test_cleanup_closes_directly_when_the_task8_loop_ran(monkeypatch) -> None:
     # The loop already waited for the human per job; cleanup just closes once.
     assert calls["closed"] == "run-1"
     assert "released" not in calls
-    assert result["log"] == ["cleanup: browser session closed (Task 8 loop finished)"]
+    assert result["log"] == ["cleanup: browser left open (Task 8 loop finished)"]

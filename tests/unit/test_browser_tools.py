@@ -252,6 +252,7 @@ class FakeSession:
         self.page = page
         self.started = False
         self.killed = False
+        self.stopped = False
         self.screenshot_path: str | None = None
 
     async def start(self) -> None:
@@ -259,6 +260,11 @@ class FakeSession:
 
     async def kill(self) -> None:
         self.killed = True
+
+    async def stop(self) -> None:
+        # Releasing the session must never close the browser, so the agent only
+        # ever calls stop() (see browser._detach_session).
+        self.stopped = True
 
     async def new_page(self) -> FakePage:
         return self.page
@@ -1527,7 +1533,7 @@ async def test_run_task1_success(monkeypatch: pytest.MonkeyPatch, tmp_path) -> N
     assert browser_tools._JOBS_TAB_URL not in page.goto_calls
     assert search_field.filled == "software engineer"
     assert submit.clicked is True
-    assert session.started is True and session.killed is True
+    assert session.started is True and session.killed is False
     assert messages  # progress was reported
 
 
@@ -1586,7 +1592,7 @@ async def test_run_task1_captures_screenshot_when_login_fails(
     assert outcome.search_performed is False
     assert outcome.screenshot_path is not None
     assert Path(outcome.screenshot_path).is_file()
-    assert session.killed is True
+    assert session.killed is False
 
 
 async def test_run_task1_captures_screenshot_when_search_is_empty(
@@ -1611,7 +1617,7 @@ async def test_run_task1_captures_screenshot_when_search_is_empty(
     assert outcome.results_found is False
     assert outcome.easy_apply_filter_selected is False
     assert outcome.screenshot_path is not None
-    assert session.killed is True
+    assert session.killed is False
 
 
 async def test_run_agent_runs_both_tasks(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
@@ -1643,7 +1649,7 @@ async def test_run_agent_runs_both_tasks(monkeypatch: pytest.MonkeyPatch, tmp_pa
     assert result.task2.application_form_opened is True
     assert result.task2.screenshot_path is None
     assert result.job_description.title == "Backend Engineer"
-    assert session.started is True and session.killed is True
+    assert session.started is True and session.killed is False
 
 
 async def test_run_agent_skips_task2_when_task1_fails(
@@ -1666,7 +1672,7 @@ async def test_run_agent_skips_task2_when_task1_fails(
     assert result.task2.easy_apply_clicked is False
     assert "skipped" in result.task2.notes.lower()
     assert result.task1.screenshot_path is not None
-    assert session.killed is True
+    assert session.killed is False
 
 
 async def test_run_agent_captures_screenshot_when_apply_fails(
@@ -1693,7 +1699,7 @@ async def test_run_agent_captures_screenshot_when_apply_fails(
     assert result.task1.easy_apply_filter_selected is True
     assert result.task2.easy_apply_clicked is False
     assert result.task2.screenshot_path is not None
-    assert session.killed is True
+    assert session.killed is False
 
 
 async def test_enumerate_form_fields() -> None:
@@ -2576,7 +2582,8 @@ async def test_run_agent_registers_and_closes_the_session(
     assert result.job_description.is_read is True
     # run_agent does not fill the form; the graph's fill node does.
     assert result.task4.form_open is False
-    assert session.killed is True
+    assert session.killed is False
+    assert session.stopped is True
     assert browser_tools._ACTIVE_RUNS == {}
 
 
@@ -2609,8 +2616,39 @@ async def test_start_tasks_keeps_the_session_open(
     assert browser_tools.get_run(run_id) is not None
 
     await browser_tools.close_run(run_id)
-    assert session.killed is True
+    # Releasing the run must never close the browser.
+    assert session.killed is False
+    assert session.stopped is True
     assert browser_tools.get_run(run_id) is None
+
+
+async def test_detach_session_never_kills_the_browser() -> None:
+    """Releasing a session detaches our handle and disarms the kill watchdog."""
+
+    class _Watchdog:
+        _subprocess = object()
+        _owns_browser_resources = True
+
+    class _Session:
+        def __init__(self) -> None:
+            self._local_browser_watchdog = _Watchdog()
+            self.stopped = False
+            self.killed = False
+
+        async def stop(self) -> None:
+            self.stopped = True
+
+        async def kill(self) -> None:
+            self.killed = True
+
+    session = _Session()
+    await browser_tools._detach_session(session)
+
+    assert session.stopped is True
+    assert session.killed is False
+    # With no subprocess handle the local-browser watchdog cannot force-kill it.
+    assert session._local_browser_watchdog._subprocess is None
+    assert session._local_browser_watchdog._owns_browser_resources is False
 
 
 def test_run_is_connected_is_false_without_a_run() -> None:
@@ -2636,7 +2674,7 @@ async def test_wait_for_human_close_returns_when_the_human_closes(tmp_path) -> N
     assert browser_tools.get_run(run_id) is None
 
 
-async def test_wait_for_human_close_times_out_and_closes(tmp_path) -> None:
+async def test_wait_for_human_close_times_out_and_leaves_open(tmp_path) -> None:
     page = FakePage()
     session = FakeSession(page)
     session.is_cdp_connected = True  # the window stays open
@@ -2652,7 +2690,8 @@ async def test_wait_for_human_close_times_out_and_closes(tmp_path) -> None:
         browser_tools._ACTIVE_RUNS.pop(run_id, None)
 
     assert closed is False
-    assert session.killed is True
+    assert session.killed is False
+    assert session.stopped is True
     assert browser_tools.get_run(run_id) is None
 
 
@@ -2796,7 +2835,8 @@ async def test_run_full_agent_end_to_end_offline(monkeypatch: pytest.MonkeyPatch
     assert result.task4.filled_fields == 1
     assert result.task4.submitted is False
     assert page.button_elements["b0"].clicked is False
-    assert session.killed is True
+    assert session.killed is False
+    assert session.stopped is True
     assert browser_tools._ACTIVE_RUNS == {}
 
 

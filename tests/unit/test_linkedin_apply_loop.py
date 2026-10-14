@@ -35,10 +35,15 @@ class _FakeSession:
     def __init__(self, page) -> None:
         self.page = page
         self.killed = False
+        self.stopped = False
         self.is_cdp_connected = True
 
     async def kill(self) -> None:
         self.killed = True
+
+    async def stop(self) -> None:
+        # Releasing the session must never close the browser.
+        self.stopped = True
 
 
 class _FakeSubmitPage:
@@ -161,7 +166,7 @@ async def test_await_human_submit_reports_a_closed_browser() -> None:
     assert browser_tools.get_run("run-closed") is None
 
 
-async def test_await_human_submit_times_out_and_closes() -> None:
+async def test_await_human_submit_times_out_and_leaves_open() -> None:
     page = _FakeSubmitPage({"form_open": True, "confirmation": "", "card_applied": False})
     session = _register("run-timeout", page)
 
@@ -174,7 +179,9 @@ async def test_await_human_submit_times_out_and_closes() -> None:
         browser_tools._ACTIVE_RUNS.pop("run-timeout", None)
 
     assert result == "timeout"
-    assert session.killed is True
+    # The browser is left open, never killed.
+    assert session.killed is False
+    assert session.stopped is True
 
 
 async def test_await_human_submit_returns_closed_without_a_run() -> None:

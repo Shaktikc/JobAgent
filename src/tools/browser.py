@@ -343,6 +343,11 @@ def build_browser(settings: Settings):
         user_data_dir=str(settings.profile_dir),
         viewport=settings.session.viewport,
         user_agent=settings.session.user_agent,
+        # The agent never closes the browser (see ``close_run``): keep the Chromium
+        # process alive when our CDP handle is released, so a failure or a finished
+        # run can still be inspected and driven by the human. Only the explicit
+        # ``autojob --clean-profile`` force-closes a browser.
+        keep_alive=True,
     )
 
 
@@ -468,7 +473,8 @@ async def start_tasks(
 
     Returns ``(outcome, run_id)``. When Tasks 1-2 succeed the session is **kept
     open** and registered under ``run_id`` so Task 4 can fill the same Easy Apply
-    form; otherwise the session is closed and ``run_id`` is ``None``.
+    form; otherwise ``run_id`` is ``None`` and the browser is still left open (the
+    agent never closes it).
     """
     # Tasks 1-3 live in their own modules. Imported here (not at module load) so
     # they can share this module's browser primitives without an import cycle.
@@ -512,8 +518,10 @@ async def start_tasks(
         return AgentOutcome(task1=task1, task2=task2, job_description=job_description), run_id
     finally:
         if run_id is None:
-            with contextlib.suppress(Exception):
-                await session.kill()
+            # Never close the browser, even when Tasks 1-2 failed: leave the window
+            # open so the failure can be inspected. Releasing our CDP handle (not
+            # killing) keeps the Chromium process alive.
+            await _detach_session(session)
 
 
 def get_run(run_id: str | None) -> _Run | None:
@@ -521,15 +529,42 @@ def get_run(run_id: str | None) -> _Run | None:
     return _ACTIVE_RUNS.get(run_id) if run_id else None
 
 
+async def _detach_session(session) -> None:
+    """Release our handle on a browser session **without closing the window**.
+
+    ``browser-use``'s ``stop()`` tears down our CDP link and event bus while the
+    ``keep_alive`` profile keeps the session from resetting. Its
+    ``LocalBrowserWatchdog`` would still force-kill the Chromium subprocess, so we
+    first clear the watchdog's process handle — with nothing to terminate, the
+    window stays open. ``kill()`` is deliberately never called; only the explicit
+    ``autojob --clean-profile`` force-closes a browser. A session without
+    ``stop()`` (e.g. a test fake) is simply left untouched.
+    """
+    watchdog = getattr(session, "_local_browser_watchdog", None)
+    if watchdog is not None:
+        with contextlib.suppress(Exception):
+            watchdog._subprocess = None  # type: ignore[attr-defined]
+            watchdog._owns_browser_resources = False  # type: ignore[attr-defined]
+    stop = getattr(session, "stop", None)
+    if stop is None:
+        return
+    with contextlib.suppress(Exception):
+        await stop()
+
+
 async def close_run(run_id: str | None) -> None:
-    """Kill and forget the session registered under ``run_id`` (idempotent)."""
+    """Release the run registered under ``run_id`` without closing the browser.
+
+    Idempotent. The agent **never** closes the browser: this only forgets the run
+    and detaches our CDP handle, so the Chromium window stays open (see
+    :func:`_detach_session`).
+    """
     if not run_id:
         return
     run = _ACTIVE_RUNS.pop(run_id, None)
     if run is None:
         return
-    with contextlib.suppress(Exception):
-        await run.session.kill()
+    await _detach_session(run.session)
 
 
 def forget_run(run_id: str | None) -> None:
@@ -565,9 +600,10 @@ async def wait_for_human_close(
     Used when Task 4 stops at the terminal step (only **Submit application**
     remains): the window stays open so the human can review and submit the
     application manually, then closes it. Returns ``True`` once the browser is
-    gone (closed by the human), or ``False`` when the wait times out — the
-    session is then closed for them. ``AUTOJOB_SESSION_KEEP_OPEN_TIMEOUT_SECONDS``
-    of ``0`` waits indefinitely.
+    gone (closed by the human), or ``False`` when the wait times out — the run
+    stops waiting but the browser is **left open** for the human (the agent never
+    closes it). ``AUTOJOB_SESSION_KEEP_OPEN_TIMEOUT_SECONDS`` of ``0`` waits
+    indefinitely.
     """
     settings = settings or load_settings()
     notify = progress or (lambda _message: None)
@@ -588,7 +624,7 @@ async def wait_for_human_close(
             forget_run(run_id)
             return True
         if deadline is not None and time.monotonic() >= deadline:
-            notify("Task 4: browser still open after the wait; closing it.")
+            notify("Task 4: browser still open after the wait; leaving it open.")
             await close_run(run_id)
             return False
         await asyncio.sleep(poll)
@@ -604,9 +640,10 @@ async def release_run(
 
     When Task 4 stopped at the terminal step (only **Submit application** remains)
     the window is left open and this waits for the human to close it (see
-    :func:`wait_for_human_close`). On every other path the session is closed.
-    Returns ``"human"`` (closed by the human), ``"timeout"`` (wait timed out and
-    the session was closed), or ``"closed"`` (closed by the agent).
+    :func:`wait_for_human_close`). On every other path the run is released but the
+    browser is **left open** — the agent never closes it. Returns ``"human"``
+    (closed by the human), ``"timeout"`` (the wait ended; left open), or
+    ``"closed"`` (the run was released; the window is left open).
     """
     if task4 is not None and task4.awaiting_human_submit:
         return "human" if await wait_for_human_close(run_id, settings, progress) else "timeout"
@@ -622,9 +659,9 @@ async def fill_application(
 ) -> tuple[Task4Outcome, Task5Outcome]:
     """Fill the open Easy Apply form in the session registered under ``run_id``.
 
-    Returns ``(task4, task5)``. The session is left open; the caller closes it (the
-    graph's ``cleanup`` node or :func:`run_full_agent`), so an in-flight session
-    can still be screenshotted on failure.
+    Returns ``(task4, task5)``. The browser is left open; the caller only releases
+    the run (the graph's ``cleanup`` node or :func:`run_full_agent`) — it is never
+    closed, so an in-flight session can still be screenshotted on failure.
     """
     # Task 4's fill flow lives in its own module. Imported here (not at module
     # load) so it can share this module's primitives without an import cycle.
@@ -663,7 +700,8 @@ async def run_agent(
     Task 2 has no inputs of its own: it acts on the job list Task 1 leaves open,
     so both run against the same page. Task 3 then reads the open job's
     description (the resume selection that follows is offline). Each task is
-    skipped when the previous one fails. The session is closed at the end.
+    skipped when the previous one fails. The browser is **left open** at the end
+    (the agent never closes it).
     """
     settings = settings or load_settings()
     outcome, run_id = await start_tasks(url, search_query, settings, progress)
@@ -681,9 +719,10 @@ async def run_full_agent(
 
     When Task 4 reaches the terminal step (only **Submit application** remains)
     the browser is left open and the call waits for the human to close it (see
-    :func:`release_run`); otherwise the session is closed at the end. This is the
-    one-shot helper used by the live integration test; the Task 8 submit-and-repeat
-    loop lives in the graph (see :mod:`src.nodes.apply_loop`).
+    :func:`release_run`); otherwise the run is released but the browser is left
+    open too (the agent never closes it). This is the one-shot helper used by the
+    live integration test; the Task 8 submit-and-repeat loop lives in the graph
+    (see :mod:`src.nodes.apply_loop`).
     """
     from src.tools.linkedin_best_matching_resume import ensure_resume  # keep light
 

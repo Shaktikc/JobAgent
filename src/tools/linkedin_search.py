@@ -20,7 +20,6 @@ interaction uses browser-use's deterministic CDP actor API (``Page`` /
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import time
 
 from src.configuration import Settings, load_settings
@@ -29,6 +28,7 @@ from src.tools.browser import (
     _APPLY_POLL_SECONDS,
     _RESULTS_WAIT_SECONDS,
     _append_note,
+    _detach_session,
     _element_is_apply_button,
     _element_is_choice_control,
     _element_label,
@@ -558,5 +558,6 @@ async def run_task1(
             outcome.screenshot_path = await capture_failure_screenshot(session, settings, "task1")
         return outcome
     finally:
-        with contextlib.suppress(Exception):
-            await session.kill()
+        # Never close the browser (see browser.close_run): release our handle and
+        # leave the Chromium window open even when Task 1 failed.
+        await _detach_session(session)

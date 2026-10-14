@@ -186,8 +186,8 @@ async def await_human_submit(
     Returns ``"submitted"`` once a submission is confirmed, ``"closed"`` when the
     human closes the browser, or ``"timeout"`` when the wait
     (``AUTOJOB_SESSION_KEEP_OPEN_TIMEOUT_SECONDS``; ``0`` waits indefinitely)
-    elapses — in which case the session is closed for the human. Never clicks
-    **Submit application**.
+    elapses — in which case the browser is **left open** for the human (the agent
+    never closes it). Never clicks **Submit application**.
     """
     settings = settings or load_settings()
     notify = progress or (lambda _message: None)
@@ -216,7 +216,10 @@ async def await_human_submit(
             await _dismiss_confirmation(run.page, state)
             return "submitted"
         if deadline is not None and time.monotonic() >= deadline:
-            notify("Task 8: no submission detected before the wait ended; closing the browser.")
+            notify(
+                "Task 8: no submission detected before the wait ended; "
+                "leaving the browser open."
+            )
             await close_run(run_id)
             return "timeout"
         await asyncio.sleep(poll)

@@ -93,8 +93,8 @@ class SessionSettings(BaseModel):
     # Task 4: when the walk stops at the terminal step (only **Submit
     # application** remains) the browser is left open for the human to review and
     # submit the application manually. The run waits for the human to close the
-    # window, up to this many seconds, then closes it for them. 0 waits
-    # indefinitely.
+    # window, up to this many seconds; if it times out the browser is left open
+    # anyway (the agent never closes it). 0 waits indefinitely.
     keep_open_timeout_seconds: float = Field(default=1800.0, ge=0)
     keep_open_poll_seconds: float = Field(default=1.0, gt=0)
     # Task 8: how many jobs one run may submit before the loop stops. 0 = keep

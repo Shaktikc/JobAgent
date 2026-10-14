@@ -98,11 +98,12 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
    unapplied job remains), every job is Applied, you close the browser, or a step
    fails — each with a clear `stopped_reason`. The session is reused across
    iterations.
-7. **cleanup** — closes the shared browser session on every path, **except** when
-   the Task 8 loop is off and Task 4 reached the last step: then the window is left
-   open so you can review and submit manually, and the run waits until you close it
-   (or `AUTOJOB_SESSION_KEEP_OPEN_TIMEOUT_SECONDS` elapses). When the loop ran, it
-   already waited for you per job, so cleanup just closes the session once.
+7. **cleanup** — releases the shared browser session on every path. The **agent
+   never closes the browser**: the Chromium window is left open so you can inspect a
+   failure and keep driving it yourself. At the last step (Task 4 only **Submit
+   application** remains) the run waits for you to close the window (or
+   `AUTOJOB_SESSION_KEEP_OPEN_TIMEOUT_SECONDS` elapses) and leaves it open either
+   way. Run `autojob --clean-profile` to force-close a leftover browser.
 8. **verify** — passes only when all of the above succeeded (including a clean
    Task 8 stop reason; your submission is never a failure). Otherwise the run fails
    and a full-page screenshot plus the page URL are recorded under `data/debug/`.
@@ -239,6 +240,11 @@ tests/
   This only closes browser processes whose command line references the dedicated
   `data/profile`, so your normal Chrome is untouched. Set
   `AUTOJOB_SESSION_CLEAN_STALE_PROFILE=false` to skip the lock recovery.
+
+- **"another browser is already using the AutoJobApply profile …"** — the agent
+  never closes the browser, so the window from a previous run is still holding
+  `data/profile`. Close that window (or run `uv run autojob --clean-profile`) before
+  starting the next run.
 
 - **"Browser process … exited before CDP became available"** — a **crashed**
   previous run left Chromium's single-instance lock in `data/profile` (with no
