@@ -300,6 +300,9 @@ def _settings(tmp_path, **session) -> Settings:
     session.setdefault("ask_human", False)
     # Task 1's optional AI-button wait is skipped by default so tests stay fast.
     session.setdefault("ai_search_timeout_seconds", 0)
+    # The post-click settle is a real-time pacing delay; unit tests drive fake
+    # pages that are already loaded, so skip it unless a test sets it.
+    session.setdefault("post_click_wait_seconds", 0)
     # At the terminal step the browser is left open for the human; keep the wait
     # short in tests so the run still closes the session and finishes quickly.
     session.setdefault("keep_open_timeout_seconds", 0.05)
@@ -369,6 +372,37 @@ async def test_type_jobs_search_types_and_submits(tmp_path) -> None:
     assert submit.clicked is True
     # The search bar is already on the page, so the Jobs tab is not reopened.
     assert page.goto_calls == []
+
+
+async def test_type_jobs_search_waits_for_the_page_to_load_after_submitting(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Only one control may be clicked per page load: after submitting the
+    search the run must wait for the page to finish loading before the caller
+    reads results or clicks another control (the "many buttons clicked at once"
+    bug)."""
+    field = FakeElement("Search by title, skill, or company")
+    submit = FakeElement("Search")
+    page = FakePage(
+        by_selector={
+            "input.jobs-search-box__keyboard-text-input": [field],
+            "button.jobs-search-box__submit-button": [submit],
+        }
+    )
+    waits: list[float] = []
+
+    async def fake_wait(_page, timeout_seconds):
+        waits.append(timeout_seconds)
+        return True
+
+    monkeypatch.setattr(linkedin_tools, "_wait_for_load", fake_wait)
+
+    typed = await browser_tools.type_jobs_search(page, "software engineer", _settings(tmp_path))
+
+    assert typed is True
+    assert submit.clicked is True
+    # Submitting the search navigates/reloads, so the page load must be awaited.
+    assert waits
 
 
 async def test_type_jobs_search_opens_jobs_tab_only_when_search_bar_absent(tmp_path) -> None:
@@ -806,6 +840,31 @@ async def test_select_easy_apply_filter_clicks(tmp_path) -> None:
     assert selected is True
     assert note == ""
     assert filt.clicked is True
+
+
+async def test_select_easy_apply_filter_waits_for_the_page_to_load(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Clicking the filter re-renders the results page, so the run must wait for
+    the page to load before verifying or moving on to the next control."""
+    page = FakePage()
+    filt = _filter_element(page)
+    page.by_selector = {"button[aria-label*='Easy Apply']": [filt]}
+    waits: list[float] = []
+
+    async def fake_wait(_page, timeout_seconds):
+        waits.append(timeout_seconds)
+        return True
+
+    monkeypatch.setattr(linkedin_tools, "_wait_for_load", fake_wait)
+
+    selected, _note = await browser_tools.select_easy_apply_filter(
+        page, _settings(tmp_path, post_click_wait_seconds=0)
+    )
+
+    assert selected is True
+    assert filt.clicked is True
+    assert waits
 
 
 async def test_select_easy_apply_filter_falls_back_to_url(tmp_path) -> None:

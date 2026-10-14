@@ -163,6 +163,21 @@ async def find_jobs_search_input(page):
     return None
 
 
+async def _settle_after_click(page, settings: Settings) -> None:
+    """Wait for the page to finish loading after a click.
+
+    The flow clicks **one** control at a time. A click can navigate or reload
+    the page, so before the next control is touched the run pauses for
+    ``post_click_wait_seconds`` (giving the navigation time to commit) and then
+    waits until ``document.readyState`` is ``'complete'``. Without this the next
+    step interacts with a half-loaded page, which shows up as several controls
+    being clicked at once.
+    """
+    if settings.session.post_click_wait_seconds:
+        await asyncio.sleep(settings.session.post_click_wait_seconds)
+    await _wait_for_load(page, settings.session.navigation_timeout_ms / 1000)
+
+
 async def type_jobs_search(page, query: str, settings: Settings) -> bool:
     """Type ``query`` into the jobs search bar and submit it.
 
@@ -193,6 +208,10 @@ async def type_jobs_search(page, query: str, settings: Settings) -> bool:
     else:
         # The field is still focused from fill(); Enter submits the search.
         await _safe(page.press("Enter"))
+    # Exactly one control was activated. The search navigates/reloads the page, so
+    # wait for it to finish loading before the caller reads results or clicks the
+    # next control; otherwise the next step lands on a half-loaded page.
+    await _settle_after_click(page, settings)
     await _pace(settings)
     return True
 
@@ -313,8 +332,10 @@ async def select_easy_apply_filter(page, settings: Settings) -> tuple[bool, str]
             await button.click()
         except Exception as exc:  # noqa: BLE001 - fall through to the URL toggle
             note = f"Easy Apply filter click failed: {exc}"
-        if settings.session.post_click_wait_seconds:
-            await asyncio.sleep(settings.session.post_click_wait_seconds)
+        # The filter click re-renders/navigates the results page; wait for it to
+        # settle before verifying, so the next step never clicks a control on a
+        # half-loaded page.
+        await _settle_after_click(page, settings)
 
     if await easy_apply_filter_selected(page):
         return True, note
