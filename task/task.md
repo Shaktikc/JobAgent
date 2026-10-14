@@ -9,3 +9,4 @@ Each task lives in its own file. This index links to them.
 - [Task 5 — Ask the human for unknown answers, remember them, and show UI feedback](task_5.md) — ✅ Done
 - [Task 6 — Skip jobs already marked "Applied" and open the next unapplied job](task_6.md) — ✅ Done
 - [Task 7 — When every job on the page is "Applied", go to the next results page](task_7.md) — ⬜ Not started
+- [Task 8 — After the human submits a job, open the next one and repeat](task_8.md) — ⬜ Not started
