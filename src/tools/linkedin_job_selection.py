@@ -13,6 +13,9 @@ This module owns Task 2's interactive browser flow, split out of
 Task 6's applied-job detection (classify a card as **Applied**, record the skip,
 and produce the "no unapplied job" note) lives in
 :mod:`src.tools.linkedin_skip_applied`; this module calls it while scanning.
+Task 7's pagination lives in :mod:`src.tools.linkedin_pagination`: when *every*
+card on the current page is Applied, this module advances the results list to the
+next page (up to ``_MAX_RESULT_PAGES``) and scans it again.
 
 The low-level browser primitives (pacing, safe probing, element resolution, the
 shared AI/semantic job-card scanner, failure screenshots, and the session /
@@ -26,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import re
 import time
+from dataclasses import dataclass
 
 from src.configuration import Settings
 from src.state import Task2Outcome
@@ -50,6 +54,7 @@ from src.tools.linkedin import (
     looks_like_job_card_label,
     pick_easy_apply_action_index,
 )
+from src.tools.linkedin_pagination import _MAX_RESULT_PAGES, go_to_next_page
 from src.tools.linkedin_skip_applied import applied_skip_note, skip_applied_card
 
 # Job cards in the left-hand search-results list (Task 2). This mirrors the
@@ -204,8 +209,34 @@ async def wait_for_easy_apply_modal(page, settings: Settings) -> tuple[bool, str
     return opened, text
 
 
-async def _task2_on_page(page, settings: Settings, notify) -> Task2Outcome:
-    """Run Task 2 steps on the results page left open by Task 1.
+@dataclass
+class _PageScan:
+    """What one pass over a single results page produced (Tasks 2 and 6)."""
+
+    opened: bool = False
+    cards_seen: int = 0
+    applied_skipped: int = 0
+
+
+async def _wait_for_cards(page) -> list:
+    """Wait for the results list to render and return its job cards."""
+    cards = await read_job_cards(page)
+    deadline = time.monotonic() + _RESULTS_WAIT_SECONDS
+    while not cards and time.monotonic() < deadline:
+        await asyncio.sleep(0.5)
+        cards = await read_job_cards(page)
+    return cards
+
+
+async def _scan_page(
+    page,
+    settings: Settings,
+    notify,
+    outcome: Task2Outcome,
+    tried: set[str],
+    applied_seen: set[str],
+) -> _PageScan:
+    """Scan one results page: skip Applied cards and open the first unapplied job.
 
     The results list is re-read on every attempt: clicking a card on LinkedIn's
     semantic results page navigates to the job and re-renders the list, which
@@ -213,19 +244,10 @@ async def _task2_on_page(page, settings: Settings, notify) -> Task2Outcome:
     silently clicks nothing, leaving the details pane on the first job so every
     later job is skipped. Re-reading gives fresh handles each time.
     """
-    outcome = Task2Outcome()
-
-    cards = await read_job_cards(page)
-    deadline = time.monotonic() + _RESULTS_WAIT_SECONDS
-    while not cards and time.monotonic() < deadline:
-        await asyncio.sleep(0.5)
-        cards = await read_job_cards(page)
-    outcome.jobs_seen = len(cards) or await results_count(page)
-    notify(f"Task 2: {outcome.jobs_seen} job(s) in the list.")
-    await _pace(settings)
-
-    tried: set[str] = set()
-    applied_seen: set[str] = set()
+    scan = _PageScan()
+    before_applied = outcome.applied_jobs_skipped
+    cards = await _wait_for_cards(page)
+    scan.cards_seen = len(cards)
 
     for _attempt in range(_MAX_JOB_ATTEMPTS):
         # Re-read the list so every card handle is fresh (the previous click may
@@ -308,9 +330,53 @@ async def _task2_on_page(page, settings: Settings, notify) -> Task2Outcome:
         outcome.modal_text = modal_text
         if opened:
             notify("Task 2: Easy Apply application form opened.")
+            scan.opened = True
             break
         outcome.notes = "Easy Apply form did not open after the click"
 
+    scan.applied_skipped = outcome.applied_jobs_skipped - before_applied
+    return scan
+
+
+async def _task2_on_page(page, settings: Settings, notify) -> Task2Outcome:
+    """Run Task 2 steps on the results page left open by Task 1.
+
+    Task 6 skips the cards already marked **Applied** and opens the first
+    unapplied job. **Task 7:** when *every* card on a page is Applied the results
+    list is advanced to the next page (up to ``_MAX_RESULT_PAGES``) and the scan
+    runs again there, until an unapplied job is found or there are no more pages.
+    Paginating never opens or applies to a job by itself.
+    """
+    outcome = Task2Outcome()
+    tried: set[str] = set()
+    applied_seen: set[str] = set()
+    pages_visited = 0
+    exhausted = False
+
+    for page_index in range(_MAX_RESULT_PAGES):
+        pages_visited += 1
+        scan = await _scan_page(page, settings, notify, outcome, tried, applied_seen)
+        outcome.jobs_seen = scan.cards_seen or await results_count(page)
+        notify(f"Task 2: {outcome.jobs_seen} job(s) in the list.")
+        await _pace(settings)
+        if scan.opened:
+            break
+        # Task 7: only paginate when the whole page was Applied. Otherwise this
+        # page has nothing to offer and advancing would not help.
+        if scan.cards_seen == 0 or scan.applied_skipped < scan.cards_seen:
+            break
+        if page_index == _MAX_RESULT_PAGES - 1:
+            outcome.notes = _append_note(
+                outcome.notes,
+                f"reached the results-page cap ({_MAX_RESULT_PAGES}) "
+                "while every page was Applied",
+            )
+            break
+        if not await go_to_next_page(page, settings, notify):
+            exhausted = True
+            break
+
+    outcome.pages_visited = pages_visited
     outcome.page_url = await _safe(page.get_url(), None)
     outcome.page_title = await _safe(page.get_title(), "") or ""
 
@@ -320,6 +386,11 @@ async def _task2_on_page(page, settings: Settings, notify) -> Task2Outcome:
         note = applied_skip_note(outcome)
         if note:
             outcome.notes = _append_note(outcome.notes, note)
+        if exhausted and pages_visited > 1:
+            outcome.notes = _append_note(
+                outcome.notes,
+                f"searched {pages_visited} results page(s); every job is Applied",
+            )
     return outcome
 
 

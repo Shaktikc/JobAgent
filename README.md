@@ -36,6 +36,13 @@ The graph is `START -> ingest -> browse -> match -> fill -> cleanup -> verify ->
    - **Task 2:** reads the job list from those results, opens the first job that
      offers Easy Apply (skipping external-apply jobs), clicks its **Easy Apply**
      button, and confirms the application form opened.
+   - **Task 6:** skips cards already marked **"Applied"** (e.g. "Applied · 5
+     months ago") and opens the first unapplied job instead.
+   - **Task 7:** when *every* card on the current results page is **"Applied"**,
+     advances the results list to the next page (up to `_MAX_RESULT_PAGES`) and
+     scans it again, until an unapplied job is found or there are no more pages.
+     The number of pages visited is recorded (`pages_visited`). Paginating never
+     opens or applies to a job by itself.
    - **Task 3 (read):** reads the open job's title, company, location, and
      description body from the details pane.
    The session is left **open** (registered under an opaque `browser_run_id`) so
@@ -177,6 +184,8 @@ src/
     linkedin.py      Pure LinkedIn URL/text helpers
     linkedin_search.py             Task 1: log in, search jobs, select Easy Apply filter
     linkedin_job_selection.py      Task 2: select a job, open its Easy Apply form
+    linkedin_skip_applied.py       Task 6: skip cards already marked "Applied"
+    linkedin_pagination.py         Task 7: when a page is all Applied, go to the next page
     linkedin_best_matching_resume.py
                      Task 3: read the job description, drive the LLM match;
                      Task 3.1: ask the human when nothing matches

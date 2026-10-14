@@ -12,7 +12,9 @@ application**) lives in
 :mod:`src.tools.linkedin_easy_apply_fill`; Task 5 (ask the human for an unknown
 answer, remember it, and show a browser feedback banner) lives in
 :mod:`src.tools.linkedin_ask_human`; Task 6 (skip jobs already marked
-**Applied**) lives in :mod:`src.tools.linkedin_skip_applied`.
+**Applied**) lives in :mod:`src.tools.linkedin_skip_applied`; Task 7 (when a whole
+results page is Applied, advance to the next page) lives in
+:mod:`src.tools.linkedin_pagination`.
 This module owns the shared browser primitives. For back-compat the moved names
 are still reachable here (see ``__getattr__`` below), so ``browser`` remains the
 stable entry point.

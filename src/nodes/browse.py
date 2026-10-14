@@ -52,7 +52,8 @@ async def browse(state: ApplyState) -> ApplyState:
         f"easy_apply_clicked={task2.easy_apply_clicked} "
         f"form_opened={task2.application_form_opened} "
         f"skipped={task2.skipped_jobs} "
-        f"applied_skipped={task2.applied_jobs_skipped}",
+        f"applied_skipped={task2.applied_jobs_skipped} "
+        f"pages_visited={task2.pages_visited}",
         "browse: task3 "
         f"job_title={description.title!r} "
         f"company={description.company!r} "

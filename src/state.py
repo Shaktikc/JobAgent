@@ -63,6 +63,9 @@ class Task2Outcome(BaseModel):
     # Task 6: cards that were skipped because they are already "Applied".
     applied_jobs_skipped: int = 0
     applied_skipped_cards: list[dict] = Field(default_factory=list)
+    # Task 7: how many results pages were visited while looking for an unapplied
+    # job (1 = the first page only; >1 = paginated because whole pages were Applied).
+    pages_visited: int = 0
     easy_apply_button_found: bool = False
     easy_apply_clicked: bool = False
     application_form_opened: bool = False

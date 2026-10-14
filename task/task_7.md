@@ -1,6 +1,6 @@
 # Task 7 — When every job on the page is "Applied", go to the next results page
 
-**Status:** ⬜ Not started
+**Status:** ✅ Done
 
 **Goal:** When **every** job on the current results page is already marked
 **"Applied"** (Task 7 found no unapplied job), move to the **next results page**

@@ -800,6 +800,142 @@ async def test_task2_applied_skip_can_be_disabled(tmp_path) -> None:
     assert outcome.application_form_opened is True
 
 
+async def test_task2_paginates_when_a_whole_page_is_applied(tmp_path, monkeypatch) -> None:
+    """Task 7: when every card on the page is Applied, the next page is opened
+    and Task 6's scan runs again there."""
+    import src.tools.linkedin_job_selection as job_selection
+
+    page = FakePage(details_apply_labels={0: "Easy Apply to Data Engineer at Acme"})
+    page_one = [
+        _job_card(page, 0, "Backend Engineer Acme Applied 5 months ago"),
+        _job_card(page, 1, "Frontend Engineer Acme Applied 2 weeks ago"),
+    ]
+    page_two = [_job_card(page, 0, "Data Engineer Acme Easy Apply")]
+    page.by_selector = {"li.jobs-search-results__list-item": page_one}
+    calls = {"next": 0}
+
+    async def fake_next(p, settings, notify=None):
+        calls["next"] += 1
+        p.by_selector = {"li.jobs-search-results__list-item": page_two}
+        return True
+
+    monkeypatch.setattr(job_selection, "go_to_next_page", fake_next)
+
+    outcome = await browser_tools._task2_on_page(
+        page, _settings(tmp_path, post_click_wait_seconds=0), lambda _m: None
+    )
+
+    assert calls["next"] == 1
+    assert outcome.pages_visited == 2
+    assert outcome.applied_jobs_skipped == 2
+    assert outcome.job_title == "Data Engineer Acme Easy Apply"
+    assert outcome.easy_apply_clicked is True
+    assert outcome.application_form_opened is True
+
+
+async def test_task2_stops_after_searching_every_page(tmp_path, monkeypatch) -> None:
+    """Task 7: if every job on every page is Applied, nothing is opened and the
+    run stops with a clear note (after recording the pages visited)."""
+    import src.tools.linkedin_job_selection as job_selection
+
+    page = FakePage()
+    page.by_selector = {
+        "li.jobs-search-results__list-item": [
+            _job_card(page, 0, "Backend Engineer Acme Applied 5 months ago"),
+            _job_card(page, 1, "Data Engineer Acme Applied 2 weeks ago"),
+        ]
+    }
+    calls = {"next": 0}
+
+    async def fake_next(p, settings, notify=None):
+        calls["next"] += 1
+        if calls["next"] == 1:
+            p.by_selector = {
+                "li.jobs-search-results__list-item": [
+                    _job_card(p, 0, "QA Engineer Acme Applied 1 month ago"),
+                    _job_card(p, 1, "DevOps Engineer Acme Applied 3 days ago"),
+                ]
+            }
+            return True
+        return False
+
+    monkeypatch.setattr(job_selection, "go_to_next_page", fake_next)
+
+    outcome = await browser_tools._task2_on_page(
+        page, _settings(tmp_path, post_click_wait_seconds=0), lambda _m: None
+    )
+
+    assert calls["next"] == 2
+    assert outcome.pages_visited == 2
+    assert outcome.applied_jobs_skipped == 4
+    assert outcome.easy_apply_clicked is False
+    assert outcome.application_form_opened is False
+    assert "no unapplied job found" in outcome.notes
+    assert "searched 2 results page(s)" in outcome.notes
+
+
+async def test_task2_does_not_paginate_when_the_page_is_not_all_applied(
+    tmp_path, monkeypatch
+) -> None:
+    """Task 7 only paginates when the whole page is Applied: an unapplied job
+    (here one without Easy Apply) stops the run without advancing the page."""
+    import src.tools.linkedin_job_selection as job_selection
+
+    page = FakePage()
+    page.by_selector = {
+        "li.jobs-search-results__list-item": [
+            _job_card(page, 0, "Backend Engineer Acme Applied 5 months ago"),
+            _job_card(page, 1, "Data Engineer Acme Easy Apply"),
+        ]
+    }
+    called = {"next": False}
+
+    async def fake_next(p, settings, notify=None):
+        called["next"] = True
+        return True
+
+    monkeypatch.setattr(job_selection, "go_to_next_page", fake_next)
+
+    outcome = await browser_tools._task2_on_page(
+        page, _settings(tmp_path, post_click_wait_seconds=0), lambda _m: None
+    )
+
+    assert called["next"] is False
+    assert outcome.pages_visited == 1
+    assert outcome.easy_apply_clicked is False
+
+
+async def test_task2_stops_at_the_results_page_cap(tmp_path, monkeypatch) -> None:
+    """Task 7 caps how many pages it will visit, so a control that never
+    disables cannot loop forever."""
+    import src.tools.linkedin_job_selection as job_selection
+
+    monkeypatch.setattr(job_selection, "_MAX_RESULT_PAGES", 2)
+    page = FakePage()
+    counter = {"n": 0}
+
+    def _applied_page(p):
+        counter["n"] += 1
+        title = f"Backend Engineer {counter['n']} Acme Applied 5 months ago"
+        return {"li.jobs-search-results__list-item": [_job_card(p, 0, title)]}
+
+    page.by_selector = _applied_page(page)
+
+    async def fake_next(p, settings, notify=None):
+        p.by_selector = _applied_page(p)
+        return True
+
+    monkeypatch.setattr(job_selection, "go_to_next_page", fake_next)
+
+    outcome = await browser_tools._task2_on_page(
+        page, _settings(tmp_path, post_click_wait_seconds=0), lambda _m: None
+    )
+
+    assert outcome.pages_visited == 2
+    assert outcome.easy_apply_clicked is False
+    assert "results-page cap" in outcome.notes
+
+
 async def test_read_job_description() -> None:
     page = FakePage()
     description = await browser_tools.read_job_description(page)
