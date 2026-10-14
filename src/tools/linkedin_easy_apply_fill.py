@@ -71,6 +71,17 @@ _ENUMERATE_FORM_QUERY = r"""
   const ownLabel = (el) => {
     const aria = el.getAttribute('aria-label');
     if (aria && norm(aria)) return norm(aria);
+    const by = (el.getAttribute('aria-labelledby') || '').trim();
+    if (by) {
+      const parts = by.split(/\s+/).map((id) => {
+        const n = modal.querySelector('#' + esc(id));
+        return n ? norm(n.innerText) : '';
+      }).filter(Boolean);
+      if (parts.length) return parts.join(' ');
+    }
+    if (el.labels && el.labels.length && norm(el.labels[0].innerText)) {
+      return norm(el.labels[0].innerText);
+    }
     if (el.placeholder && norm(el.placeholder)) return norm(el.placeholder);
     if (el.id) {
       const l = modal.querySelector('label[for="' + esc(el.id) + '"]');
@@ -100,9 +111,21 @@ _ENUMERATE_FORM_QUERY = r"""
   };
 
   const groupLabel = (el) => {
-    const fs = el.closest('fieldset');
-    if (fs) {
-      const lg = fs.querySelector('legend');
+    // LinkedIn's newer layout wraps a screening question in a
+    // ``[role="radiogroup"]`` (or fieldset) that points at its own label.
+    const group = el.closest('[role="radiogroup"], [role="group"], fieldset');
+    if (group) {
+      const gAria = group.getAttribute('aria-label');
+      if (gAria && norm(gAria)) return norm(gAria);
+      const ids = (group.getAttribute('aria-labelledby') || '').trim();
+      if (ids) {
+        const parts = ids.split(/\s+/).map((id) => {
+          const n = modal.querySelector('#' + esc(id));
+          return n ? norm(n.innerText) : '';
+        }).filter(Boolean);
+        if (parts.length) return parts.join(' ');
+      }
+      const lg = group.querySelector('legend');
       if (lg && norm(lg.innerText)) return norm(lg.innerText);
     }
     // The question label usually sits in an outer grouping/section container
@@ -536,14 +559,10 @@ async def _fill_step(
     unknown: list[str] = []
     records: list[FormField] = []
 
-    radio_groups: dict[str, list[dict]] = {}
-    others: list[dict] = []
-    for field in fields:
-        if field.get("kind") == "radio":
-            key = field.get("name") or field.get("question") or field.get("marker")
-            radio_groups.setdefault(key, []).append(field)
-        else:
-            others.append(field)
+    # Walk the controls in the order they appear on the form. ``fields`` is in DOM
+    # order, so grouping each radio group at its first option asks questions in the
+    # order the human sees them — not every choice first, then every text box.
+    handled_groups: set[str] = set()
 
     async def _apply(record: FormField, field: dict, answer: str, source: str) -> None:
         nonlocal known, filled
@@ -561,67 +580,83 @@ async def _fill_step(
         filled += 1 if record.filled else 0
         records.append(record)
 
-    for key, group in radio_groups.items():
-        question = next((g.get("question") for g in group if g.get("question")), "") or key
-        options = [g.get("option", "") for g in group if g.get("option")]
-        if looks_like_resume_field(question, options):
-            continue  # the resume control is handled by _attach_resume
-        record = FormField(
-            question=question,
-            field_type="radio",
-            name=key,
-            required=any(g.get("required") for g in group),
-            options=options,
-        )
-        checked = next((g for g in group if g.get("checked")), None)
-        if checked is not None:
-            # Already selected on the form (e.g. a pre-filled choice): leave it be.
-            record.known = True
-            record.filled = True
-            record.value = checked.get("option", "")
-            record.answered_by = "form"
-            known += 1
-            filled += 1
-            records.append(record)
-            continue
-        decision = await _decide(chooser, question, "radio", options)
-        answer = decision.answer
-        source = "llm" if decision.decided else "human"
-        if decision.decided:
-            record.question_type = decision.category
-            record.matched_key = decision.matched_key
-            record.rationale = decision.rationale
-        option = (
-            next((g for g in group if answers_match(g.get("option", ""), answer)), None)
-            if answer is not None
-            else None
-        )
-        # Ask the human only when we have no usable answer: the LLM chose none, or
-        # it chose one that matches none of this step's options.
-        if option is None and ask is not None:
-            answered = await ask(question, {"type": "radio", "options": options})
-            if answered is not None:
-                _remember_answer(settings, answers, human, question, answered)
-                answer, source = answered, "human"
-                record.rationale = ""
-                option = next(
-                    (g for g in group if answers_match(g.get("option", ""), answered)), None
+    for field in fields:
+        if field.get("kind") == "radio":
+            key = field.get("name") or field.get("question") or field.get("marker")
+            if key in handled_groups:
+                continue
+            handled_groups.add(key)
+            group = [
+                f
+                for f in fields
+                if f.get("kind") == "radio"
+                and (f.get("name") or f.get("question") or f.get("marker")) == key
+            ]
+            question = next((g.get("question") for g in group if g.get("question")), "") or key
+            options = [g.get("option", "") for g in group if g.get("option")]
+            if looks_like_resume_field(question, options):
+                continue  # the resume control is handled by _attach_resume
+            record = FormField(
+                question=question,
+                field_type="radio",
+                name=key,
+                required=any(g.get("required") for g in group),
+                options=options,
+            )
+            checked = next((g for g in group if g.get("checked")), None)
+            if checked is not None:
+                # Already selected on the form (e.g. a pre-filled choice): leave it be.
+                record.known = True
+                record.filled = True
+                record.value = checked.get("option", "")
+                record.answered_by = "form"
+                known += 1
+                filled += 1
+                records.append(record)
+                continue
+            decision = await _decide(chooser, question, "radio", options)
+            answer = decision.answer
+            source = "llm" if decision.decided else "human"
+            if decision.decided:
+                record.question_type = decision.category
+                record.matched_key = decision.matched_key
+                record.rationale = decision.rationale
+            option = (
+                next((g for g in group if answers_match(g.get("option", ""), answer)), None)
+                if answer is not None
+                else None
+            )
+            # Ask the human only when we have no usable answer: the LLM chose none,
+            # or it chose one that matches none of this step's options.
+            if option is None and ask is not None:
+                group_markers = [g.get("marker") for g in group if g.get("marker")]
+                answered = await ask(
+                    question,
+                    {"type": "radio", "options": options, "markers": group_markers},
                 )
-        if option is not None:
-            await _apply(record, option, answer, source)
-            continue
-        if answer is None:
-            unknown.append(question)
+                if answered is not None:
+                    _remember_answer(settings, answers, human, question, answered)
+                    answer, source = answered, "human"
+                    record.rationale = ""
+                    option = next(
+                        (g for g in group if answers_match(g.get("option", ""), answered)), None
+                    )
+            if option is not None:
+                await _apply(record, option, answer, source)
+                continue
+            if answer is None:
+                unknown.append(question)
+                records.append(record)
+                continue
+            record.known = True
+            record.value = answer
+            record.answered_by = source
+            record.error = "no option matched the answer"
+            known += 1
             records.append(record)
             continue
-        record.known = True
-        record.value = answer
-        record.answered_by = source
-        record.error = "no option matched the answer"
-        known += 1
-        records.append(record)
 
-    for field in others:
+        # A non-choice control (text, textarea, select, checkbox).
         question = field.get("question") or field.get("name") or f"field {field.get('marker')}"
         record = FormField(
             question=question,
@@ -879,6 +914,9 @@ async def _task4_on_page(
     if human.enabled:
 
         async def _ask_question(question: str, field: dict) -> str | None:
+            markers = field.get("markers")
+            if markers is None and field.get("marker") is not None:
+                markers = [field.get("marker")]
             return await ask_human_for_answer(
                 page,
                 question,
@@ -887,6 +925,7 @@ async def _task4_on_page(
                 settings,
                 notify,
                 human,
+                markers=markers,
             )
 
         asker = _ask_question

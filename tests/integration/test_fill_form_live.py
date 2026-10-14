@@ -732,3 +732,188 @@ async def test_task5_pauses_for_the_human_and_remembers(tmp_path: Path) -> None:
         assert "email address" not in stored
     finally:
         await browser.kill()
+
+
+# A one-step form with a required, unknown screening question rendered the way
+# LinkedIn renders it: as ``<div role="radio" aria-checked="...">`` (not a real
+# input). Clicking sets ``aria-checked``; the agent must capture that click, which
+# fires no ``input``/``change``.
+_TASK5_RADIO_FORM_HTML = """<!doctype html>
+<html><head><meta charset="utf-8"><title>Task 5 radio</title></head>
+<body>
+<div class="artdeco-modal jobs-easy-apply-modal" role="dialog">
+  <div class="artdeco-modal__content">
+    <div class="jobs-easy-apply-form-section__grouping">
+      <span class="fb-form-element-label">
+        Have you previously mentored, reviewed the work of, or provided technical
+        direction to more junior engineers?
+      </span>
+      <div class="fb-form-element-wrapper">
+        <div class="fb-dash-form-element" role="radio" aria-checked="false"
+             data-option="Yes"><span>Yes</span></div>
+        <div class="fb-dash-form-element" role="radio" aria-checked="false"
+             data-option="No"><span>No</span></div>
+      </div>
+    </div>
+  </div>
+  <footer class="artdeco-modal__actionbar">
+    <button type="button" id="submit-btn" style="display:none">Submit application</button>
+  </footer>
+</div>
+<script>
+  document.querySelectorAll('[role="radio"]').forEach(function (r) {
+    r.addEventListener('click', function () {
+      document.querySelectorAll('[role="radio"]').forEach(function (x) {
+        x.setAttribute('aria-checked', 'false');
+      });
+      r.setAttribute('aria-checked', 'true');
+    });
+  });
+</script>
+</body></html>
+"""
+
+# Play the human: click the choice the way a mouse would (fires only ``click``).
+_CLICK_RADIO_JS = """(option) => {
+  const r = Array.from(document.querySelectorAll('[role="radio"]'))
+    .find((x) => (x.getAttribute('data-option') || '') === option);
+  if (!r) return false;
+  r.click();
+  return true;
+}"""
+
+
+async def test_task5_reads_a_role_radio_choice_and_stores_it(tmp_path: Path) -> None:
+    """A ``role=radio`` screening question is answered by a click and remembered.
+
+    LinkedIn renders these as styled divs, so a click fires no ``input``/``change``;
+    the watcher must still capture the choice and store the answer right away.
+    """
+    settings = _settings(tmp_path, ask_human=True)
+
+    form_file = tmp_path / "task5_radio.html"
+    form_file.write_text(_TASK5_RADIO_FORM_HTML, encoding="utf-8")
+
+    browser = browser_tools.build_browser(settings)
+    await browser.start()
+    try:
+        page = await browser.new_page()
+        await page.goto(form_file.as_uri())
+        await browser_tools._wait_for_load(page, 10)
+
+        human = Task5Outcome()
+        fill_task = asyncio.create_task(
+            browser_tools._task4_on_page(
+                page, browser, None, {}, settings, lambda _m: None, human=human
+            )
+        )
+
+        banner_present = False
+        for _ in range(200):
+            payload = json.loads(await page.evaluate(browser_tools._READ_UNKNOWN_JS))
+            if payload.get("present"):
+                banner_present = True
+                break
+            await asyncio.sleep(0.05)
+        assert banner_present, "the Task 5 banner never appeared"
+
+        clicked = await page.evaluate(_CLICK_RADIO_JS, "Yes")
+        assert str(clicked).lower() == "true"
+        outcome = await asyncio.wait_for(fill_task, timeout=30)
+
+        assert outcome.submitted is False
+        assert human.answered == 1
+        stored = browser_tools.load_answers(settings.answers_file)
+        key = normalize_question(
+            "Have you previously mentored, reviewed the work of, or provided "
+            "technical direction to more junior engineers?"
+        )
+        assert stored[key] == "Yes"
+    finally:
+        await browser.kill()
+
+
+# A one-step form whose modal sits above a full-screen overlay with a very high
+# z-index — the shape that pushed the Task 5 banner behind the modal.
+_BANNER_ON_TOP_HTML = """<!doctype html>
+<html><head><meta charset="utf-8"><title>Task 5 on top</title></head>
+<body>
+<div id="overlay" style="position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.5)"></div>
+<div class="artdeco-modal jobs-easy-apply-modal" role="dialog"
+     style="position:fixed;inset:60px;z-index:100000;background:#fff">
+  <div class="artdeco-modal__content">
+    <div class="fb-dash-form-element">
+      <label for="notice">Notice period</label>
+      <input id="notice" name="notice" type="text" required>
+    </div>
+  </div>
+  <footer class="artdeco-modal__actionbar">
+    <button type="button" id="submit-btn" style="display:none">Submit application</button>
+  </footer>
+</div>
+</body></html>
+"""
+
+_BANNER_ON_TOP_JS = """() => {
+  const box = document.getElementById('autojob-unknown');
+  if (!box) return JSON.stringify({ present: false });
+  const r = box.getBoundingClientRect();
+  const el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+  return JSON.stringify({ present: true, onTop: !!(el && (el === box || box.contains(el))) });
+}"""
+
+_READ_STATUS_JS = """() => {
+  const s = document.getElementById('autojob-unknown-status');
+  return s ? s.textContent : '';
+}"""
+
+
+async def test_task5_banner_sits_above_the_modal_and_confirms_saving(tmp_path: Path) -> None:
+    """The banner renders above a high-z-index modal and confirms the save."""
+    settings = _settings(tmp_path, ask_human=True)
+
+    form_file = tmp_path / "banner_on_top.html"
+    form_file.write_text(_BANNER_ON_TOP_HTML, encoding="utf-8")
+
+    browser = browser_tools.build_browser(settings)
+    await browser.start()
+    try:
+        page = await browser.new_page()
+        await page.goto(form_file.as_uri())
+        await browser_tools._wait_for_load(page, 10)
+
+        human = Task5Outcome()
+        fill_task = asyncio.create_task(
+            browser_tools._task4_on_page(
+                page, browser, None, {}, settings, lambda _m: None, human=human
+            )
+        )
+
+        appeared = False
+        for _ in range(200):
+            payload = json.loads(await page.evaluate(browser_tools._READ_UNKNOWN_JS))
+            if payload.get("present"):
+                appeared = True
+                break
+            await asyncio.sleep(0.05)
+        assert appeared, "the Task 5 banner never appeared"
+
+        # The banner must paint above the modal overlay (top layer), not behind it.
+        on_top = json.loads(await page.evaluate(_BANNER_ON_TOP_JS))
+        assert on_top["onTop"] is True
+
+        # Answering shows the saved confirmation before the banner closes.
+        await page.evaluate(_ANSWER_IN_FORM_JS, "4 weeks")
+        saved = False
+        for _ in range(120):
+            status = await page.evaluate(_READ_STATUS_JS)
+            if status and "Saved" in status:
+                saved = True
+                break
+            await asyncio.sleep(0.05)
+        assert saved, "the banner never confirmed the answer was saved"
+
+        await asyncio.wait_for(fill_task, timeout=30)
+        assert human.answered == 1
+    finally:
+        await browser.kill()
