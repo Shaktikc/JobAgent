@@ -48,6 +48,27 @@ class Task1Outcome(BaseModel):
     notes: str = ""
 
 
+class JobDescription(BaseModel):
+    """The job details read from the open job's details pane (Task 3)."""
+
+    title: str = ""
+    company: str = ""
+    location: str = ""
+    body: str = ""
+    page_url: str | None = None
+
+    @property
+    def is_read(self) -> bool:
+        """True when at least a title or a description body was captured."""
+        return bool(self.title.strip() or self.body.strip())
+
+    @property
+    def full_text(self) -> str:
+        """Title + company + location + body joined into one searchable blob."""
+        parts = (self.title, self.company, self.location, self.body)
+        return " ".join(part for part in parts if part)
+
+
 class Task2Outcome(BaseModel):
     """What the browser observed while selecting a job's Easy Apply button.
 
@@ -75,27 +96,10 @@ class Task2Outcome(BaseModel):
     page_title: str | None = None
     screenshot_path: str | None = None
     notes: str = ""
-
-
-class JobDescription(BaseModel):
-    """The job details read from the open job's details pane (Task 3)."""
-
-    title: str = ""
-    company: str = ""
-    location: str = ""
-    body: str = ""
-    page_url: str | None = None
-
-    @property
-    def is_read(self) -> bool:
-        """True when at least a title or a description body was captured."""
-        return bool(self.title.strip() or self.body.strip())
-
-    @property
-    def full_text(self) -> str:
-        """Title + company + location + body joined into one searchable blob."""
-        parts = (self.title, self.company, self.location, self.body)
-        return " ".join(part for part in parts if part)
+    # Task 3: the description read while the job was open. Captured *before* the
+    # Easy Apply form is opened, because on LinkedIn's newer (AI/semantic) job
+    # view the inline form can replace the page and hide the description.
+    job_description: JobDescription | None = None
 
 
 class ResumeCandidate(BaseModel):

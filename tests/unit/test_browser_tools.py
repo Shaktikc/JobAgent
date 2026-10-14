@@ -691,6 +691,38 @@ async def test_task2_selects_job_and_opens_form(tmp_path) -> None:
     assert outcome.application_form_opened is True
 
 
+async def test_task2_captures_the_description_before_easy_apply(tmp_path) -> None:
+    """Task 3's description is read while the job view is intact, before Easy Apply.
+
+    On LinkedIn's newer inline Easy Apply form the job view can be replaced, so the
+    read must happen before the apply click (regression for the empty description
+    that made the LLM answer "none").
+    """
+    from src.tools.linkedin_best_matching_resume import read_job_description
+
+    page = FakePage(
+        results_count=1,
+        details_apply_labels={0: "Easy Apply to Backend Engineer at Acme"},
+    )
+    page.by_selector = {
+        "li.jobs-search-results__list-item": [_job_card(page, 0, "Backend Engineer")]
+    }
+    seen: list[bool] = []
+
+    async def capture(p):
+        seen.append(page.modal_open)  # the form must not be open yet
+        return await read_job_description(p)
+
+    outcome = await browser_tools._task2_on_page(
+        page, _settings(tmp_path), lambda _m: None, capture=capture
+    )
+
+    assert outcome.job_description is not None
+    assert outcome.job_description.is_read is True
+    assert outcome.job_description.title == "Backend Engineer"
+    assert seen == [False]  # read before the Easy Apply modal opened
+
+
 async def test_task2_skips_jobs_without_easy_apply(tmp_path) -> None:
     page = FakePage(
         details_apply_labels={0: "Apply on company website", 1: "Apply"},

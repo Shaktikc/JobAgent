@@ -317,6 +317,24 @@ def test_match_node_selects_best_resume(tmp_path, monkeypatch) -> None:
     assert "errors" not in result
 
 
+def test_match_node_fails_when_the_description_was_not_read(tmp_path) -> None:
+    """An unread description is a failure, not a "no resume matched" fallback.
+
+    Choosing a resume (or asking the human) with no description would poison the
+    remembered-resume library, so the run stops with a clear error instead.
+    """
+    state = ApplyState(
+        dry_run=False,
+        resumes_dir=str(tmp_path),
+        job_description=JobDescription(),
+    )
+    result = asyncio.run(match(state))
+
+    assert result["status"] == "failed"
+    assert result["errors"]
+    assert "task3" not in result
+
+
 def test_match_node_reports_empty_folder(tmp_path) -> None:
     state = ApplyState(
         dry_run=False,

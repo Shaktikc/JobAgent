@@ -493,11 +493,15 @@ async def start_tasks(
             task2.notes = "Task 1 did not complete; Tasks 2-4 were skipped."
             task1.screenshot_path = await capture_failure_screenshot(session, settings, "task1")
         else:
-            task2 = await _task2_on_page(page, settings, notify)
+            task2 = await _task2_on_page(page, settings, notify, capture=read_job_description)
             if not _task2_ok(task2):
                 task2.screenshot_path = await capture_failure_screenshot(session, settings, "task2")
             else:
-                job_description = await read_job_description(page)
+                # Task 2 read the description while the job was open (before Easy
+                # Apply); only re-read if that produced nothing.
+                job_description = task2.job_description or JobDescription()
+                if not job_description.is_read:
+                    job_description = await read_job_description(page)
                 notify(
                     "Task 3: read job description "
                     f"(title={job_description.title or '(untitled)'!r}, "

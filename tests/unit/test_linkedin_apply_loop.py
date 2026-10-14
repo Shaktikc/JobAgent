@@ -191,7 +191,7 @@ async def test_open_next_job_opens_and_reads_the_description(monkeypatch) -> Non
     _register("run-next", page)
     captured: dict = {}
 
-    async def fake_task2(p, settings, notify, skip_keys=None):
+    async def fake_task2(p, settings, notify, skip_keys=None, capture=None):
         captured["skip_keys"] = skip_keys
         return Task2Outcome(
             jobs_seen=5,
@@ -222,7 +222,7 @@ async def test_open_next_job_reports_when_every_job_is_applied(monkeypatch) -> N
     page = object()
     _register("run-none", page)
 
-    async def fake_task2(p, settings, notify, skip_keys=None):
+    async def fake_task2(p, settings, notify, skip_keys=None, capture=None):
         return Task2Outcome(
             jobs_seen=3,
             applied_jobs_skipped=3,

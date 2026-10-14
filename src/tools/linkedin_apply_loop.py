@@ -265,9 +265,15 @@ async def open_next_job(
         )
 
     skip_keys = {_job_key(skip_title, -1)} if skip_title else set()
-    task2 = await _task2_on_page(run.page, settings, notify, skip_keys=skip_keys)
+    task2 = await _task2_on_page(
+        run.page, settings, notify, skip_keys=skip_keys, capture=read_job_description
+    )
     if task2.easy_apply_clicked and task2.application_form_opened:
-        description = await read_job_description(run.page)
+        # Task 2 read the description while the job was open (before Easy Apply);
+        # only re-read if that produced nothing.
+        description = task2.job_description or JobDescription()
+        if not description.is_read:
+            description = await read_job_description(run.page)
         return NextJobResult(opened=True, task2=task2, description=description)
     return NextJobResult(task2=task2, reason=_no_job_reason(task2))
 

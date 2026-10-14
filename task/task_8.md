@@ -1,6 +1,6 @@
 # Task 8 — After the human submits a job, open the next one and repeat
 
-**Status:** ⬜ Not started
+**Status:** ✅ Done
 
 **Goal:** The agent fills an application to its **last step** (only **Submit
 application** remains) and the human reviews and submits (or applies to) that
@@ -113,7 +113,7 @@ submit again — until a stopping condition is reached. The agent **never** clic
 
 ## Subtask 8.1 — Wait for and detect the human's submission (per job)
 
-**Status:** ⬜ Not started
+**Status:** ✅ Done
 
 **Goal:** Replace the current "wait for the human to close the window" behaviour
 with "wait for the human to **submit** the application, then hand control back to
@@ -154,7 +154,7 @@ the loop". The agent never clicks Submit.
 
 ## Subtask 8.2 — Loop: open the next unapplied job and repeat
 
-**Status:** ⬜ Not started
+**Status:** ✅ Done
 
 **Goal:** After a detected submission, return to the results list, find the next
 unapplied job (Tasks 6-7), and run the full process again in the same session

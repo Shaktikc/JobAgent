@@ -51,37 +51,96 @@ from src.tools.resume_library import (
 _DOCX_TEXT_TAG = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"
 
 # The open job's details (Task 3): title, company, location, and description body.
-_JOB_DESCRIPTION_QUERY = """
+#
+# LinkedIn serves several layouts for the same job. Besides the classic two-pane
+# results page, a job can be a newer full-page view whose description sits in
+# ``.description__text`` / ``.show-more-less-html__markup`` or, on the AI/semantic
+# job view, behind *hashed* CSS-in-JS class names with no stable selector at all.
+# The classic selectors are tried first; then the newer BEM containers; then a
+# class-agnostic fallback that reads the paragraph/list text of the details pane.
+# The title also falls back to the document title so the match still has *some*
+# signal when the view is hashed.
+_JOB_DESCRIPTION_QUERY = r"""
 () => {
-  const pick = (selectors) => {
+  const clean = (text) => (text || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+  const first = (selectors, minimum) => {
     for (const selector of selectors) {
-      const el = document.querySelector(selector);
-      if (el && (el.innerText || '').trim()) return el.innerText.trim();
+      let el = null;
+      try { el = document.querySelector(selector); } catch (err) { continue; }
+      const text = el ? clean(el.innerText) : '';
+      if (text.length >= (minimum || 1)) return text;
     }
     return '';
   };
-  return JSON.stringify({
-    title: pick([
-      '.job-details-jobs-unified-top-card__job-title',
-      '.jobs-unified-top-card__job-title',
-      'h1.t-24', 'h1'
-    ]),
-    company: pick([
-      '.job-details-jobs-unified-top-card__company-name',
-      '.jobs-unified-top-card__company-name',
-      'a.topcard__org-name-link'
-    ]),
-    location: pick([
-      '.job-details-jobs-unified-top-card__bullet',
-      '.jobs-unified-top-card__bullet',
-      '.topcard__flavor--bullet'
-    ]),
-    body: pick([
+  const detailsRoot = () => {
+    const roots = [
+      'div.jobs-search__job-details--container',
+      'div.scaffold-layout__detail',
+      'div.job-view-layout',
+      'section.jobs-details',
+      'div.jobs-details',
+      'main',
+      '[role="main"]'
+    ];
+    for (const selector of roots) {
+      let el = null;
+      try { el = document.querySelector(selector); } catch (err) { continue; }
+      if (el && clean(el.innerText)) return el;
+    }
+    return document.body;
+  };
+  // Class-agnostic fallback: job descriptions are paragraph/list based, so read
+  // every paragraph/li under the details pane. This survives LinkedIn's hashed
+  // CSS-in-JS class names (the AI/semantic job view) where no stable selector
+  // matches the description container.
+  const paragraphText = () => {
+    const root = detailsRoot();
+    if (!root) return '';
+    const parts = [];
+    const seen = new Set();
+    for (const el of root.querySelectorAll('p, li')) {
+      const text = clean(el.innerText);
+      if (text.length < 20 || text.length > 4000 || seen.has(text)) continue;
+      seen.add(text);
+      parts.push(text);
+    }
+    return parts.join('\n');
+  };
+  const title = first([
+    '.job-details-jobs-unified-top-card__job-title',
+    '.jobs-unified-top-card__job-title',
+    '.top-card-layout__title',
+    '.topcard__title',
+    'h1.t-24', 'h1', 'h2',
+    '[class*="job-title"]'
+  ]) || clean(document.title).replace(/\s*\|\s*LinkedIn\s*$/i, '');
+  const company = first([
+    '.job-details-jobs-unified-top-card__company-name',
+    '.jobs-unified-top-card__company-name',
+    '.topcard__org-name-link',
+    'a.topcard__org-name-link',
+    '[class*="company-name"]'
+  ]);
+  const locationText = first([
+    '.job-details-jobs-unified-top-card__bullet',
+    '.jobs-unified-top-card__bullet',
+    '.topcard__flavor--bullet'
+  ]);
+  const body =
+    first([
       '.jobs-description__content',
       '.jobs-box__html-content',
       '#job-details',
       '.jobs-description'
-    ]),
+    ]) ||
+    first(['.description__text', '.show-more-less-html__markup']) ||
+    first(['[class*="description"]'], 200) ||
+    paragraphText();
+  return JSON.stringify({
+    title: title,
+    company: company,
+    location: locationText,
+    body: body,
     url: location.href
   });
 }

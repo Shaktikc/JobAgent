@@ -17,6 +17,18 @@
   than adding it to an existing file. Before creating the file, ask the human
   for feedback on the file name and wait for their approval.
 
+## Live browser verification (required)
+
+- Always do the testing in a live browser to verify that the task actually works.
+  Do not declare a task complete based only on reading the code or on unit tests.
+- If it does not work, do not give up and do not declare the task done. Try to
+  understand *why* it does not work (collect the real error, inspect the DOM,
+  console, and network traffic), then change the code accordingly and test again.
+- Repeat this loop — test in the browser, diagnose the cause, fix the code, and
+  re-test — until the given task genuinely works.
+- After changing automation code, actually run it against the real site and
+  confirm the expected behavior. Never mark a task done on an untested assumption.
+
 ## Browser automation
 
 - **Treat the Easy Apply form as dynamic.** LinkedIn renders different steps,

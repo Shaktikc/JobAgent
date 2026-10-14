@@ -235,6 +235,7 @@ async def _scan_page(
     outcome: Task2Outcome,
     tried: set[str],
     applied_seen: set[str],
+    capture=None,
 ) -> _PageScan:
     """Scan one results page: skip Applied cards and open the first unapplied job.
 
@@ -315,6 +316,16 @@ async def _scan_page(
             continue
 
         outcome.easy_apply_button_found = True
+        # Task 3: read the description now, while the job view is intact. On the
+        # newer AI/semantic job view the Easy Apply form is rendered inline and can
+        # replace the page, hiding the description, so it is read *before* the click.
+        if capture is not None and (
+            outcome.job_description is None or not outcome.job_description.is_read
+        ):
+            try:
+                outcome.job_description = await capture(page)
+            except Exception:  # noqa: BLE001 - best effort; Task 3 re-reads if empty
+                outcome.job_description = None
         await _safe(button.evaluate("() => this.scrollIntoView({block: 'center'})"))
         await _pace(settings)
         try:
@@ -339,7 +350,7 @@ async def _scan_page(
 
 
 async def _task2_on_page(
-    page, settings: Settings, notify, skip_keys: set[str] | None = None
+    page, settings: Settings, notify, skip_keys: set[str] | None = None, capture=None
 ) -> Task2Outcome:
     """Run Task 2 steps on the results page left open by Task 1.
 
@@ -352,6 +363,10 @@ async def _task2_on_page(
     ``skip_keys`` are job keys (see :func:`_job_key`) to ignore — Task 8 uses this
     to never re-open the job the human just submitted, even if its card has not yet
     flipped to **"Applied"**.
+
+    ``capture`` is an optional ``async (page) -> JobDescription`` used by Task 3 to
+    read the open job's description while its view is intact (before Easy Apply).
+    The result is stored on ``Task2Outcome.job_description``.
     """
     outcome = Task2Outcome()
     tried: set[str] = set(skip_keys or ())
@@ -361,7 +376,7 @@ async def _task2_on_page(
 
     for page_index in range(_MAX_RESULT_PAGES):
         pages_visited += 1
-        scan = await _scan_page(page, settings, notify, outcome, tried, applied_seen)
+        scan = await _scan_page(page, settings, notify, outcome, tried, applied_seen, capture)
         outcome.jobs_seen = scan.cards_seen or await results_count(page)
         notify(f"Task 2: {outcome.jobs_seen} job(s) in the list.")
         await _pace(settings)

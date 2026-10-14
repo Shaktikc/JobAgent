@@ -46,6 +46,15 @@ async def match(state: ApplyState) -> ApplyState:
 
     settings = load_settings()
     description = _as_description(state.get("job_description"))
+    if not description.is_read:
+        # A job description that could not be read is a failure, not a "no resume
+        # matched" case: guessing here would wrongly ask the human for a resume and
+        # poison the remembered-resume library with an empty job profile.
+        return {
+            "status": "failed",
+            "errors": ["match: the job description could not be read"],
+            "log": ["match: no job description to match against"],
+        }
     resumes_dir = state.get("resumes_dir") or str(settings.resumes_dir)
     outcome = await ensure_resume(
         description,
