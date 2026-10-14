@@ -338,7 +338,9 @@ async def _scan_page(
     return scan
 
 
-async def _task2_on_page(page, settings: Settings, notify) -> Task2Outcome:
+async def _task2_on_page(
+    page, settings: Settings, notify, skip_keys: set[str] | None = None
+) -> Task2Outcome:
     """Run Task 2 steps on the results page left open by Task 1.
 
     Task 6 skips the cards already marked **Applied** and opens the first
@@ -346,9 +348,13 @@ async def _task2_on_page(page, settings: Settings, notify) -> Task2Outcome:
     list is advanced to the next page (up to ``_MAX_RESULT_PAGES``) and the scan
     runs again there, until an unapplied job is found or there are no more pages.
     Paginating never opens or applies to a job by itself.
+
+    ``skip_keys`` are job keys (see :func:`_job_key`) to ignore — Task 8 uses this
+    to never re-open the job the human just submitted, even if its card has not yet
+    flipped to **"Applied"**.
     """
     outcome = Task2Outcome()
-    tried: set[str] = set()
+    tried: set[str] = set(skip_keys or ())
     applied_seen: set[str] = set()
     pages_visited = 0
     exhausted = False

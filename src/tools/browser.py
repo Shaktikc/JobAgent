@@ -14,7 +14,8 @@ answer, remember it, and show a browser feedback banner) lives in
 :mod:`src.tools.linkedin_ask_human`; Task 6 (skip jobs already marked
 **Applied**) lives in :mod:`src.tools.linkedin_skip_applied`; Task 7 (when a whole
 results page is Applied, advance to the next page) lives in
-:mod:`src.tools.linkedin_pagination`.
+:mod:`src.tools.linkedin_pagination`; Task 8 (wait for the human's submission and
+open the next job) lives in :mod:`src.tools.linkedin_apply_loop`.
 This module owns the shared browser primitives. For back-compat the moved names
 are still reachable here (see ``__getattr__`` below), so ``browser`` remains the
 stable entry point.
@@ -527,6 +528,16 @@ async def close_run(run_id: str | None) -> None:
         await run.session.kill()
 
 
+def forget_run(run_id: str | None) -> None:
+    """Forget a run whose browser is already gone (no kill attempt).
+
+    Used when a live CDP connection drops (the human closed the window): there is
+    nothing to kill, so the run is simply removed from the registry.
+    """
+    if run_id:
+        _ACTIVE_RUNS.pop(run_id, None)
+
+
 def run_is_connected(run_id: str | None) -> bool:
     """True while the run's browser still has a live CDP connection.
 
@@ -570,7 +581,7 @@ async def wait_for_human_close(
     deadline = None if timeout <= 0 else time.monotonic() + timeout
     while True:
         if not run_is_connected(run_id):
-            _ACTIVE_RUNS.pop(run_id, None)
+            forget_run(run_id)
             return True
         if deadline is not None and time.monotonic() >= deadline:
             notify("Task 4: browser still open after the wait; closing it.")
@@ -666,7 +677,9 @@ async def run_full_agent(
 
     When Task 4 reaches the terminal step (only **Submit application** remains)
     the browser is left open and the call waits for the human to close it (see
-    :func:`release_run`); otherwise the session is closed at the end.
+    :func:`release_run`); otherwise the session is closed at the end. This is the
+    one-shot helper used by the live integration test; the Task 8 submit-and-repeat
+    loop lives in the graph (see :mod:`src.nodes.apply_loop`).
     """
     from src.tools.linkedin_best_matching_resume import ensure_resume  # keep light
 

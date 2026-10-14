@@ -1,4 +1,4 @@
-"""Command-line entry point for a single agent run (Tasks 1-5)."""
+"""Command-line entry point for a single agent run (Tasks 1-8)."""
 
 from __future__ import annotations
 
@@ -24,8 +24,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "Log in to LinkedIn, search jobs, select the Easy Apply filter, "
             "open a job's Easy Apply form, pick the best-matching resume, and "
             "start filling the form (Tasks 1-4), asking the human in the browser "
-            "about unknown questions and remembering the answers (Task 5). The "
-            "application is never submitted."
+            "about unknown questions and remembering the answers (Task 5). After "
+            "you submit a job yourself, the agent opens the next unapplied job "
+            "and repeats (Task 8). The agent never clicks Submit."
         ),
     )
     parser.add_argument(
@@ -131,6 +132,19 @@ def _summary(state: ApplyState) -> str:
         )
         if task5.answered_questions:
             lines.append(f"remembered  : {task5.answered_questions}")
+    task8 = state.get("task8")
+    if task8 is not None:
+        cap = task8.max_jobs if task8.max_jobs else "none"
+        lines += [
+            f"task 8      : iterations={task8.iterations} "
+            f"jobs_submitted={task8.jobs_applied} cap={cap}",
+            f"task 8 stop : {task8.stopped_reason or '(still running)'}",
+        ]
+        for job in task8.jobs:
+            lines.append(
+                f"  applied   : {job.title!r} at {job.company!r} "
+                f"(resume={job.resume_path or 'none'}, {job.outcome})"
+            )
     for entry in state.get("log", []):
         lines.append(f"  - {entry}")
     for error in state.get("errors", []):
@@ -139,16 +153,19 @@ def _summary(state: ApplyState) -> str:
 
 
 async def _run(args: argparse.Namespace) -> ApplyState:
-    resumes_dir = args.resumes_dir
-    if resumes_dir is None:
-        resumes_dir = str(load_settings().resumes_dir)
+    settings = load_settings()
+    resumes_dir = args.resumes_dir or str(settings.resumes_dir)
     state = new_state(
         args.url,
         search_query=args.query,
         dry_run=args.dry_run,
         resumes_dir=resumes_dir,
     )
-    return await graph.ainvoke(state)
+    # Task 8's submit-and-repeat loop is a graph cycle, so raise LangGraph's
+    # default recursion limit to leave room for a few nodes per job.
+    cap = settings.session.max_jobs_per_run
+    recursion_limit = 300 if cap == 0 else cap * 6 + 30
+    return await graph.ainvoke(state, config={"recursion_limit": recursion_limit})
 
 
 def _clean_profile() -> int:

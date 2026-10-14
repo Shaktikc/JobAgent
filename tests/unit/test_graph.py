@@ -6,12 +6,17 @@ import asyncio
 
 import pytest
 
+from src.configuration import SessionSettings, Settings
 from src.graph import (
     _route_after_browse,
+    _route_after_fill,
     _route_after_ingest,
     _route_after_match,
+    _route_after_next_job,
+    _route_after_submit,
     graph,
 )
+from src.nodes.apply_loop import await_submit, next_job
 from src.nodes.cleanup import cleanup
 from src.nodes.fill import fill
 from src.nodes.match import match
@@ -26,6 +31,7 @@ from src.state import (
     Task3Outcome,
     Task4Outcome,
     Task5Outcome,
+    Task8Outcome,
     new_state,
 )
 
@@ -434,3 +440,274 @@ def test_cleanup_closes_the_browser_when_not_at_the_terminal_step(monkeypatch) -
     assert calls["released"] == "run-1"
     assert calls["task4"].awaiting_human_submit is False
     assert result["log"] == ["cleanup: browser session closed"]
+
+
+# --- Task 8: the submit-and-repeat loop -----------------------------------
+
+
+def _settings(**session) -> Settings:
+    return Settings(session=SessionSettings(**session))
+
+
+def test_route_after_fill() -> None:
+    # Only wait for the human when the walk stopped at the terminal step.
+    assert _route_after_fill({"errors": ["fill: boom"]}) == "cleanup"
+    assert _route_after_fill({}) == "cleanup"
+    assert _route_after_fill({"task4": Task4Outcome(reached_terminal_step=False)}) == "cleanup"
+    assert _route_after_fill({"task4": Task4Outcome(reached_terminal_step=True)}) == "await_submit"
+    # An agent submit (never expected) does not wait for the human.
+    assert (
+        _route_after_fill({"task4": Task4Outcome(reached_terminal_step=True, submitted=True)})
+        == "cleanup"
+    )
+
+
+def test_route_after_submit() -> None:
+    assert _route_after_submit({}) == "next_job"
+    assert _route_after_submit({"errors": ["await_submit: boom"]}) == "cleanup"
+    assert _route_after_submit({"task8": Task8Outcome(stopped_reason="cap")}) == "cleanup"
+
+
+def test_route_after_next_job() -> None:
+    assert _route_after_next_job({}) == "match"
+    assert _route_after_next_job({"errors": ["next_job: boom"]}) == "cleanup"
+    assert _route_after_next_job({"task8": Task8Outcome(stopped_reason="none")}) == "cleanup"
+
+
+def test_graph_has_the_task8_loop() -> None:
+    view = graph.get_graph()
+    assert {"await_submit", "next_job"} <= set(view.nodes)
+    edges = {(edge.source, edge.target) for edge in view.edges}
+    assert ("fill", "await_submit") in edges
+    assert ("await_submit", "next_job") in edges
+    assert ("next_job", "match") in edges  # loops back to matching for the next job
+
+
+def test_await_submit_skips_on_dry_run() -> None:
+    result = asyncio.run(await_submit(ApplyState(dry_run=True)))
+    assert result["status"] == "submitted"
+    assert "task8" not in result
+
+
+def test_await_submit_fails_without_a_session() -> None:
+    result = asyncio.run(await_submit(ApplyState(dry_run=False)))
+    assert result["status"] == "failed"
+    assert result["errors"]
+
+
+def test_await_submit_records_a_submitted_job(monkeypatch) -> None:
+    import src.nodes.apply_loop as apply_loop
+    import src.tools.linkedin_apply_loop as loop
+
+    async def fake_wait(run_id, settings=None, progress=None, title=""):
+        assert title == "Data Engineer"
+        return "submitted"
+
+    monkeypatch.setattr(loop, "await_human_submit", fake_wait)
+    monkeypatch.setattr(
+        apply_loop, "load_settings", lambda: _settings(max_jobs_per_run=5)
+    )
+    state = ApplyState(
+        dry_run=False,
+        browser_run_id="run-1",
+        task2=Task2Outcome(job_index=2, job_title="Data Engineer"),
+        task3=_task3_ok(),
+        job_description=JobDescription(title="Data Engineer", company="Acme"),
+    )
+
+    result = asyncio.run(await_submit(state))
+
+    task8 = result["task8"]
+    assert task8.iterations == 1
+    assert task8.jobs_applied == 1
+    assert task8.max_jobs == 5
+    assert task8.stopped_reason == ""  # under the cap: the loop continues
+    assert task8.jobs[0].title == "Data Engineer"
+    assert task8.jobs[0].company == "Acme"
+    assert task8.jobs[0].resume_path == "resumes/a.pdf"
+    assert task8.jobs[0].outcome == "submitted"
+
+
+def test_await_submit_stops_at_the_jobs_cap(monkeypatch) -> None:
+    import src.nodes.apply_loop as apply_loop
+    import src.tools.linkedin_apply_loop as loop
+
+    async def fake_wait(run_id, settings=None, progress=None, title=""):
+        return "submitted"
+
+    monkeypatch.setattr(loop, "await_human_submit", fake_wait)
+    monkeypatch.setattr(apply_loop, "load_settings", lambda: _settings(max_jobs_per_run=1))
+    state = ApplyState(
+        dry_run=False,
+        browser_run_id="run-1",
+        task2=Task2Outcome(job_title="Backend Engineer"),
+        task3=_task3_ok(),
+        job_description=JobDescription(title="Backend Engineer", company="Acme"),
+    )
+
+    result = asyncio.run(await_submit(state))
+
+    assert result["task8"].jobs_applied == 1
+    assert result["task8"].stopped_reason == "reached the jobs-per-run cap (1)"
+
+
+def test_await_submit_stops_when_the_human_closes(monkeypatch) -> None:
+    import src.nodes.apply_loop as apply_loop
+    import src.tools.linkedin_apply_loop as loop
+
+    async def fake_wait(run_id, settings=None, progress=None, title=""):
+        return "closed"
+
+    monkeypatch.setattr(loop, "await_human_submit", fake_wait)
+    monkeypatch.setattr(apply_loop, "load_settings", lambda: _settings(max_jobs_per_run=5))
+    state = ApplyState(
+        dry_run=False,
+        browser_run_id="run-1",
+        task2=Task2Outcome(job_title="Backend Engineer"),
+        task3=_task3_ok(),
+        job_description=JobDescription(title="Backend Engineer", company="Acme"),
+    )
+
+    result = asyncio.run(await_submit(state))
+
+    assert result["task8"].jobs_applied == 0
+    assert result["task8"].stopped_reason == "the human closed the browser"
+
+
+def test_await_submit_stops_on_a_timeout(monkeypatch) -> None:
+    import src.nodes.apply_loop as apply_loop
+    import src.tools.linkedin_apply_loop as loop
+
+    async def fake_wait(run_id, settings=None, progress=None, title=""):
+        return "timeout"
+
+    monkeypatch.setattr(loop, "await_human_submit", fake_wait)
+    monkeypatch.setattr(apply_loop, "load_settings", lambda: _settings(max_jobs_per_run=5))
+    state = ApplyState(
+        dry_run=False,
+        browser_run_id="run-1",
+        task2=Task2Outcome(job_title="Backend Engineer"),
+        task3=_task3_ok(),
+        job_description=JobDescription(title="Backend Engineer", company="Acme"),
+    )
+
+    result = asyncio.run(await_submit(state))
+
+    assert result["task8"].stopped_reason == "timed out waiting for the human to submit"
+
+
+def test_next_job_opens_the_next_job(monkeypatch) -> None:
+    import src.nodes.apply_loop as apply_loop
+    import src.tools.linkedin_apply_loop as loop
+
+    captured: dict = {}
+
+    async def fake_open(run_id, settings=None, progress=None, skip_title=""):
+        captured["skip_title"] = skip_title
+        return loop.NextJobResult(
+            opened=True,
+            task2=Task2Outcome(
+                job_title="QA Engineer", easy_apply_clicked=True, application_form_opened=True
+            ),
+            description=JobDescription(title="QA Engineer", company="Acme"),
+        )
+
+    monkeypatch.setattr(loop, "open_next_job", fake_open)
+    monkeypatch.setattr(apply_loop, "load_settings", lambda: _settings())
+    state = ApplyState(
+        dry_run=False,
+        browser_run_id="run-1",
+        task2=Task2Outcome(job_title="Backend Engineer"),
+    )
+
+    result = asyncio.run(next_job(state))
+
+    assert captured["skip_title"] == "Backend Engineer"
+    assert result["status"] == "applied"
+    assert result["task2"].job_title == "QA Engineer"
+    assert result["job_description"].title == "QA Engineer"
+    assert "task8" not in result
+
+
+def test_next_job_stops_when_nothing_is_left(monkeypatch) -> None:
+    import src.nodes.apply_loop as apply_loop
+    import src.tools.linkedin_apply_loop as loop
+
+    async def fake_open(run_id, settings=None, progress=None, skip_title=""):
+        return loop.NextJobResult(
+            opened=False,
+            task2=Task2Outcome(jobs_seen=2, applied_jobs_skipped=2),
+            reason="every job on every results page is already Applied",
+        )
+
+    monkeypatch.setattr(loop, "open_next_job", fake_open)
+    monkeypatch.setattr(apply_loop, "load_settings", lambda: _settings())
+    state = ApplyState(
+        dry_run=False,
+        browser_run_id="run-1",
+        task2=Task2Outcome(job_title="Backend Engineer"),
+    )
+
+    result = asyncio.run(next_job(state))
+
+    assert result["status"] == "stopped"
+    assert result["task8"].stopped_reason == "every job on every results page is already Applied"
+    # The last successfully opened job is kept for ``verify``.
+    assert "task2" not in result
+
+
+def test_verify_passes_when_the_task8_loop_stopped_cleanly() -> None:
+    state = ApplyState(
+        dry_run=False,
+        task1=_task1_ok(),
+        task2=_task2_ok(),
+        task3=_task3_ok(),
+        task4=_task4_ok(),
+        task8=Task8Outcome(jobs_applied=2, stopped_reason="reached the jobs-per-run cap (2)"),
+    )
+
+    result = verify(state)
+
+    assert result["status"] == "done"
+    assert any("Task 8 loop submitted 2 job(s)" in line for line in result["log"])
+
+
+def test_verify_fails_when_task8_has_no_stop_reason() -> None:
+    state = ApplyState(
+        dry_run=False,
+        task1=_task1_ok(),
+        task2=_task2_ok(),
+        task3=_task3_ok(),
+        task4=_task4_ok(),
+        task8=Task8Outcome(jobs_applied=1),
+    )
+    assert verify(state)["status"] == "failed"
+
+
+def test_cleanup_closes_directly_when_the_task8_loop_ran(monkeypatch) -> None:
+    import src.tools.browser as browser_tools
+
+    calls: dict = {}
+
+    async def fake_close(run_id):
+        calls["closed"] = run_id
+
+    async def fake_release(run_id, task4=None, settings=None, progress=None):
+        calls["released"] = run_id
+        return "closed"
+
+    monkeypatch.setattr(browser_tools, "close_run", fake_close)
+    monkeypatch.setattr(browser_tools, "release_run", fake_release)
+    state = ApplyState(
+        dry_run=False,
+        browser_run_id="run-1",
+        task4=Task4Outcome(form_open=True, reached_terminal_step=True),
+        task8=Task8Outcome(stopped_reason="reached the jobs-per-run cap (1)"),
+    )
+
+    result = asyncio.run(cleanup(state))
+
+    # The loop already waited for the human per job; cleanup just closes once.
+    assert calls["closed"] == "run-1"
+    assert "released" not in calls
+    assert result["log"] == ["cleanup: browser session closed (Task 8 loop finished)"]

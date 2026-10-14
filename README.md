@@ -6,18 +6,19 @@ LinkedIn, searches for jobs, selects the **Easy Apply** filter, opens a job's
 filling the form — all through a real browser (via
 [browser-use](https://github.com/browser-use/browser-use)).
 
-> Status: **Tasks 1-5** — log in, search `"software engineer"`, select the Easy
+> Status: **Tasks 1-8** — log in, search `"software engineer"`, select the Easy
 > Apply filter, open a job's Easy Apply form, read the job description, select the
 > best-matching resume, fill known fields + attach the resume, and ask you in the
 > browser about any question it cannot answer, remembering your answer for next
 > time. For each form question an **LLM (Task 4.1)** classifies the question and
-> chooses the right answer from the store. The graph runs end-to-end in
-> **dry-run** mode (no browser, no network); the browser layer is wired but
-> opt-in. **No application is ever submitted.**
+> chooses the right answer from the store. After **you** submit a job, the agent
+> returns to the results list, opens the next unapplied job, and repeats. The graph
+> runs end-to-end in **dry-run** mode (no browser, no network); the browser layer
+> is wired but opt-in. **No application is ever submitted by the agent.**
 
 ## Behaviour
 
-The graph is `START -> ingest -> browse -> match -> fill -> cleanup -> verify -> END`:
+The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next_job -> match -> ... -> cleanup -> verify -> END` (the `await_submit`/`next_job` pair is Task 8's loop):
 
 ![Graph diagram](docs/graph.png)
 
@@ -81,13 +82,30 @@ The graph is `START -> ingest -> browse -> match -> fill -> cleanup -> verify ->
      Set `AUTOJOB_SESSION_ASK_HUMAN=false` to leave unknown questions unanswered
      instead of prompting. Questions you skip or leave unanswered are recorded and
      can be answered on a later run.
-5. **cleanup** — closes the shared browser session on every path, **except** when
-   Task 4 reached the last step (only **Submit application** remains): the window
-   is left open so you can review and submit manually, and the run waits until you
-   close it (or `AUTOJOB_SESSION_KEEP_OPEN_TIMEOUT_SECONDS` elapses).
-6. **verify** — passes only when all of the above succeeded. Otherwise the run
-   fails and a full-page screenshot plus the page URL are recorded under
-   `data/debug/`.
+5. **await_submit** — **Task 8 (subtask 8.1):** leaves the browser open on the
+   terminal step and **waits for you to submit** the application yourself (the
+   agent **never** clicks **Submit application**). It polls for a submission
+   confirmation ("Application sent" / "Done") or the job's card flipping to
+   **"Applied"**, bounded by `AUTOJOB_SESSION_KEEP_OPEN_TIMEOUT_SECONDS`. A modal
+   dismissed with X, or a closed window, without a confirmation is **not** a
+   submission. On a detected submission the job is recorded (title, company,
+   resume) on the Task 8 outcome.
+6. **next_job** — **Task 8 (subtask 8.2):** back on the results list, re-reads the
+   cards, skips the **"Applied"** ones (Task 6), paginates when a whole page is
+   Applied (Task 7), and opens the first unapplied **Easy Apply** job, reading its
+   description so `match` and `fill` run for it again. The loop repeats until
+   `AUTOJOB_SESSION_MAX_JOBS` jobs have been submitted (default `5`; `0` = until no
+   unapplied job remains), every job is Applied, you close the browser, or a step
+   fails — each with a clear `stopped_reason`. The session is reused across
+   iterations.
+7. **cleanup** — closes the shared browser session on every path, **except** when
+   the Task 8 loop is off and Task 4 reached the last step: then the window is left
+   open so you can review and submit manually, and the run waits until you close it
+   (or `AUTOJOB_SESSION_KEEP_OPEN_TIMEOUT_SECONDS` elapses). When the loop ran, it
+   already waited for you per job, so cleanup just closes the session once.
+8. **verify** — passes only when all of the above succeeded (including a clean
+   Task 8 stop reason; your submission is never a failure). Otherwise the run fails
+   and a full-page screenshot plus the page URL are recorded under `data/debug/`.
 
 The browser interaction is deterministic (browser-use's CDP actor API). The resume
 match (Task 3.2) and the answer choice (Task 4.1) use an LLM; the LLM never drives
@@ -169,13 +187,14 @@ uv run langgraph dev
 ```
 src/
   configuration.py   Typed settings from AUTOJOB_* environment variables
-  state.py           The graph's shared state (Task1-4 outcomes, JobDescription)
-  graph.py           Graph assembly (START -> ingest -> browse -> match -> fill -> cleanup -> verify -> END)
+  state.py           The graph's shared state (Task1-8 outcomes, JobDescription)
+  graph.py           Graph assembly (START -> ingest -> browse -> match -> fill -> await_submit -> next_job -> ... -> cleanup -> verify -> END)
   nodes/
     ingest.py        Validate the LinkedIn URL and search query
     browse.py        Tasks 1-3 browser work (login, search, Easy Apply, description)
     match.py         Task 3: describe the pool + LLM-pick the best resume (offline)
     fill.py          Task 4: fill the Easy Apply form + attach the resume
+    apply_loop.py    Task 8: wait for the human's submit (await_submit) + open the next job (next_job)
     cleanup.py       Close the shared browser session (or leave it open at the last step)
     verify.py        Confirm every task's acceptance criteria
   tools/
@@ -186,6 +205,7 @@ src/
     linkedin_job_selection.py      Task 2: select a job, open its Easy Apply form
     linkedin_skip_applied.py       Task 6: skip cards already marked "Applied"
     linkedin_pagination.py         Task 7: when a page is all Applied, go to the next page
+    linkedin_apply_loop.py         Task 8: detect the human's submit, open the next job
     linkedin_best_matching_resume.py
                      Task 3: read the job description, drive the LLM match;
                      Task 3.1: ask the human when nothing matches

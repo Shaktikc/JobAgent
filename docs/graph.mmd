@@ -9,6 +9,8 @@ graph LR;
 	browse(browse)
 	match(match)
 	fill(fill)
+	await_submit(await_submit)
+	next_job(next_job)
 	cleanup(cleanup)
 	verify(verify)
 	__end__([<p>__end__</p>]):::last
@@ -17,7 +19,12 @@ graph LR;
 	browse -. "live run, no errors" .-> match;
 	browse -. "dry run" .-> verify;
 	cleanup --> verify;
-	fill --> cleanup;
+	fill -. "at the terminal step" .-> await_submit;
+	fill -. "not at the last step / error" .-> cleanup;
+	await_submit -. "submission detected, under the cap" .-> next_job;
+	await_submit -. "stop (cap / closed / timeout)" .-> cleanup;
+	next_job -. "next unapplied job opened" .-> match;
+	next_job -. "nothing left / failure" .-> cleanup;
 	ingest -. "invalid input" .-> __end__;
 	ingest -. "valid input" .-> browse;
 	match -. "resume selection failed" .-> cleanup;

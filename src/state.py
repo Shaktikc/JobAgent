@@ -1,4 +1,4 @@
-"""The graph's shared state for the LinkedIn agent (Tasks 1-5).
+"""The graph's shared state for the LinkedIn agent (Tasks 1-8).
 
 Task 1 logs in, searches jobs, and selects the **Easy Apply** filter. Task 2 picks
 a job from those results and clicks its **Easy Apply** button, confirming the
@@ -7,7 +7,8 @@ best-matching resume from the ``resumes/`` folder. Task 4 fills the open Easy
 Apply form: the LLM (Task 4.1) classifies each question and chooses the answer
 from the store, and attaches that resume — without submitting. Task 5 runs
 inside that fill: when the LLM cannot answer a question it pauses for the human
-(in the browser) and remembers the answer for next time.
+(in the browser) and remembers the answer for next time. Task 8 then waits for
+the human to submit, opens the next unapplied job, and repeats.
 
 The state is a plain ``TypedDict`` so LangGraph can pass partial updates between
 nodes. The ``log``/``errors`` channels use ``operator.add`` so every node can
@@ -222,6 +223,40 @@ class Task5Outcome(BaseModel):
     notes: str = ""
 
 
+class Task8JobRecord(BaseModel):
+    """One job handled by the Task 8 loop.
+
+    ``outcome`` is how the per-job human-submit wait ended: ``"submitted"`` (the
+    human submitted), ``"closed"`` (the human closed the browser), or
+    ``"timeout"`` (the wait elapsed). Only a ``"submitted"`` record counts toward
+    ``Task8Outcome.jobs_applied``.
+    """
+
+    index: int | None = None
+    title: str = ""
+    company: str = ""
+    resume_path: str = ""
+    outcome: str = ""
+
+
+class Task8Outcome(BaseModel):
+    """What the Task 8 loop did across a run.
+
+    After the human submits a job, the loop opens the next unapplied job and
+    repeats the whole process in the same session. ``jobs`` records each job the
+    human submitted (title, company, chosen resume), ``jobs_applied`` counts them,
+    and ``stopped_reason`` says why the loop ended (the jobs-per-run cap, no
+    unapplied job left, the human closing the browser, a timeout, or a failure).
+    """
+
+    iterations: int = 0
+    jobs_applied: int = 0
+    jobs: list[Task8JobRecord] = Field(default_factory=list)
+    max_jobs: int = 0
+    stopped_reason: str = ""
+    notes: str = ""
+
+
 class AgentOutcome(BaseModel):
     """What a single browser run produced (Tasks 1-5)."""
 
@@ -231,6 +266,7 @@ class AgentOutcome(BaseModel):
     task3: Task3Outcome = Field(default_factory=Task3Outcome)
     task4: Task4Outcome = Field(default_factory=Task4Outcome)
     task5: Task5Outcome = Field(default_factory=Task5Outcome)
+    task8: Task8Outcome = Field(default_factory=Task8Outcome)
 
 
 class ApplyState(TypedDict, total=False):
@@ -249,6 +285,7 @@ class ApplyState(TypedDict, total=False):
     task3: Task3Outcome
     task4: Task4Outcome
     task5: Task5Outcome
+    task8: Task8Outcome
 
     # --- live browser session handle (Tasks 2-4 share one session) ---
     browser_run_id: str

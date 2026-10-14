@@ -1,4 +1,10 @@
-"""Confirm the acceptance criteria for Tasks 1-4 and finalize the run."""
+"""Confirm the acceptance criteria for Tasks 1-4 and finalize the run.
+
+Task 8 adds one more check: when the submit-and-repeat loop ran, it must have
+recorded why it stopped (the human submitted, closed the browser, the cap was
+reached, or nothing was left to apply to). The human's submission is never treated
+as a failure — the agent never clicks **Submit application**.
+"""
 
 from __future__ import annotations
 
@@ -61,6 +67,20 @@ def _task5_succeeded(state: ApplyState) -> bool:
     return outcome.asked == outcome.answered + outcome.skipped + outcome.timed_out
 
 
+def _task8_succeeded(state: ApplyState) -> bool:
+    """Task 8 passes when the loop recorded why it stopped (or never ran).
+
+    A run where the human submitted, closed the browser, timed out, hit the
+    jobs-per-run cap, or ran out of unapplied jobs is a **clean** stop and passes;
+    the human's submission is never treated as a failure. Hard failures append to
+    ``errors`` and are caught before this check.
+    """
+    outcome = state.get("task8")
+    if outcome is None:
+        return True
+    return bool(outcome.stopped_reason)
+
+
 def verify(state: ApplyState) -> ApplyState:
     """Decide the terminal status from what the browser and matcher observed."""
     if state.get("errors"):
@@ -75,15 +95,20 @@ def verify(state: ApplyState) -> ApplyState:
         and _task3_succeeded(state)
         and _task4_succeeded(state)
         and _task5_succeeded(state)
+        and _task8_succeeded(state)
     ):
-        return {
-            "status": "done",
-            "log": [
-                "verify: logged in, search returned results, Easy Apply filter selected, "
-                "job Easy Apply form opened, best-matching resume selected, "
-                "form filled and resume attached (not submitted)"
-            ],
-        }
+        log = [
+            "verify: logged in, search returned results, Easy Apply filter selected, "
+            "job Easy Apply form opened, best-matching resume selected, "
+            "form filled and resume attached (not submitted)"
+        ]
+        task8 = state.get("task8")
+        if task8 is not None:
+            log.append(
+                f"verify: Task 8 loop submitted {task8.jobs_applied} job(s); "
+                f"stopped: {task8.stopped_reason}"
+            )
+        return {"status": "done", "log": log}
 
     return {
         "status": "failed",

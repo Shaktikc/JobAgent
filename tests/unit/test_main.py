@@ -47,3 +47,45 @@ def test_silence_is_a_noop_off_windows(monkeypatch) -> None:
     _silence_windows_pipe_noise()
 
     assert sys.unraisablehook is original
+
+
+def test_summary_includes_task8_loop_results() -> None:
+    from src.main import _summary
+    from src.state import ApplyState, Task8JobRecord, Task8Outcome
+
+    state = ApplyState(
+        status="done",
+        url="https://www.linkedin.com/login/",
+        search_query="software engineer",
+        task8=Task8Outcome(
+            iterations=2,
+            jobs_applied=2,
+            max_jobs=5,
+            stopped_reason="every job on every results page is already Applied",
+            jobs=[
+                Task8JobRecord(
+                    index=0,
+                    title="Backend Engineer",
+                    company="Acme",
+                    resume_path="resumes/a.pdf",
+                    outcome="submitted",
+                ),
+                Task8JobRecord(
+                    index=1,
+                    title="Data Engineer",
+                    company="Acme",
+                    resume_path="resumes/a.pdf",
+                    outcome="submitted",
+                ),
+            ],
+        ),
+    )
+
+    summary = _summary(state)
+
+    assert "task 8" in summary
+    assert "jobs_submitted=2" in summary
+    assert "cap=5" in summary
+    assert "every job on every results page is already Applied" in summary
+    assert "Backend Engineer" in summary
+    assert "Data Engineer" in summary
