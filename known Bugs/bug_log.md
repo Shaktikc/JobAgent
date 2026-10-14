@@ -1,0 +1,86 @@
+# Bug Log — master index
+
+A single place that tracks every bug found in AutoJobApply and how it was fixed.
+Bugs are split into one file per Task category, with a `general_bugs.md` file for
+bugs that cannot be attributed to a single task.
+
+Each entry records the **symptom** (what was observed), the **root cause**, the
+**fix**, and the **evidence** (source, tests, and the commit(s)). Bug IDs are
+stable — link to `BUG-NNN` from commits, PRs, or task notes.
+
+- Status markers (at a glance):
+  - 🟢 **Fixed** — the bug is fixed and guarded by a test/evidence.
+  - 🟡 **Fixed (superseded)** — fixed once, but a later change replaced the first
+    fix (check the current code, not just the entry).
+  - 🔴 **Open** — known, not fixed yet.
+  - ⚪ **Won't fix** — intentionally not fixed.
+- New bugs go in the file for their task; if no single task owns the root cause,
+  put it in [`general_bugs.md`](general_bugs.md).
+- Keep newest entries at the bottom of each file so it reads chronologically.
+
+## Files
+
+| File | Scope |
+|------|-------|
+| [`task_1_bugs.md`](task_1_bugs.md) | Login, job search, "Try AI job search", Easy Apply filter |
+| [`task_2_bugs.md`](task_2_bugs.md) | Select a job, find/click the Easy Apply button |
+| [`task_3_bugs.md`](task_3_bugs.md) | Read the job description, pick the best resume |
+| [`task_4_bugs.md`](task_4_bugs.md) | Fill the Easy Apply form, attach the resume, advance steps |
+| [`task_5_bugs.md`](task_5_bugs.md) | Ask the human for unknown answers, remember them |
+| [`task_6_bugs.md`](task_6_bugs.md) | Skip jobs already marked "Applied" |
+| [`general_bugs.md`](general_bugs.md) | Browser session, profile/CDP, CLI, cleanup, build, security, tests |
+
+> Task 7 (pagination) and Task 8 (await submit / next job) have no distinct root
+> bugs of their own: their defects live in Task 2's list handling (BUG-019) and
+> in the shared cleanup/session code (BUG-030).
+
+## Quick index
+
+| ID | Task / area | Symptom (short) | Status | Fix commit(s) |
+|----|-------------|-----------------|--------|---------------|
+| BUG-001 | General — browser session | browser-use killed the browser between pipeline tasks | 🟢 Fixed | `a175262` |
+| BUG-002 | Task 4 — read | unreadable form silently looked empty → every field `NEEDS_REVIEW` | 🟢 Fixed | `24d381f` |
+| BUG-003 | Task 4 — walk | fill only touched the first modal step (`1/4` pages) | 🟢 Fixed | `24d381f` |
+| BUG-004 | Task 3 — read | `get_state_as_text` was dead after an agent run | 🟢 Fixed | `24d381f` |
+| BUG-005 | Task 4 — evidence | no screenshot on a failed application | 🟢 Fixed | `14719e9` |
+| BUG-006 | Task 5 — verify | unrecognized required fields dropped from review | 🟢 Fixed | `14719e9` |
+| BUG-007 | General — tests | `Page.evaluate` needed the arrow-function form | 🟢 Fixed | `24ccc4a` |
+| BUG-008 | General — tests | "applied today" test hard-coded a date | 🟢 Fixed | `2cd64a6` |
+| BUG-009 | General — build | `poetry.lock` out of sync for a clean install | 🟢 Fixed | `43e55f1` |
+| BUG-010 | General — security | candidate PII resumes committed to git | 🟢 Fixed | `4111f4d` |
+| BUG-011 | Task 1 — search | "Try AI job search" button not clicked (markup/label) | 🟢 Fixed | `1dbb380`, `2dd5005`, `e5a7c7d` |
+| BUG-012 | Task 1 — search | click navigated/reloaded, `Element.click()` looked failed | 🟢 Fixed | `4eee839`, `1dbb380` |
+| BUG-013 | Task 1 — search | "many buttons clicked at once" on a half-loaded page | 🟢 Fixed | `48b4eb6` |
+| BUG-014 | Task 1 — search | AI detour left zero job cards (semantic mode) | 🟡 Fixed (superseded) | `888e11d` → `9270f3a` |
+| BUG-015 | Task 1 — search | "no page reload" rule was wrong | 🟡 Fixed (superseded) | `9270f3a` |
+| BUG-016 | Task 1 — filter | Easy Apply **filter** confused with the blue apply button | 🟢 Fixed | (Task 1 filter fix) |
+| BUG-017 | Task 2 — cards | AI/semantic job cards were `div[role=button]`, not found | 🟢 Fixed | `6d369f7` |
+| BUG-018 | Task 2 — apply | fallback scan picked a job **card** as the apply button | 🟢 Fixed | `9ad31a9` |
+| BUG-019 | Task 2/8 — list | stale card handles after a click → jobs silently skipped | 🟢 Fixed | `84b0bb5` |
+| BUG-020 | Task 6 — skip | whole-page-Applied page stopped with no clear reason | 🟢 Fixed | `d9d571e` |
+| BUG-021 | Task 3 — read | description read *after* Easy Apply → empty → LLM "none" | 🟢 Fixed | `7dce47d` |
+| BUG-022 | Task 4 — form | inline hashed-class Easy Apply form not found | 🟢 Fixed | `84b0bb5` |
+| BUG-023 | Task 4 — form | first matching modal was a hidden unrelated dialog | 🟢 Fixed | (Task 4 modal fix) |
+| BUG-024 | Task 5 — ask | pre-filled controls (Email/Phone) wrongly asked about | 🟢 Fixed | `4eee839`/`99265a0` |
+| BUG-025 | Task 5 — ask | empty "Use answer" silently marked the question skipped | 🟢 Fixed | `2b60465` |
+| BUG-026 | Task 5 — ask | banner input vs. typing in the real form field | 🟡 Fixed (superseded) | `99265a0` |
+| BUG-027 | General — profile | crashed run's stale lock → "exited before CDP became available" | 🟢 Fixed | `888e11d` |
+| BUG-028 | General — profile | second launch force-killed a live browser → CDP drop (`WinError 1225`) | 🟢 Fixed | `888e11d` |
+| BUG-029 | General — CLI | "I/O operation on closed pipe" noise after a successful run | 🟢 Fixed | `2b60465` |
+| BUG-030 | General — cleanup | agent closed the browser on timeout (it must never close it) | 🟢 Fixed | `ef2ad44`, `31553e2` |
+| BUG-031 | Task 3 — match | unread description treated as "no resume matched" | 🟢 Fixed | `7dce47d` |
+
+## Template for new entries
+
+Add the entry to the file for its task (or `general_bugs.md`), and add a row to
+this index.
+
+```markdown
+### BUG-NNN — <short title>
+
+- **Symptom:** <what was observed / how it reproduced>
+- **Root cause:** <the underlying defect>
+- **Fix:** <what changed>
+- **Status:** 🟢 Fixed | 🟡 Fixed (superseded) | 🔴 Open | ⚪ Won't fix
+- **Evidence:** <source files, tests, and commit(s)>
+```
