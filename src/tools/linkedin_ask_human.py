@@ -164,7 +164,25 @@ _WATCH_FORM_ANSWER_JS = r"""
     return node.closest('input, textarea, select, [role="radio"], [role="checkbox"]');
   };
 
-  const labelText = (el) => {
+  const optionText = (el) => {
+    // A choice's visible option text comes first: LinkedIn sets a role=radio
+    // container's aria-label to the *question*, not the option.
+    if (norm(el.innerText)) return norm(el.innerText);
+    const nested = el.querySelector ? el.querySelector('input') : null;
+    const own = (el.labels && el.labels[0])
+      || (nested && nested.labels && nested.labels[0]) || null;
+    if (own && norm(own.innerText)) return norm(own.innerText);
+    if (el.id) {
+      const l = document.querySelector('label[for="' + esc(el.id) + '"]');
+      if (l && norm(l.innerText)) return norm(l.innerText);
+    }
+    const wrap = el.closest('label');
+    if (wrap && norm(wrap.innerText)) return norm(wrap.innerText);
+    const sib = el.nextElementSibling || el.previousElementSibling;
+    if (sib && norm(sib.innerText)) return norm(sib.innerText);
+    // A bare radio/checkbox with no value attribute reports "on"; never use it.
+    if (norm(el.value) && el.value !== 'on') return norm(el.value);
+    if (nested && norm(nested.value) && nested.value !== 'on') return norm(nested.value);
     const aria = el.getAttribute('aria-label');
     if (aria && norm(aria)) return norm(aria);
     const by = (el.getAttribute('aria-labelledby') || '').trim();
@@ -175,16 +193,6 @@ _WATCH_FORM_ANSWER_JS = r"""
       }).filter(Boolean);
       if (parts.length) return parts.join(' ');
     }
-    if (el.labels && el.labels.length && norm(el.labels[0].innerText)) {
-      return norm(el.labels[0].innerText);
-    }
-    if (el.id) {
-      const l = document.querySelector('label[for="' + esc(el.id) + '"]');
-      if (l && norm(l.innerText)) return norm(l.innerText);
-    }
-    const wrap = el.closest('label');
-    if (wrap && norm(wrap.innerText)) return norm(wrap.innerText);
-    if (norm(el.innerText)) return norm(el.innerText);
     return '';
   };
 
@@ -198,11 +206,11 @@ _WATCH_FORM_ANSWER_JS = r"""
     }
     if (type === 'checkbox' || role === 'checkbox') {
       const on = el.checked || el.getAttribute('aria-checked') === 'true';
-      return on ? (labelText(el) || 'Yes') : '';
+      return on ? optionText(el) : '';
     }
     if (type === 'radio' || role === 'radio') {
       const on = el.checked || el.getAttribute('aria-checked') === 'true';
-      return on ? (labelText(el) || norm(el.value)) : '';
+      return on ? optionText(el) : '';
     }
     return norm(el.value);
   };
@@ -236,8 +244,9 @@ _WATCH_FORM_ANSWER_JS = r"""
 # field the human filled before (or without) a fresh edit event is still captured.
 # ``done`` is true once an edit finished or a choice/select already holds a value.
 _READ_FORM_ANSWER_JS = r"""
-(markers) => {
+(markers, name) => {
   const list = (markers || []).map(String).filter(Boolean);
+  const groupName = name ? String(name) : '';
   const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
   const esc = (s) => (window.CSS && CSS.escape) ? CSS.escape(s) : s;
 
@@ -246,8 +255,14 @@ _READ_FORM_ANSWER_JS = r"""
     const tag = (host.tagName || '').toLowerCase();
     if (tag === 'label') {
       if (host.control) return host.control;
-      if (host.htmlFor) return document.getElementById(host.htmlFor) || host;
-      return host.querySelector('input,textarea,select') || host;
+      if (host.htmlFor) {
+        const f = document.getElementById(host.htmlFor);
+        if (f) return f;
+      }
+      const inner = host.querySelector(
+        'input,textarea,select,[role="radio"],[role="checkbox"]'
+      );
+      if (inner) return inner;
     }
     if (tag === 'input' || tag === 'textarea' || tag === 'select') return host;
     const role = (host.getAttribute('role') || '').toLowerCase();
@@ -278,7 +293,35 @@ _READ_FORM_ANSWER_JS = r"""
     const wrap = el.closest('label');
     if (wrap && norm(wrap.innerText)) return norm(wrap.innerText);
     if (norm(el.innerText)) return norm(el.innerText);
+    // A styled native input often keeps its option text in a sibling span.
+    const sib = el.nextElementSibling || el.previousElementSibling;
+    if (sib && norm(sib.innerText)) return norm(sib.innerText);
+    if (norm(el.value)) return norm(el.value);
     return '';
+  };
+
+  const optionText = (el) => {
+    // A role=radio/checkbox container's own visible text is the option; LinkedIn
+    // sets the container's aria-label to the *question*, not the option.
+    if (norm(el.innerText)) return norm(el.innerText);
+    const nested = el.querySelector ? el.querySelector('input') : null;
+    const own = (el.labels && el.labels[0])
+      || (nested && nested.labels && nested.labels[0]) || null;
+    if (own && norm(own.innerText)) return norm(own.innerText);
+    if (el.id) {
+      const l = document.querySelector('label[for="' + esc(el.id) + '"]');
+      if (l && norm(l.innerText)) return norm(l.innerText);
+    }
+    const wrap = el.closest('label');
+    if (wrap && norm(wrap.innerText)) return norm(wrap.innerText);
+    const sib = el.nextElementSibling || el.previousElementSibling;
+    if (sib && norm(sib.innerText)) return norm(sib.innerText);
+    // A bare radio/checkbox with no value attribute reports "on"; never use it.
+    if (norm(el.value) && el.value !== 'on') return norm(el.value);
+    if (nested && norm(nested.value) && nested.value !== 'on') return norm(nested.value);
+    const aria = el.getAttribute('aria-label');
+    if (aria && norm(aria)) return norm(aria);
+    return labelText(el);
   };
 
   const readControl = (el) => {
@@ -293,21 +336,44 @@ _READ_FORM_ANSWER_JS = r"""
     }
     if (type === 'checkbox' || role === 'checkbox') {
       const on = el.checked || el.getAttribute('aria-checked') === 'true';
-      return { value: on ? (labelText(el) || 'Yes') : '', atomic: true };
+      return { value: on ? optionText(el) : '', atomic: true };
     }
     if (type === 'radio' || role === 'radio') {
       const on = el.checked || el.getAttribute('aria-checked') === 'true';
-      return { value: on ? (labelText(el) || norm(el.value)) : '', atomic: true };
+      return { value: on ? optionText(el) : '', atomic: true };
     }
     return { value: norm(el.value), atomic: false };
   };
 
+  const seen = [];
+  const consider = (el) => {
+    if (!el || seen.indexOf(el) !== -1) return '';
+    seen.push(el);
+    return readControl(el).value;
+  };
+
   let live = '', atomic = false;
+  // 1) The question's marked control(s): covers ``div[role=radio]`` and inputs.
   for (const m of list) {
     const host = document.querySelector('[data-autojob-fill="' + esc(m) + '"]');
     if (!host) continue;
-    const read = readControl(resolveControl(host));
-    if (read.value) { live = read.value; atomic = read.atomic; break; }
+    const value = consider(resolveControl(host));
+    if (value) { live = value; atomic = true; break; }
+  }
+  // 2) Fall back to the group's controls by name: a native input keeps a stable
+  //    ``name`` even when React re-renders the marked wrapper away. Read the
+  //    wrapper (its text is the option) and the input itself.
+  if (!live && groupName) {
+    const selector = 'input[name="' + esc(groupName) + '"],'
+      + '[role="radio"][name="' + esc(groupName) + '"],'
+      + '[role="checkbox"][name="' + esc(groupName) + '"]';
+    document.querySelectorAll(selector).forEach((el) => {
+      if (live) return;
+      // Prefer the wrapper (its visible text is the option) over the bare input.
+      const wrapper = el.closest('[role="radio"], [role="checkbox"]') || el;
+      const value = consider(wrapper) || consider(resolveControl(el));
+      if (value) { live = value; atomic = true; }
+    });
   }
 
   const state = window.__autojobFormAnswer || {};
@@ -367,22 +433,31 @@ _MARK_SAVED_JS = r"""
 # How long the "saved" confirmation stays visible before the banner closes.
 _SAVED_VISIBLE_SECONDS = 1.5
 
-# Dump the group containers of a question whose label could not be read, so the
-# real markup can be inspected (written under ``data/debug`` by the caller).
+# Dump the group containers of a question whose label could not be read (or a
+# radio group), so the real markup can be inspected (written under ``data/debug``
+# by the caller).
 _DUMP_HOSTS_JS = r"""
-(markers) => {
+(markers, name) => {
   const list = (markers || []).map(String).filter(Boolean);
+  const groupName = name ? String(name) : '';
   const esc = (s) => (window.CSS && CSS.escape) ? CSS.escape(s) : s;
   const parts = [];
-  for (const m of list) {
-    const host = document.querySelector('[data-autojob-fill="' + esc(m) + '"]');
-    if (!host) continue;
-    const box = host.closest(
+  const add = (el) => {
+    if (!el) return;
+    const box = el.closest(
       '.fb-dash-form-element, .fb-form-element, .fb-form-element-wrapper, '
       + '.jobs-easy-apply-form-element, .jobs-easy-apply-form-section__grouping, '
       + '.jobs-easy-apply-form-section'
-    ) || host.parentElement;
+    ) || el.parentElement;
     if (box && parts.indexOf(box.outerHTML) === -1) parts.push(box.outerHTML);
+  };
+  for (const m of list) {
+    add(document.querySelector('[data-autojob-fill="' + esc(m) + '"]'));
+  }
+  if (groupName) {
+    document.querySelectorAll(
+      'input[name="' + esc(groupName) + '"], [role="radio"][name="' + esc(groupName) + '"]'
+    ).forEach(add);
   }
   return JSON.stringify({ html: parts.join('\n\n') });
 }
@@ -399,22 +474,26 @@ def _looks_unlabeled(question: str) -> bool:
     return (not text) or bool(_UNLABELED_QUESTION_RE.search(text))
 
 
-async def _dump_unlabeled(page, question: str, markers, settings: Settings, notify) -> None:
-    """Best-effort: save the markup around an unlabeled question under data/debug."""
-    if not _looks_unlabeled(question):
+async def _dump_question_context(
+    page, question: str, markers, name, field_type: str, settings: Settings, notify
+) -> None:
+    """Best-effort: save the markup around a question (unlabeled or a radio group)."""
+    if not _looks_unlabeled(question) and field_type != "radio":
         return
     try:
         payload = _loads(
-            await _safe(page.evaluate(_DUMP_HOSTS_JS, list(markers or [])), "")
+            await _safe(
+                page.evaluate(_DUMP_HOSTS_JS, list(markers or []), str(name or "")), ""
+            )
         )
         html = str(payload.get("html") or "")
         if not html:
             return
         settings.debug_dir.mkdir(parents=True, exist_ok=True)
         slug = re.sub(r"[^a-z0-9]+", "_", question.lower()).strip("_")[:40] or "unknown"
-        path = settings.debug_dir / f"task5_unlabeled_{slug}.html"
+        path = settings.debug_dir / f"task5_context_{slug}.html"
         path.write_text(html, encoding="utf-8")
-        notify(f"Task 5: saved the form markup for the unlabeled question to {path}.")
+        notify(f"Task 5: saved the form markup for {question!r} to {path}.")
     except OSError:
         return
 
@@ -436,6 +515,7 @@ async def ask_human_for_answer(
     notify,
     human: Task5Outcome | None = None,
     markers: list[str] | None = None,
+    name: str | None = None,
 ) -> str | None:
     """Task 5: show a browser banner and read the human's answer from the form.
 
@@ -469,11 +549,16 @@ async def ask_human_for_answer(
         f"Task 5: I do not know {question!r}{kind}; answer it in the form "
         "field in the browser."
     )
-    await _dump_unlabeled(page, question, markers, settings, notify)
+    await _dump_question_context(
+        page, question, markers, name, field_type, settings, notify
+    )
     markers_arg = list(markers or [])
+    name_arg = str(name or "")
     # The human often fills several fields at once. If the field for this question
     # already holds an answer, take it now instead of waiting for a fresh edit.
-    pre = _loads(await _safe(page.evaluate(_READ_FORM_ANSWER_JS, markers_arg), ""))
+    pre = _loads(
+        await _safe(page.evaluate(_READ_FORM_ANSWER_JS, markers_arg, name_arg), "")
+    )
     pre_answer = str(pre.get("value") or "").strip()
     if pre_answer:
         _store_answer(settings, question, pre_answer, human)
@@ -494,7 +579,7 @@ async def ask_human_for_answer(
             notify(f"Task 5: you skipped {question!r}; leaving it unknown.")
             return None
         answer_payload = _loads(
-            await _safe(page.evaluate(_READ_FORM_ANSWER_JS, markers_arg), "")
+            await _safe(page.evaluate(_READ_FORM_ANSWER_JS, markers_arg, name_arg), "")
         )
         answer = str(answer_payload.get("value") or "").strip()
         if answer and answer != last_saved:

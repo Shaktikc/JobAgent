@@ -2644,7 +2644,7 @@ async def test_task5_dumps_the_markup_for_an_unlabeled_question(tmp_path) -> Non
     )
 
     assert answer is None
-    dumps = list(settings.debug_dir.glob("task5_unlabeled_*.html"))
+    dumps = list(settings.debug_dir.glob("task5_context_*.html"))
     assert len(dumps) == 1
     assert dumps[0].read_text(encoding="utf-8") == "<div role='radio'>Yes</div>"
 
