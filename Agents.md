@@ -22,8 +22,9 @@
 - **File-size limit (important — never skip):** when any code file you write or
   edit crosses **415 lines**, split it into a package folder with one module per
   concern — do not let a file keep growing past the limit. This applies to all
-  **future** code; existing files that are already over the limit are left as-is
-  unless the human explicitly asks to split them. See
+  **future** code, and also to any existing file you are currently working on
+  that is already over the limit. Existing files you are **not** working on are
+  left as-is unless the human explicitly asks to split them. See
   [File-size limit](#file-size-limit-required) below.
 
   
@@ -84,8 +85,10 @@ split — a package folder with a thin `__init__.py` plus one module per concern
   byte-for-byte rather than retyped.
 - Run the tests and lint to prove nothing broke.
 - **Scope:** this applies to all **future** code — every new file you create and
-  any file you edit that would end up over the limit. **Do not** split existing
-  files that are already over the limit unless the human explicitly asks you to.
+  any file you edit that would end up over the limit. It also applies to any
+  existing file that is **already over the limit and that you are currently
+  working on**: split it as part of that work. Existing files you are **not**
+  working on are left as-is unless the human explicitly asks you to split them.
 - Before creating the folder and its file names, ask the human for feedback and
   wait for approval (same rule as any new file).
 
