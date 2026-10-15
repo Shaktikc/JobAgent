@@ -211,7 +211,12 @@ src/
                      Task 3: read the job description, drive the LLM match;
                      Task 3.1: ask the human when nothing matches
     resume_descriptions.py  Task 3.2: LLM resume profiles + the LLM pick
-    linkedin_easy_apply_fill.py    Task 4: fill the Easy Apply form, attach the resume
+    linkedin_easy_apply_fill/      Task 4: fill the Easy Apply form, attach the resume
+      __init__.py                  Task 4 public API (re-exports the submodules below)
+      form_queries.py              DOM queries + readers for the form, resume controls, buttons
+      field_filling.py             Fill one step's known fields (LLM / Task 5 answers)
+      resume_attachment.py         Attach the Task 3 resume (listed option or CDP upload)
+      form_walk.py                 Walk the form step by step, stopping before Submit
     llm_answers.py   Task 4.1: LLM classifies a question and picks the stored answer
     matching.py      Pure keyword helpers (skills, titles, seniority) for 3.1 profiles
     answers.py       Question -> answer store (read by Task 4.1, written by Task 5)

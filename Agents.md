@@ -19,6 +19,12 @@
 - When implementing a new feature, create an entirely new file for it rather
   than adding it to an existing file. Before creating the file, ask the human
   for feedback on the file name and wait for their approval.
+- **File-size limit (important — never skip):** when any code file you write or
+  edit crosses **415 lines**, split it into a package folder with one module per
+  concern — do not let a file keep growing past the limit. This applies to all
+  **future** code; existing files that are already over the limit are left as-is
+  unless the human explicitly asks to split them. See
+  [File-size limit](#file-size-limit-required) below.
 
   
 ## Live browser verification (required)
@@ -58,6 +64,30 @@ silently.
   live-browser check passes, and the bug log entry plus its status are updated.
 - Ask the human for feedback on a new bug file's name before creating it (same
   rule as any new file).
+
+
+## File-size limit (required)
+
+A source file you write or modify must not stay above **415 lines**. When a file
+crosses that limit, split it the same way Task 4's `linkedin_easy_apply_fill` was
+split — a package folder with a thin `__init__.py` plus one module per concern:
+
+- Create a folder (a package) named after the file (for example
+  `src/tools/linkedin_easy_apply_fill/`) and move the code into it grouped by
+  concern (queries/readers, core logic, resume/attachment, orchestration, …).
+- Keep a thin `__init__.py` that re-exports the file's public API, so existing
+  `from ... import ...` callers and lazy re-exports keep working unchanged.
+- Update every interrelated piece: callers, lazy re-exports, tests (including
+  `monkeypatch` targets, which must point at the module that actually calls the
+  function), and docs.
+- Split large literals (JS/SQL strings, etc.) by line range so they are copied
+  byte-for-byte rather than retyped.
+- Run the tests and lint to prove nothing broke.
+- **Scope:** this applies to all **future** code — every new file you create and
+  any file you edit that would end up over the limit. **Do not** split existing
+  files that are already over the limit unless the human explicitly asks you to.
+- Before creating the folder and its file names, ask the human for feedback and
+  wait for approval (same rule as any new file).
 
 
 ## Browser automation

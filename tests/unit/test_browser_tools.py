@@ -1867,7 +1867,7 @@ async def test_task4_uploads_resume_when_not_listed(
         uploaded["selector"] = selector
         uploaded["path"] = path
 
-    monkeypatch.setattr(fill_tools, "upload_file_via_cdp", fake_upload)
+    monkeypatch.setattr(fill_tools.resume_attachment, "upload_file_via_cdp", fake_upload)
 
     outcome = await browser_tools._task4_on_page(
         page,
@@ -2041,7 +2041,7 @@ async def test_task4_clicks_upload_button_to_reveal_file_input(
         uploaded["selector"] = selector
         uploaded["path"] = path
 
-    monkeypatch.setattr(fill_tools, "upload_file_via_cdp", fake_upload)
+    monkeypatch.setattr(fill_tools.resume_attachment, "upload_file_via_cdp", fake_upload)
 
     outcome = await browser_tools._task4_on_page(
         page,
@@ -2208,7 +2208,7 @@ def _human_asker(
                     task5.answered_questions.append(question)
         return answer
 
-    monkeypatch.setattr(fill_tools, "ask_human_for_answer", fake_ask)
+    monkeypatch.setattr(fill_tools.form_walk, "ask_human_for_answer", fake_ask)
 
 
 def _store_chooser(answers: dict[str, str]):
@@ -2332,7 +2332,7 @@ async def test_task5_is_off_when_disabled(monkeypatch: pytest.MonkeyPatch, tmp_p
         called = True
         return "Sydney"
 
-    monkeypatch.setattr(fill_tools, "ask_human_for_answer", fake_ask)
+    monkeypatch.setattr(fill_tools.form_walk, "ask_human_for_answer", fake_ask)
     human = Task5Outcome()
 
     outcome = await browser_tools._task4_on_page(
@@ -2901,7 +2901,9 @@ async def test_run_full_agent_end_to_end_offline(monkeypatch: pytest.MonkeyPatch
     # Task 4.1's LLM is a stand-in here (no network in unit tests): it chooses
     # stored answers exactly as the model is expected to.
     monkeypatch.setattr(
-        fill_tools, "build_answer_chooser", lambda settings, answers: _store_chooser(answers)
+        fill_tools.form_walk,
+        "build_answer_chooser",
+        lambda settings, answers: _store_chooser(answers),
     )
     # Task 3.2's LLM is a stand-in here too (no network in unit tests): it describes
     # the pool and picks the only resume.
