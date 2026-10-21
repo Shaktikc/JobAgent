@@ -1,19 +1,18 @@
-"""Task 4: DOM queries and readers for the open Easy Apply form.
+"""Task 4: the DOM query scripts injected into the open Easy Apply form.
 
-This module holds the JavaScript the fill flow injects to inspect the open Easy
-Apply form - its fields, its resume controls, and its buttons - and the async
-readers that wrap those queries. The form is dynamic, so its steps, fields, and
-resume control (a radio list, a ``<select>``, a file input, or an "Upload
-resume" button that reveals one) are discovered at runtime rather than assumed.
+Each query is a self-contained IIFE; :func:`_with_apply_root` injects the shared
+``findApplyRoot()`` finder so the classic-modal and inline layouts share one code
+path. The form is dynamic, so its fields, resume control (a radio list, a
+``<select>``, a file input, or an "Upload resume" button that reveals one), and
+buttons are discovered at runtime rather than assumed.
 
-The browser interaction uses browser-use's deterministic CDP actor API
-(``Page`` / ``Element``); the LLM is used only to choose answers, never to drive
-the browser.
+The async readers that wrap these scripts live in
+:mod:`~src.tools.linkedin_easy_apply_fill.form_queries.readers`.
 """
 
 from __future__ import annotations
 
-from src.tools.browser import FIND_APPLY_ROOT_JS, _loads, _safe
+from src.tools.browser import FIND_APPLY_ROOT_JS
 
 # Enumerate the Easy Apply form's controls (Task 4). Each control gets a
 # ``data-autojob-fill`` marker so it can be resolved back to a browser-use
@@ -21,7 +20,7 @@ from src.tools.browser import FIND_APPLY_ROOT_JS, _loads, _safe
 _ENUMERATE_FORM_QUERY = r"""
 () => {
   const modal = findApplyRoot();
-  if (!modal) return JSON.stringify({ open: false, title: '', fields: [] });
+  if (!modal) return JSON.stringify({ open: false, title: '', step: '', fields: [] });
 
   const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
   const titleEl = modal.querySelector('h3');
@@ -205,7 +204,21 @@ _ENUMERATE_FORM_QUERY = r"""
       options: options
     });
   });
-  return JSON.stringify({ open: true, title: title, fields: fields });
+
+  // A stable identity for the current step, so two steps that hold no fillable
+  // controls (LinkedIn's review/edit steps, e.g. "Work experience") are still
+  // told apart. The progress indicator ("3/7 pages") changes on every step; the
+  // headings are a fallback for forms that omit it (the modal's own title is a
+  // heading too, but it is constant, so including it is harmless).
+  const progressMatch = norm(modal.innerText).match(
+    /\b\d+\s*(?:\/|of)\s*\d+\s*(?:pages?|steps?)\b/i
+  );
+  const progress = progressMatch ? progressMatch[0] : '';
+  const headings = Array.from(modal.querySelectorAll('h1, h2, h3, h4'))
+    .map((h) => norm(h.innerText)).filter(Boolean).join(' | ');
+  const step = [progress, headings].filter(Boolean).join(' · ');
+
+  return JSON.stringify({ open: true, title: title, step: step, fields: fields });
 }
 """
 
@@ -373,46 +386,3 @@ def _with_apply_root(query: str) -> str:
 _ENUMERATE_FORM_QUERY = _with_apply_root(_ENUMERATE_FORM_QUERY)
 _RESUME_OPTIONS_QUERY = _with_apply_root(_RESUME_OPTIONS_QUERY)
 _FORM_BUTTONS_QUERY = _with_apply_root(_FORM_BUTTONS_QUERY)
-
-
-async def read_form(page) -> tuple[bool, str, list[dict]]:
-    """Return ``(form_open, step_title, fields)`` for the open form (Task 4)."""
-    payload = _loads(await _safe(page.evaluate(_ENUMERATE_FORM_QUERY), ""))
-    return (
-        bool(payload.get("open")),
-        str(payload.get("title") or ""),
-        list(payload.get("fields") or []),
-    )
-
-
-async def enumerate_form_fields(page) -> tuple[bool, list[dict]]:
-    """Return ``(form_open, fields)`` for the open Easy Apply form (Task 4)."""
-    opened, _title, fields = await read_form(page)
-    return opened, fields
-
-
-async def read_resume_info(page) -> dict:
-    """Return the resume controls: ``options``, ``fileInput``, ``select``, ``uploadButton``.
-
-    The form is dynamic, so the resume control may be a radio list, a
-    ``<select>``, a file input, or an upload button that reveals the file input.
-    """
-    payload = _loads(await _safe(page.evaluate(_RESUME_OPTIONS_QUERY), ""))
-    return {
-        "options": list(payload.get("options") or []),
-        "fileInput": bool(payload.get("fileInput")),
-        "select": payload.get("select") or None,
-        "uploadButton": payload.get("uploadButton") or None,
-    }
-
-
-async def read_resume_options(page) -> tuple[list[dict], bool]:
-    """Return ``(listed_resume_options, file_input_present)`` for the form (Task 4)."""
-    info = await read_resume_info(page)
-    return info["options"], info["fileInput"]
-
-
-async def read_form_buttons(page) -> list[dict]:
-    """Return the Easy Apply modal's buttons (Task 4)."""
-    payload = _loads(await _safe(page.evaluate(_FORM_BUTTONS_QUERY), ""))
-    return list(payload.get("buttons") or [])

@@ -213,7 +213,10 @@ src/
     resume_descriptions.py  Task 3.2: LLM resume profiles + the LLM pick
     linkedin_easy_apply_fill/      Task 4: fill the Easy Apply form, attach the resume
       __init__.py                  Task 4 public API (re-exports the submodules below)
-      form_queries.py              DOM queries + readers for the form, resume controls, buttons
+      form_queries/                DOM queries + readers for the form, resume controls, buttons
+        __init__.py                re-exports the query scripts and readers
+        scripts.py                 injected JS query scripts + findApplyRoot injection
+        readers.py                 async readers over the scripts (read_form, read_resume_info, ...)
       field_filling.py             Fill one step's known fields (LLM / Task 5 answers)
       resume_attachment.py         Attach the Task 3 resume (listed option or CDP upload)
       form_walk.py                 Walk the form step by step, stopping before Submit

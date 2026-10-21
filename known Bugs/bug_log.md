@@ -69,6 +69,7 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | BUG-029 | General — CLI | "I/O operation on closed pipe" noise after a successful run | 🟢 Fixed | `2b60465` |
 | BUG-030 | General — cleanup | agent closed the browser on timeout (it must never close it) | 🟢 Fixed | `ef2ad44`, `31553e2` |
 | BUG-031 | Task 3 — match | unread description treated as "no resume matched" | 🟢 Fixed | `7dce47d` |
+| BUG-032 | Task 4 — walk | walk stopped at a field-less review step ("form did not advance") | 🟢 Fixed | (uncommitted) |
 
 ## Template for new entries
 

@@ -28,9 +28,15 @@ from src.tools.llm_answers import AnswerChooser, build_answer_chooser
 _MAX_FORM_STEPS = 10
 
 
-def _form_signature(title: str, fields: list[dict]) -> str:
-    """A stable fingerprint of a form step, to detect that Next did not advance."""
-    parts = [title or ""]
+def _form_signature(title: str, fields: list[dict], step: str = "") -> str:
+    """A stable fingerprint of a form step, to detect that Next did not advance.
+
+    ``step`` is the step identity from :func:`read_form` (the modal's progress
+    indicator plus its headings). It matters because LinkedIn's review/edit steps
+    hold no fillable controls: without ``step``, two such steps would fingerprint
+    identically and the walk would stop as if Next had not advanced.
+    """
+    parts = [title or "", step or ""]
     for field in fields:
         parts.append(
             "|".join(str(field.get(key, "")) for key in ("kind", "question", "name", "option"))
@@ -114,14 +120,14 @@ async def _task4_on_page(
     pending_advance = False
     blocking: list[str] = []
 
-    for step in range(_MAX_FORM_STEPS):
-        opened, title, fields = await read_form(page)
+    for step_index in range(_MAX_FORM_STEPS):
+        opened, title, fields, step = await read_form(page)
         if not opened:
-            if step == 0:
+            if step_index == 0:
                 outcome.notes = _append_note(outcome.notes, "Easy Apply form was not found")
             break
 
-        signature = _form_signature(title, fields)
+        signature = _form_signature(title, fields, step)
         if pending_advance:
             if signature == previous:
                 # The click did not move to a new step: stop instead of retrying
