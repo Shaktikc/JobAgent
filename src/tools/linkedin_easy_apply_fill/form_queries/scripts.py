@@ -207,16 +207,22 @@ _ENUMERATE_FORM_QUERY = r"""
 
   // A stable identity for the current step, so two steps that hold no fillable
   // controls (LinkedIn's review/edit steps, e.g. "Work experience") are still
-  // told apart. The progress indicator ("3/7 pages") changes on every step; the
-  // headings are a fallback for forms that omit it (the modal's own title is a
-  // heading too, but it is constant, so including it is harmless).
-  const progressMatch = norm(modal.innerText).match(
+  // told apart. The modal's whole visible text is hashed: a step always renders
+  // different content, even when it shares the modal's constant title and holds
+  // no fillable controls. The progress indicator ("3/7 pages") and the headings
+  // are kept alongside the hash so the identity stays readable in logs.
+  const modalText = norm(modal.innerText);
+  const progressMatch = modalText.match(
     /\b\d+\s*(?:\/|of)\s*\d+\s*(?:pages?|steps?)\b/i
   );
   const progress = progressMatch ? progressMatch[0] : '';
   const headings = Array.from(modal.querySelectorAll('h1, h2, h3, h4'))
     .map((h) => norm(h.innerText)).filter(Boolean).join(' | ');
-  const step = [progress, headings].filter(Boolean).join(' · ');
+  let textHash = 0;
+  for (let i = 0; i < modalText.length; i++) {
+    textHash = (textHash * 31 + modalText.charCodeAt(i)) | 0;
+  }
+  const step = [progress, headings, 'text:' + (textHash >>> 0)].filter(Boolean).join(' · ');
 
   return JSON.stringify({ open: true, title: title, step: step, fields: fields });
 }

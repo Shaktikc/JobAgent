@@ -128,6 +128,10 @@ async def _task4_on_page(
             break
 
         signature = _form_signature(title, fields, step)
+        notify(
+            f"Task 4: step {step_index}: {title or '(untitled)'!r} "
+            f"fields={len(fields)} step_id={step!r}"
+        )
         if pending_advance:
             if signature == previous:
                 # The click did not move to a new step: stop instead of retrying

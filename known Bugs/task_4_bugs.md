@@ -83,17 +83,24 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   hold **no fillable controls**, so two consecutive review steps produced an
   identical fingerprint. The walk wrongly concluded Next had not advanced and
   stopped before the terminal step.
-- **Fix:** `_ENUMERATE_FORM_QUERY` now also returns a `step` identity — the
-  modal's progress indicator ("3/7 pages") plus its headings — and `read_form`
-  returns it; `_form_signature` includes it, so field-less steps are told apart.
-  (Also split `form_queries.py` into the `form_queries/` package — `scripts.py` +
-  `readers.py` — per the file-size rule.)
+- **Fix:** `_ENUMERATE_FORM_QUERY` now also returns a `step` identity and
+  `_form_signature` includes it, so field-less steps are told apart. The identity
+  is the modal's progress indicator ("3/7 pages"), its headings, **and a hash of
+  the modal's whole visible text**. The first attempt (progress + headings only,
+  commit `97c157d`) was insufficient on the live page: the progress/step-heading
+  signal did not change between the review steps, so the walk still stopped. The
+  whole-text hash always changes with the step's rendered content. (Also split
+  `form_queries.py` into the `form_queries/` package — `scripts.py` + `readers.py`
+  — per the file-size rule.)
 - **Status:** 🟢 Fixed
 - **Evidence:** `src/tools/linkedin_easy_apply_fill/form_queries/scripts.py`
-  (`_ENUMERATE_FORM_QUERY` step identity),
+  (`_ENUMERATE_FORM_QUERY` step identity: progress + headings + visible-text hash),
   `src/tools/linkedin_easy_apply_fill/form_queries/readers.py` (`read_form`),
   `src/tools/linkedin_easy_apply_fill/form_walk.py` (`_form_signature`,
-  `_task4_on_page`); `tests/unit/test_task4_review_steps.py` (2 tests; both fail
-  without the fix); live-browser reproduction (constant modal `<h3>` + field-less
-  review steps): `steps_advanced` 1 → 2, `reached_terminal_step` True. Commit
-  (uncommitted).
+  `_task4_on_page`, which logs `Task 4: step N: ... step_id=...`);
+  `tests/unit/test_task4_review_steps.py` (2 tests; both fail without the fix);
+  live-browser reproduction with the progress indicator placed *outside* the modal
+  and the step titles as plain `<div>`s (so only the text hash distinguishes the
+  steps): `step_id` `text:1029807389` → `text:3706210911` → `text:2325457445`,
+  `steps_advanced` 2, `reached_terminal_step` True. Commit `97c157d` (first,
+  insufficient attempt) + (uncommitted enhancement).

@@ -8,9 +8,10 @@ consecutive review steps looked identical and the walk stopped with
 ``form did not advance to a new step`` (see ``known Bugs/task_4_bugs.md``,
 BUG-032).
 
-These tests are offline: they drive :func:`_task4_on_page` with a tiny fake page
-whose per-step payload carries a distinct ``step`` identity (the modal's progress
-indicator plus its headings), which is exactly what the fix adds.
+These tests are offline: they drive :func:`_task4_on_page` with a tiny in-memory
+form whose per-step payload carries a distinct ``step`` identity (the modal's
+progress indicator, headings, and a hash of its whole visible text), which is
+exactly what the fix adds.
 """
 
 from __future__ import annotations
@@ -23,30 +24,37 @@ from src.tools import linkedin_easy_apply_fill as fill_tools
 
 
 class _FakeButton:
-    def __init__(self) -> None:
+    def __init__(self, on_click=None) -> None:
         self.clicked = False
+        self._on_click = on_click
 
     async def click(self) -> None:
         self.clicked = True
+        if self._on_click is not None:
+            self._on_click()
 
 
-class _FakePage:
-    """A minimal page: each ``evaluate`` pops the next form/button payload."""
+class _FakeForm:
+    """A tiny in-memory Easy Apply form: ``steps`` is one payload per step and
+    clicking Next advances to the next step."""
 
-    def __init__(self, *, enumerations: list[dict], button_batches: list[list[dict]]) -> None:
-        self._enumerations = list(enumerations)
-        self._button_batches = list(button_batches)
+    def __init__(self, steps, buttons_per_step) -> None:
+        self._steps = list(steps)
+        self._buttons = list(buttons_per_step)
+        self.index = 0
         self.buttons: dict[str, _FakeButton] = {}
+
+    def _clamp(self, seq):
+        return seq[min(self.index, len(seq) - 1)]
+
+    def _advance(self) -> None:
+        self.index += 1
 
     async def evaluate(self, js: str, *args):
         if "data-autojob-fill" in js:
-            payload = (
-                self._enumerations.pop(0) if self._enumerations else {"open": False, "fields": []}
-            )
-            return json.dumps(payload)
+            return json.dumps(self._clamp(self._steps))
         if "data-autojob-btn" in js:
-            batch = self._button_batches.pop(0) if self._button_batches else []
-            return json.dumps({"buttons": batch})
+            return json.dumps({"buttons": self._clamp(self._buttons)})
         if "data-autojob-resume" in js:
             return json.dumps({"options": [], "fileInput": False})
         return ""
@@ -59,6 +67,12 @@ class _FakePage:
 
     async def get_url(self) -> str:
         return "https://www.linkedin.com/jobs/view/1"
+
+
+def _make_form(steps, buttons_per_step) -> _FakeForm:
+    form = _FakeForm(steps, buttons_per_step)
+    form.buttons = {"b0": _FakeButton(form._advance)}
+    return form
 
 
 def _settings(tmp_path) -> Settings:
@@ -82,26 +96,25 @@ def test_form_signature_distinguishes_fieldless_steps() -> None:
 
 async def test_task4_advances_through_fieldless_review_steps(tmp_path) -> None:
     """Two consecutive review steps (no fields, constant title) must both advance."""
-    page = _FakePage(
-        enumerations=[
-            {"open": True, "title": "Apply to EVSE", "step": "1/3 pages", "fields": []},
-            {"open": True, "title": "Apply to EVSE", "step": "2/3 pages", "fields": []},
-            {"open": True, "title": "Apply to EVSE", "step": "3/3 pages", "fields": []},
+    form = _make_form(
+        steps=[
+            {"open": True, "title": "Apply to EVSE", "step": "1/3 pages · text:1", "fields": []},
+            {"open": True, "title": "Apply to EVSE", "step": "2/3 pages · text:2", "fields": []},
+            {"open": True, "title": "Apply to EVSE", "step": "3/3 pages · text:3", "fields": []},
         ],
-        button_batches=[
+        buttons_per_step=[
             [{"marker": "b0", "text": "Next", "disabled": False}],
             [{"marker": "b0", "text": "Next", "disabled": False}],
             [{"marker": "b0", "text": "Submit application", "disabled": False}],
         ],
     )
-    page.buttons = {"b0": _FakeButton()}
 
     outcome = await fill_tools._task4_on_page(
-        page, None, None, {}, _settings(tmp_path), lambda _m: None
+        form, None, None, {}, _settings(tmp_path), lambda _m: None
     )
 
     assert outcome.steps_advanced == 2
     assert outcome.reached_terminal_step is True
     assert outcome.submitted is False
     assert "form did not advance" not in outcome.notes
-    assert page.buttons["b0"].clicked is True
+    assert form.buttons["b0"].clicked is True
