@@ -19,6 +19,7 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 | BUG-028 | Browser profile | second launch force-killed a live browser → CDP drop (`WinError 1225`) | 🟢 Fixed | `888e11d` |
 | BUG-029 | Windows CLI | "I/O operation on closed pipe" noise after a successful run | 🟢 Fixed | `2b60465` |
 | BUG-030 | Cleanup | agent closed the browser on timeout (it must never close it) | 🟢 Fixed | `ef2ad44`, `31553e2` |
+| BUG-033 | UI overlay | Task 9 status panel rendered behind LinkedIn's Easy Apply modal | 🟢 Fixed | (uncommitted) |
 
 ---
 
@@ -121,3 +122,23 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   `src/tools/linkedin_apply_loop.py`, `src/tools/linkedin_search.py`,
   `src/configuration.py` (`keep_open_timeout_seconds`). Commits `ef2ad44`,
   `31553e2`.
+
+### BUG-033 — Task 9 status panel rendered behind LinkedIn's Easy Apply modal
+
+- **Symptom:** during a real run the "AutoJobApply is working" panel (bottom-left)
+  appeared dimmed *behind* the Easy Apply modal's backdrop, while the Task 5
+  "does not know this answer" banner (bottom-right) stayed in front.
+- **Root cause:** the panel is a top-layer `popover` created when the run starts,
+  before the Easy Apply modal (itself a top-layer `<dialog>`) is opened. Per the
+  top-layer rules a modal's `::backdrop` is painted above any popover opened
+  *before* it, and a plain `showPopover()` on an already-open popover is a no-op,
+  so routine updates never moved the panel back to the top. The Task 5 banner
+  works because it is first shown *after* the modal, so it is already the newest
+  top-layer entry.
+- **Fix:** the panel re-raises itself to the newest top-layer slot on every update
+  by hiding and re-showing its popover (`hidePopover()` → `showPopover()`), so it
+  stays in front of the modal like the Task 5 banner. Both calls run in the same
+  synchronous JS task, so there is no visible flicker.
+- **Evidence:** `src/tools/linkedin_status_overlay.py` (`_UPDATE_STATUS_JS`); live
+  Chromium A/B check with a dark `dialog::backdrop` (panel crisp in front, a plain
+  popover dimmed behind). Status: 🟢 Fixed. Commit: (uncommitted).

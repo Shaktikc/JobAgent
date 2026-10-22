@@ -56,6 +56,7 @@ from src.tools.linkedin import (
 )
 from src.tools.linkedin_pagination import _MAX_RESULT_PAGES, go_to_next_page
 from src.tools.linkedin_skip_applied import applied_skip_note, skip_applied_card
+from src.tools.linkedin_status_overlay import emit_step
 
 # Job cards in the left-hand search-results list (Task 2). This mirrors the
 # selector union :func:`results_count` uses, so a card style that ``results_count``
@@ -171,7 +172,7 @@ async def find_job_apply_button(page) -> tuple:
     labels = [await _element_label(element) for element in controls]
     candidates = [
         (element, label)
-        for element, label in zip(controls, labels)
+        for element, label in zip(controls, labels, strict=True)
         if looks_like_easy_apply_action(label) and not await _element_is_job_card(element)
     ]
     index = pick_easy_apply_action_index([label for _element, label in candidates])
@@ -297,6 +298,7 @@ async def _scan_page(
         outcome.job_index = index
         outcome.job_title = title
         notify(f"Task 2: opening job {index + 1}: {title or '(untitled)'}")
+        emit_step(notify, f"Please wait - opening job {index + 1}: {title or '(untitled)'}...")
 
         await _safe(card.evaluate("() => this.scrollIntoView({block: 'center'})"))
         try:
@@ -313,6 +315,7 @@ async def _scan_page(
         if button is None or not looks_like_easy_apply_action(label):
             outcome.skipped_jobs += 1
             notify("Task 2: no Easy Apply for this job; skipping.")
+            emit_step(notify, f"Skipping job {index + 1} - no Easy Apply.")
             continue
 
         outcome.easy_apply_button_found = True
@@ -322,6 +325,7 @@ async def _scan_page(
         if capture is not None and (
             outcome.job_description is None or not outcome.job_description.is_read
         ):
+            emit_step(notify, "Please wait - reading the job description...")
             try:
                 outcome.job_description = await capture(page)
             except Exception:  # noqa: BLE001 - best effort; Task 3 re-reads if empty
@@ -341,6 +345,7 @@ async def _scan_page(
         outcome.modal_text = modal_text
         if opened:
             notify("Task 2: Easy Apply application form opened.")
+            emit_step(notify, f"Opened the Easy Apply form for {title or 'this job'}.")
             scan.opened = True
             break
         outcome.notes = "Easy Apply form did not open after the click"
@@ -369,6 +374,7 @@ async def _task2_on_page(
     The result is stored on ``Task2Outcome.job_description``.
     """
     outcome = Task2Outcome()
+    emit_step(notify, "Please wait - reading the job results list...")
     tried: set[str] = set(skip_keys or ())
     applied_seen: set[str] = set()
     pages_visited = 0

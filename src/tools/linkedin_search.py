@@ -53,6 +53,7 @@ from src.tools.linkedin import (
     pick_easy_apply_filter_index,
     pick_easy_apply_index,
 )
+from src.tools.linkedin_status_overlay import emit_step
 
 # LinkedIn renders the Easy Apply filter toggle with this aria-label; the phrase
 # check below is a fallback for markup variants. The exact "Easy Apply" phrase
@@ -454,6 +455,7 @@ async def run_ai_job_search_detour(
 
         outcome.ai_job_search_present = True
         notify("Task 1: 'Try AI job search' button found; clicking it.")
+        emit_step(notify, "Please wait - using LinkedIn's AI job search...")
         if not await click_ai_job_search(page, settings, ai_button):
             outcome.notes = _append_note(
                 outcome.notes,
@@ -494,6 +496,7 @@ async def _task1_on_page(
 ) -> Task1Outcome:
     """Run Task 1 steps on an already-open page (no session lifecycle)."""
     outcome = Task1Outcome(start_url=url, search_query=search_query)
+    emit_step(notify, "Please wait - opening LinkedIn and waiting for you to log in...")
     await page.goto(url)
     await _wait_for_load(page, settings.session.navigation_timeout_ms / 1000)
     await _pace(settings)
@@ -501,12 +504,14 @@ async def _task1_on_page(
     outcome.already_logged_in = await is_logged_in(page)
     if outcome.already_logged_in:
         notify("Already logged in to LinkedIn.")
+        emit_step(notify, "Logged in to LinkedIn - starting the job search.")
         outcome.logged_in = True
     else:
         notify(
             "Not logged in yet - please log in using the browser window. "
             f"Waiting up to {settings.session.login_timeout_seconds}s ..."
         )
+        emit_step(notify, "Waiting for you - please log in to LinkedIn in the browser window.")
         outcome.logged_in = await wait_for_login(
             page,
             timeout_seconds=settings.session.login_timeout_seconds,
@@ -520,13 +525,16 @@ async def _task1_on_page(
     if outcome.logged_in:
         await _wait_for_load(page, settings.session.navigation_timeout_ms / 1000)
         outcome.search_performed = True
+        emit_step(notify, f"Please wait - searching for {search_query!r} jobs...")
         found, count, search_url = await open_jobs_search(page, search_query, settings)
         await _pace(settings)
         outcome.results_found = found
         outcome.results_count = count
         outcome.search_url = search_url
         if found:
+            emit_step(notify, f"Found {count} job(s) - choosing the Easy Apply ones...")
             await run_ai_job_search_detour(page, search_query, settings, notify, outcome)
+            emit_step(notify, "Please wait - selecting the Easy Apply filter...")
             selected, note = await select_easy_apply_filter(page, settings)
             outcome.easy_apply_filter_selected = selected
             outcome.notes = _append_note(outcome.notes, note)

@@ -22,6 +22,7 @@ import re
 
 from src.configuration import Settings
 from src.state import Task2Outcome
+from src.tools.linkedin_status_overlay import emit_step
 
 
 def _normalize(text: str) -> str:
@@ -69,6 +70,7 @@ def skip_applied_card(
         outcome.applied_jobs_skipped += 1
         outcome.applied_skipped_cards.append({"index": index, "title": title})
         notify(f"Task 2: job {index + 1} is already applied; skipping.")
+        emit_step(notify, f"Skipping job {index + 1} - already applied.")
     return True
 
 

@@ -40,6 +40,7 @@ from src.tools.browser import (
     run_is_connected,
 )
 from src.tools.linkedin_job_selection import _job_key, _task2_on_page
+from src.tools.linkedin_status_overlay import emit_step
 
 # Phrases that confirm the human's application was sent. LinkedIn's confirmation
 # copy varies, so match any of these in a visible dialog.
@@ -201,6 +202,10 @@ async def await_human_submit(
         "Task 8: waiting for you to submit this application yourself "
         "(the agent never clicks Submit). Submit it, or close the browser to stop."
     )
+    emit_step(
+        notify,
+        "Waiting for you - submit this application yourself, then close the window.",
+    )
     deadline = None if timeout <= 0 else time.monotonic() + timeout
     while True:
         if not run_is_connected(run_id):
@@ -213,6 +218,7 @@ async def await_human_submit(
             card_applied=state["card_applied"],
         ):
             notify("Task 8: submission detected.")
+            emit_step(notify, "Submission detected - looking for the next job.")
             await _dismiss_confirmation(run.page, state)
             return "submitted"
         if deadline is not None and time.monotonic() >= deadline:
@@ -268,6 +274,7 @@ async def open_next_job(
         )
 
     skip_keys = {_job_key(skip_title, -1)} if skip_title else set()
+    emit_step(notify, "Please wait - opening the next unapplied job...")
     task2 = await _task2_on_page(
         run.page, settings, notify, skip_keys=skip_keys, capture=read_job_description
     )
@@ -276,6 +283,7 @@ async def open_next_job(
         # only re-read if that produced nothing.
         description = task2.job_description or JobDescription()
         if not description.is_read:
+            emit_step(notify, "Please wait - reading the job description...")
             description = await read_job_description(run.page)
         return NextJobResult(opened=True, task2=task2, description=description)
     return NextJobResult(task2=task2, reason=_no_job_reason(task2))

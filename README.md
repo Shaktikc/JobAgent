@@ -6,13 +6,15 @@ LinkedIn, searches for jobs, selects the **Easy Apply** filter, opens a job's
 filling the form — all through a real browser (via
 [browser-use](https://github.com/browser-use/browser-use)).
 
-> Status: **Tasks 1-8** — log in, search `"software engineer"`, select the Easy
+> Status: **Tasks 1-9** — log in, search `"software engineer"`, select the Easy
 > Apply filter, open a job's Easy Apply form, read the job description, select the
 > best-matching resume, fill known fields + attach the resume, and ask you in the
 > browser about any question it cannot answer, remembering your answer for next
 > time. For each form question an **LLM (Task 4.1)** classifies the question and
 > chooses the right answer from the store. After **you** submit a job, the agent
-> returns to the results list, opens the next unapplied job, and repeats. The graph
+> returns to the results list, opens the next unapplied job, and repeats. A live
+> **status panel (Task 9)** on the LinkedIn page shows each step in plain language
+> and exactly what the **LLM** is doing. The graph
 > runs end-to-end in **dry-run** mode (no browser, no network); the browser layer
 > is wired but opt-in. **No application is ever submitted by the agent.**
 
@@ -114,6 +116,16 @@ the browser or submits anything.
 The login gate is human: your session is stored in the persistent Chromium
 profile under `data/profile`, so later runs skip the wait.
 
+**Task 9 — live status in the browser.** While a run is active, a small panel is
+injected into the same LinkedIn page (bottom-left, so it never covers the Task 5 /
+Task 3.1 banners in the bottom-right). It updates in place and shows only the
+latest step, saying in plain language what the agent is doing at each step ("Please wait —
+searching for 'software engineer' jobs…"). Whenever the **LLM** is used it is shown
+with an explicit `LLM:` label and a purple heading, naming exactly what it is doing
+(summarising a resume, choosing the best-matching resume, classifying a form
+question) and what it decided. The panel is read-only, best-effort feedback: a
+failed render never fails or slows a step, and it is removed when the run ends.
+
 ## Requirements
 
 - Python 3.11 or 3.12
@@ -200,13 +212,15 @@ src/
     verify.py        Confirm every task's acceptance criteria
   tools/
     browser.py       browser-use session wrapper (opt-in); shared browser primitives,
-                     run_agent / run_full_agent, and the Task 3.1 / Task 5 banners
+                     run_agent / run_full_agent, the Task 3.1 / Task 5 banners, and
+                     the Task 9 status reporter/panel
     linkedin.py      Pure LinkedIn URL/text helpers
     linkedin_search.py             Task 1: log in, search jobs, select Easy Apply filter
     linkedin_job_selection.py      Task 2: select a job, open its Easy Apply form
     linkedin_skip_applied.py       Task 6: skip cards already marked "Applied"
     linkedin_pagination.py         Task 7: when a page is all Applied, go to the next page
     linkedin_apply_loop.py         Task 8: detect the human's submit, open the next job
+    linkedin_status_overlay.py     Task 9: the on-page status panel + status reporter
     linkedin_best_matching_resume.py
                      Task 3: read the job description, drive the LLM match;
                      Task 3.1: ask the human when nothing matches

@@ -15,6 +15,7 @@ from src.state import FormField, Task5Outcome
 from src.tools.browser import _marker_element, _pace, _safe
 from src.tools.forms import answers_match, looks_like_resume_field
 from src.tools.linkedin_ask_human import _remember_answer
+from src.tools.linkedin_status_overlay import emit_llm
 from src.tools.llm_answers import AnswerChooser, QuestionDecision
 
 # Set a text/textarea value the way React expects (native setter + events).
@@ -127,15 +128,32 @@ async def _decide(
     question: str,
     field_type: str,
     options: list[str],
+    status=None,
 ) -> QuestionDecision:
     """Ask the LLM which stored answer fits ``question`` (Task 4.1).
 
     With no chooser (no model configured) the question is treated as unknown,
-    which hands it to Task 5.
+    which hands it to Task 5. ``status`` is Task 9's optional status object: it
+    announces exactly what the LLM is doing before the call and what it decided
+    after.
     """
     if chooser is None:
         return QuestionDecision(question=question)
-    return await chooser(question, field_type, options)
+    shown = question if len(question) <= 120 else question[:117] + "..."
+    emit_llm(
+        status,
+        f"classifying the question {shown!r} and choosing a stored answer...",
+    )
+    decision = await chooser(question, field_type, options)
+    if decision.decided:
+        emit_llm(
+            status,
+            f"answered {shown!r}",
+            f"{decision.answer!r} ({decision.category or 'question'})",
+        )
+    else:
+        emit_llm(status, f"no confident answer for {shown!r} - asking you")
+    return decision
 
 
 async def _fill_step(
@@ -146,6 +164,7 @@ async def _fill_step(
     ask=None,
     human: Task5Outcome | None = None,
     chooser: AnswerChooser | None = None,
+    status=None,
 ) -> tuple[int, int, list[str], list[FormField]]:
     """Fill the known fields of one form step; leave the rest unknown.
 
@@ -215,7 +234,7 @@ async def _fill_step(
                 filled += 1
                 records.append(record)
                 continue
-            decision = await _decide(chooser, question, "radio", options)
+            decision = await _decide(chooser, question, "radio", options, status)
             answer = decision.answer
             source = "llm" if decision.decided else "human"
             if decision.decided:
@@ -283,7 +302,9 @@ async def _fill_step(
             records.append(record)
             continue
         option_labels = [option.get("text", "") for option in field.get("options", [])]
-        decision = await _decide(chooser, question, str(field.get("type", "")), option_labels)
+        decision = await _decide(
+            chooser, question, str(field.get("type", "")), option_labels, status
+        )
         answer = decision.answer
         source = "llm" if decision.decided else "human"
         if decision.decided:

@@ -32,6 +32,7 @@ from src.tools.browser import (
     _pace,
     _safe,
 )
+from src.tools.linkedin_status_overlay import emit_step
 
 # Safety cap: never advance through more than this many results pages in one run
 # while hunting for an unapplied job. A control that never disables can therefore
@@ -251,6 +252,7 @@ async def go_to_next_page(page, settings: Settings, notify=None) -> bool:
         return False
 
     notify(f"Task 7: moving to the next results page (clicked {control['label']!r}).")
+    emit_step(notify, "Please wait - moving to the next results page...")
     if await _wait_for_page_change(page, before, settings):
         return True
     notify("Task 7: the results did not change after clicking next; stopping.")

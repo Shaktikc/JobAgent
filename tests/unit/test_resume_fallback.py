@@ -66,7 +66,40 @@ def _picks_none(rationale: str = "nothing fits"):
     return pick
 
 
+class _RecordingStatus:
+    """A minimal Task 9 status object that records what it is told."""
+
+    def __init__(self) -> None:
+        self.lines: list[str] = []
+
+    def step(self, message: str) -> None:
+        self.lines.append(message)
+
+    def llm(self, action: str, detail: str = "") -> None:
+        self.lines.append(f"LLM: {action}" + (f" - {detail}" if detail else ""))
+
+
 # --- the LLM match path -----------------------------------------------------
+
+
+async def test_ensure_resume_reports_what_the_llm_is_doing(tmp_path) -> None:
+    """Task 9: the resume match announces the plain-language step and the LLM's
+    choose/decision lines so the on-page panel says exactly what the LLM is doing."""
+    (tmp_path / "python.txt").write_text("Python AWS Docker", encoding="utf-8")
+    status = _RecordingStatus()
+
+    await ensure_resume(
+        JobDescription(title="Python Engineer", body="Python AWS"),
+        tmp_path,
+        _settings(tmp_path),
+        notify=status,
+        describer=_describer(),
+        matcher=_picks_first("the LLM's reason"),
+    )
+
+    assert any("Please wait" in line for line in status.lines)
+    assert any(line.startswith("LLM: choosing the best-matching resume") for line in status.lines)
+    assert any(line.startswith("LLM: chose resume") for line in status.lines)
 
 
 async def test_ensure_resume_returns_the_llm_match(tmp_path) -> None:

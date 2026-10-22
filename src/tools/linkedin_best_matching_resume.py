@@ -31,6 +31,7 @@ from xml.etree import ElementTree
 from src.configuration import Settings
 from src.state import JobDescription, ResumeCandidate, Task3Outcome
 from src.tools.browser import _append_note, _loads, _safe
+from src.tools.linkedin_status_overlay import emit_llm, emit_step
 from src.tools.resume_descriptions import (
     ResumeDescriptionError,
     describe_resume,
@@ -379,6 +380,7 @@ async def ask_human_for_resume(
         "Task 3.1: no resume matched this job; upload a resume in the banner in "
         "the browser window."
     )
+    emit_step(notify, "Waiting for you - upload a resume in the banner to continue.")
     deadline = time.monotonic() + settings.session.ask_timeout_seconds
     while time.monotonic() < deadline:
         payload = _loads(await _safe(page.evaluate(_READ_RESUME_FILE_JS), ""))
@@ -434,7 +436,30 @@ async def ensure_resume(
         resumes_found=len(files),
     )
     store_path = settings.resume_descriptions_file
-    describe = describer or (lambda path: describe_resume(path, settings))
+    job_label = description.title.strip() or "this job"
+    emit_step(
+        notify,
+        f"Please wait - choosing the best resume for {job_label!r} "
+        f"from {len(files)} resume(s)...",
+    )
+    described_count = {"n": 0}
+
+    async def _describe_with_status(path):
+        described_count["n"] += 1
+        emit_llm(
+            notify,
+            f"summarizing resume {Path(path).name!r} "
+            f"({described_count['n']} of {len(files)})...",
+        )
+        description = await describe_resume(path, settings)
+        emit_llm(
+            notify,
+            f"described resume {Path(path).name!r}",
+            description.summary or "(no summary)",
+        )
+        return description
+
+    describe = describer or _describe_with_status
     pick = matcher or (lambda job, candidates: pick_best_resume(job, candidates, settings))
 
     # Task 3.2: describe every resume, then let the LLM choose (no fallback).
@@ -454,23 +479,35 @@ async def ensure_resume(
             ResumeCandidate(path=path, summary=candidate.summary, described=True)
         )
 
+    emit_llm(
+        notify,
+        f"choosing the best-matching resume for {job_label!r} "
+        f"from {len(candidates)} resume(s)...",
+    )
     try:
         result = await pick(description, candidates)
     except ResumeDescriptionError as exc:
         outcome.error = f"match: {exc}"
         outcome.notes = _append_note(outcome.notes, "the LLM could not choose a resume")
         notify(f"Task 3.2: {exc}")
+        emit_llm(notify, f"could not choose a resume for {job_label!r}", str(exc))
         return outcome
 
     if result.selected_path:
         outcome.selected_path = result.selected_path
         outcome.rationale = result.rationale or "the LLM chose the best-matching resume"
         outcome.notes = _append_note(outcome.notes, "the LLM chose the best-matching resume")
+        emit_llm(
+            notify,
+            f"chose resume {Path(result.selected_path).name!r} for {job_label!r}",
+            result.rationale,
+        )
         return outcome
 
     # No resume matched the job: hand off to Task 3.1.
     outcome.no_match = True
     outcome.rationale = result.rationale or "the LLM found no matching resume"
+    emit_llm(notify, f"no resume matched {job_label!r}", result.rationale)
     reusable = find_reusable_resume(
         load_library(settings.resume_library_file), description, resumes_dir
     )

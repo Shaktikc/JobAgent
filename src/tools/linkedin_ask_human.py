@@ -27,6 +27,7 @@ from src.configuration import Settings
 from src.state import Task5Outcome
 from src.tools.answers import normalize_question, save_answer
 from src.tools.browser import _append_note, _loads, _safe
+from src.tools.linkedin_status_overlay import emit_step
 
 # Task 5: a visible banner that tells the human the agent cannot answer a
 # question and asks them to type the answer into the form field itself. The
@@ -548,6 +549,11 @@ async def ask_human_for_answer(
     notify(
         f"Task 5: I do not know {question!r}{kind}; answer it in the form "
         "field in the browser."
+    )
+    emit_step(
+        notify,
+        f"Waiting for you - I do not know {question!r}{kind}; "
+        "answer it in the form on the page.",
     )
     await _dump_question_context(
         page, question, markers, name, field_type, settings, notify

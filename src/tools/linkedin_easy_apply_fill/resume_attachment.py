@@ -19,6 +19,7 @@ from src.tools.browser import _append_note, _first_element, _marker_element, _sa
 from src.tools.forms import pick_listed_resume
 from src.tools.linkedin_easy_apply_fill.field_filling import _FILL_SELECT_JS
 from src.tools.linkedin_easy_apply_fill.form_queries import read_resume_info
+from src.tools.linkedin_status_overlay import emit_step
 
 
 async def upload_file_via_cdp(session, page, selector: str, file_path: str) -> None:
@@ -77,6 +78,7 @@ async def _attach_resume(
     ``<select>`` choice); otherwise uploads the file, clicking an "Upload
     resume" button first when that is what reveals the file input.
     """
+    emit_step(notify, "Please wait - attaching your resume...")
     info = await read_resume_info(page)
     matched = pick_listed_resume(resume_path, _resume_listed_names(info))
 

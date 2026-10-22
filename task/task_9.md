@@ -1,12 +1,13 @@
 # Task 9 — Show live progress in the browser UI (what the agent and the LLM are doing)
 
-**Status:** 🔲 Not started
+**Status:** 🟡 In progress — implemented; pending review
 
 **Goal:** While a run is active, show an always-updating status panel **in the
 browser, on the same LinkedIn page** the agent is automating, that tells the
 human — in plain language — exactly what the code is doing at each moment. Every
-major step gets its own line ("Please wait — searching for 'software engineer'
-jobs…"), and whenever the **LLM** is invoked the panel says **exactly what the
+major step is shown as the panel's single current line ("Please wait — searching
+for 'software engineer' jobs…"), replaced on each update, and whenever the
+**LLM** is invoked the panel says **exactly what the
 LLM is doing** (which resume it is summarizing, which job it is matching
 against, which form question it is classifying) and then what the LLM decided.
 The panel is read-only feedback: it never changes the page or blocks automation.
@@ -36,14 +37,15 @@ The panel is read-only feedback: it never changes the page or blocks automation.
 3. Emit a status update **before** every LLM call saying exactly what the LLM is
    about to do and on which input, and **after** it returns saying what it
    decided (or that it could not decide).
-4. Keep a short history in the panel (current step + the last few), so the
-   human can see what just happened as well as what is happening now.
+4. Show only the latest step in the panel (each update replaces the previous
+   line), so the human always sees what is happening now without a growing list.
 5. Make the panel visually distinct from Task 5's "does not know this answer"
-   banner and Task 3.1's "needs a resume" banner, so all three can coexist.
+   banner and Task 3.1's "needs a resume" banner, so all three can coexist — and
+   keep it **in front of LinkedIn's Easy Apply modal**.
 6. Treat the panel as best-effort: a failed injection/update is logged and the
    run continues unchanged.
-7. Show a clear end state and remove/close the panel when the run finishes
-   (cleanup), so no stale status is left on the page.
+7. Remove/close the panel when the run finishes (cleanup), so no stale status is
+   left on the page.
 
 **Acceptance criteria**
 - During a live run, the LinkedIn page shows a status panel that updates as the
@@ -52,8 +54,8 @@ The panel is read-only feedback: it never changes the page or blocks automation.
   "Waiting for you — …" while the human owns the next action).
 - Every LLM invocation is shown with an explicit `LLM:` label stating exactly
   what the LLM is doing (with its input) and, when it returns, what it decided.
-- The panel updates in place (no duplicate/stacked panels) and shows the last
-  few steps.
+- The panel updates in place (no duplicate/stacked panels) and shows only the
+  latest step (each update replaces the previous line).
 - The panel coexists with Task 5's answer banner and Task 3.1's resume banner.
 - A panel failure never fails or blocks the run.
 - The panel is removed/closed when the run ends.
@@ -74,11 +76,16 @@ The panel is read-only feedback: it never changes the page or blocks automation.
   swallowed (reuse `_safe` from `browser.py`) and never delay the step.
 - **Never gate on the panel:** automation decisions must not depend on whether
   the panel rendered.
+- **Stay in front of LinkedIn's modal:** the Easy Apply modal is itself a
+  top-layer dialog whose backdrop is painted above any popover opened *before*
+  it. The panel re-raises itself to the newest top-layer slot on every update
+  (hide + re-show), so it stays visible in front of the modal — like Task 5's
+  answer banner, which is shown later and is therefore already on top.
 - Keep every file under the 415-line limit; split into a package if needed.
 
 ## Subtask 9.1 — Status overlay helper (inject, update, clear — best-effort)
 
-**Status:** 🔲 Not started
+**Status:** 🟡 In progress — implemented; pending review
 
 **Goal:** Provide one small, testable module that renders and updates a status
 panel on the current page, plus a reporter object the rest of the code calls to
@@ -92,15 +99,14 @@ fails.
 **Inputs**
 - The live `page` (or `None`).
 - A message, an optional `actor` (`"agent"` / `"llm"`), and an optional detail.
-- A small max-history length for the panel.
 
 **Steps**
 1. Add the panel JS: create a fixed element (own id, e.g. `autojob-status`,
    bottom-left so it never overlaps Task 5's / Task 3.1's bottom-right banners)
-   with a heading, a current line, and a short history list; render in the
-   browser's top layer (`popover="manual"`) and set text via `textContent`.
-2. Add an update JS that finds-or-creates the panel, appends the new line to the
-   history (capped), sets it as the current line, and returns `true`.
+   with a heading and a single current line; render in the browser's top layer
+   (`popover="manual"`) and set text via `textContent`.
+2. Add an update JS that finds-or-creates the panel, replaces the current line
+   with the new message, and returns `true` (no history is kept).
 3. Add a clear JS that removes the panel and resets its state.
 4. Add a reporter that wraps the existing CLI `notify` callback (so it can be
    passed where `progress=print` is passed today) and exposes:
@@ -115,7 +121,8 @@ fails.
    failing/absent page is swallowed, and that `clear()` removes the panel.
 
 **Acceptance criteria**
-- The panel renders once and updates in place; it never stacks.
+- The panel renders once and updates in place (only the latest line); it never
+  stacks.
 - `step()` and `llm()` both print to the CLI and update the page when bound.
 - A `None`/failing page never raises; the call is logged and the run continues.
 - `clear()` removes the panel.
@@ -125,12 +132,17 @@ fails.
 - Proposed new module file: `src/tools/linkedin_status_overlay.py` (ask the
   human before creating the file name). Proposed test file:
   `tests/unit/test_linkedin_status_overlay.py`.
+- The panel keeps **only the current line** (no history): each update replaces
+  the previous message.
+- On every update the panel re-raises itself to the top of the browser's top
+  layer (hide + re-show its popover) so it stays in front of LinkedIn's Easy
+  Apply modal, whose backdrop would otherwise cover a popover opened earlier.
 - Keep the CLI path byte-identical in behaviour: the same text still reaches
   `print`, so existing logs/tests are unaffected.
 
 ## Subtask 9.2 — Instrument the agent/browser steps (Tasks 1-8)
 
-**Status:** 🔲 Not started
+**Status:** 🟡 In progress — implemented; pending review
 
 **Goal:** Push a plain-language "Please wait — …" status for every major agent
 step, so the human can follow the run end to end on the LinkedIn page.
@@ -161,8 +173,8 @@ step, so the human can follow the run end to end on the LinkedIn page.
    skipping applied cards and moving to the next results page.
 7. Task 8 (`linkedin_apply_loop.py`): status for waiting for the human's
    submission and opening the next unapplied job.
-8. On completion, set a final status (e.g. "Done — N application(s) submitted")
-   before cleanup clears the panel.
+8. Leave the last meaningful status visible while the human owns the next action
+   (e.g. "Waiting for you — review and submit…"); cleanup then removes the panel.
 
 **Acceptance criteria**
 - Each of the steps above produces a visible panel line during a live run.
@@ -179,7 +191,7 @@ step, so the human can follow the run end to end on the LinkedIn page.
 
 ## Subtask 9.3 — Instrument the LLM steps (say exactly what the LLM is doing)
 
-**Status:** 🔲 Not started
+**Status:** 🟡 In progress — implemented; pending review
 
 **Goal:** Whenever the LLM is invoked, the panel must state **exactly** what the
 LLM is doing (and on which input) before the call, and what it decided after —

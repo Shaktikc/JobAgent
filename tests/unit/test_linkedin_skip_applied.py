@@ -59,7 +59,11 @@ def test_skip_applied_card_records_the_skip_once() -> None:
     assert skipped is True
     assert outcome.applied_jobs_skipped == 1
     assert outcome.applied_skipped_cards == [{"index": 0, "title": label}]
-    assert messages == ["Task 2: job 1 is already applied; skipping."]
+    assert messages == [
+        "Task 2: job 1 is already applied; skipping.",
+        # Task 9: the plain-language status line shown on the on-page panel.
+        "Skipping job 1 - already applied.",
+    ]
 
     # Re-reading the list must not double-count the same card.
     skip_applied_card(
@@ -73,7 +77,7 @@ def test_skip_applied_card_records_the_skip_once() -> None:
         notify=messages.append,
     )
     assert outcome.applied_jobs_skipped == 1
-    assert len(messages) == 1
+    assert len(messages) == 2
 
 
 def test_skip_applied_card_leaves_unapplied_cards_alone() -> None:

@@ -31,7 +31,12 @@ async def fill(state: ApplyState) -> ApplyState:
     from src.tools.browser import fill_application  # lazy: needs the `browser` extra
 
     try:
-        outcome, task5 = await fill_application(run_id, task3.selected_path, progress=print)
+        from src.tools.browser import get_reporter  # lazy: keeps this node light
+
+        progress = get_reporter(run_id) or print
+        outcome, task5 = await fill_application(
+            run_id, task3.selected_path, progress=progress
+        )
     except Exception as exc:  # noqa: BLE001 - surface any fill failure
         return {
             "status": "failed",

@@ -37,6 +37,13 @@ def _page_for(state: ApplyState):
     return run.page if run is not None else None
 
 
+def _progress_for(state: ApplyState, run_id: str | None):
+    """Task 9: the run's status reporter, falling back to the CLI ``print``."""
+    from src.tools.browser import get_reporter  # lazy: keeps this node light
+
+    return get_reporter(run_id) or print
+
+
 async def match(state: ApplyState) -> ApplyState:
     """Choose the best-matching resume for the open job (Task 3)."""
     if state.get("dry_run", True):
@@ -61,7 +68,7 @@ async def match(state: ApplyState) -> ApplyState:
         Path(resumes_dir),
         settings,
         page=_page_for(state),
-        notify=print,
+        notify=_progress_for(state, state.get("browser_run_id")),
     )
 
     log = [

@@ -70,6 +70,7 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | BUG-030 | General — cleanup | agent closed the browser on timeout (it must never close it) | 🟢 Fixed | `ef2ad44`, `31553e2` |
 | BUG-031 | Task 3 — match | unread description treated as "no resume matched" | 🟢 Fixed | `7dce47d` |
 | BUG-032 | Task 4 — walk | walk stopped at a field-less review step ("form did not advance") | 🟢 Fixed | (uncommitted) |
+| BUG-033 | General — UI overlay | Task 9 status panel rendered behind LinkedIn's Easy Apply modal | 🟢 Fixed | (uncommitted) |
 
 ## Template for new entries
 

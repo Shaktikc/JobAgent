@@ -127,3 +127,52 @@ async def test_chooser_skips_the_call_when_the_store_is_empty() -> None:
 
     assert (await chooser("Which city?", "text", [])).decided is False
     assert fake.calls == []
+
+
+class _RecordingStatus:
+    """A minimal Task 9 status object that records what it is told."""
+
+    def __init__(self) -> None:
+        self.llm_lines: list[str] = []
+
+    def llm(self, action: str, detail: str = "") -> None:
+        self.llm_lines.append(f"LLM: {action}" + (f" - {detail}" if detail else ""))
+
+
+async def test_decide_announces_the_question_and_the_decision() -> None:
+    """Task 9: before the LLM call the panel says what it is classifying, and
+    after it says the chosen answer (Task 4.1)."""
+    from src.tools.linkedin_easy_apply_fill.field_filling import _decide
+    from src.tools.llm_answers import QuestionDecision
+
+    status = _RecordingStatus()
+
+    async def chooser(question, field_type, options):
+        return QuestionDecision(
+            question=question,
+            category="location",
+            matched_key="city",
+            answer="Sydney",
+            rationale="same as city",
+        )
+
+    decision = await _decide(chooser, "Which city are you in?", "text", [], status)
+
+    assert decision.answer == "Sydney"
+    assert any("classifying the question" in line for line in status.llm_lines)
+    assert any("answered" in line and "Sydney" in line for line in status.llm_lines)
+
+
+async def test_decide_says_when_it_has_no_confident_answer() -> None:
+    from src.tools.linkedin_easy_apply_fill.field_filling import _decide
+    from src.tools.llm_answers import QuestionDecision
+
+    status = _RecordingStatus()
+
+    async def chooser(question, field_type, options):
+        return QuestionDecision(question=question)
+
+    decision = await _decide(chooser, "Expected salary?", "text", [], status)
+
+    assert decision.decided is False
+    assert any("no confident answer" in line for line in status.llm_lines)

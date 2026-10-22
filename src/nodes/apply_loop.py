@@ -34,6 +34,7 @@ async def await_submit(state: ApplyState) -> ApplyState:
             "log": ["await_submit: no session to wait on"],
         }
 
+    from src.tools.browser import get_reporter  # lazy: keeps this node light
     from src.tools.linkedin_apply_loop import await_human_submit  # lazy: needs the extra
 
     settings = load_settings()
@@ -43,7 +44,9 @@ async def await_submit(state: ApplyState) -> ApplyState:
     title = (task2.job_title if task2 else "") or ""
 
     try:
-        result = await await_human_submit(run_id, settings, progress=print, title=title)
+        result = await await_human_submit(
+            run_id, settings, progress=get_reporter(run_id) or print, title=title
+        )
     except Exception as exc:  # noqa: BLE001 - surface any wait failure
         return {
             "status": "failed",
@@ -95,6 +98,7 @@ async def next_job(state: ApplyState) -> ApplyState:
             "log": ["next_job: no session to select from"],
         }
 
+    from src.tools.browser import get_reporter  # lazy: keeps this node light
     from src.tools.linkedin_apply_loop import open_next_job  # lazy: needs the extra
 
     settings = load_settings()
@@ -102,7 +106,9 @@ async def next_job(state: ApplyState) -> ApplyState:
     skip_title = (previous.job_title if previous else "") or ""
 
     try:
-        result = await open_next_job(run_id, settings, progress=print, skip_title=skip_title)
+        result = await open_next_job(
+            run_id, settings, progress=get_reporter(run_id) or print, skip_title=skip_title
+        )
     except Exception as exc:  # noqa: BLE001 - surface any selection failure
         return {
             "status": "failed",

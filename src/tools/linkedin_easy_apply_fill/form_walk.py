@@ -20,6 +20,7 @@ from src.tools.linkedin_ask_human import ask_human_for_answer
 from src.tools.linkedin_easy_apply_fill.field_filling import _choice_hint, _fill_step
 from src.tools.linkedin_easy_apply_fill.form_queries import read_form, read_form_buttons
 from src.tools.linkedin_easy_apply_fill.resume_attachment import _attach_resume
+from src.tools.linkedin_status_overlay import emit_step
 from src.tools.llm_answers import AnswerChooser, build_answer_chooser
 
 # How many steps of a multi-step Easy Apply form to walk before stopping. The
@@ -120,6 +121,8 @@ async def _task4_on_page(
     pending_advance = False
     blocking: list[str] = []
 
+    emit_step(notify, "Please wait - filling the Easy Apply form...")
+
     for step_index in range(_MAX_FORM_STEPS):
         opened, title, fields, step = await read_form(page)
         if not opened:
@@ -131,6 +134,11 @@ async def _task4_on_page(
         notify(
             f"Task 4: step {step_index}: {title or '(untitled)'!r} "
             f"fields={len(fields)} step_id={step!r}"
+        )
+        emit_step(
+            notify,
+            f"Please wait - filling form step {step_index + 1}"
+            f"{f': {title}' if title else ''}...",
         )
         if pending_advance:
             if signature == previous:
@@ -147,7 +155,14 @@ async def _task4_on_page(
         outcome.form_open = True
         outcome.fields_enumerated += len(fields)
         known, filled, unknown, records = await _fill_step(
-            page, fields, answers, settings, ask=asker, human=human, chooser=chooser
+            page,
+            fields,
+            answers,
+            settings,
+            ask=asker,
+            human=human,
+            chooser=chooser,
+            status=notify,
         )
         outcome.known_fields += known
         outcome.filled_fields += filled
@@ -173,6 +188,11 @@ async def _task4_on_page(
                 outcome.notes = _append_note(
                     outcome.notes, "reached the last step (only Submit remains)"
                 )
+                emit_step(
+                    notify,
+                    "Waiting for you - review and submit the application, "
+                    "then close the browser.",
+                )
             break
 
         element = await _marker_element(page, "data-autojob-btn", button["marker"])
@@ -184,6 +204,7 @@ async def _task4_on_page(
 
         blocking = _blocking_questions(records)
         notify(f"Task 4: advancing form step via {button.get('text')!r}.")
+        emit_step(notify, f"Please wait - moving on via {button.get('text')!r}...")
         await _safe(element.click())
         pending_advance = True
         if settings.session.post_click_wait_seconds:

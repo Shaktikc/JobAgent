@@ -61,6 +61,7 @@ from src.state import (
     Task5Outcome,
 )
 from src.tools.answers import load_answers
+from src.tools.linkedin_status_overlay import StatusReporter, emit_step
 
 _INSTALL_HINT = (
     "browser-use is not installed. Enable the optional extra:\n"
@@ -176,6 +177,8 @@ class _Run:
 
     session: object
     page: object
+    # Task 9: the status reporter bound to this run's page (CLI + on-page panel).
+    reporter: object = None
 
 
 # run_id -> live session, so Tasks 2-4 can share one browser window without
@@ -484,6 +487,10 @@ async def start_tasks(
 
     settings = settings or load_settings()
     notify = progress or (lambda _message: None)
+    # Task 9: one reporter per run. It prints to the CLI (like the old ``notify``)
+    # and, once bound to the page, mirrors plain-language agent/LLM status onto an
+    # on-page panel. It is stored on the run so later nodes reach it by run id.
+    reporter = StatusReporter(emit=notify)
     session = build_browser(settings)
     task1 = Task1Outcome(start_url=url, search_query=search_query)
     task2 = Task2Outcome()
@@ -492,14 +499,16 @@ async def start_tasks(
     await session.start()
     try:
         page = await session.new_page()
+        reporter.bind_page(page)
+        emit_step(reporter, "Please wait - starting the browser and opening LinkedIn...")
 
-        task1 = await _task1_on_page(page, url, search_query, settings, notify)
+        task1 = await _task1_on_page(page, url, search_query, settings, reporter)
         if not _task1_ok(task1):
-            notify("Task 1 did not complete; skipping Tasks 2-4.")
+            reporter("Task 1 did not complete; skipping Tasks 2-4.")
             task2.notes = "Task 1 did not complete; Tasks 2-4 were skipped."
             task1.screenshot_path = await capture_failure_screenshot(session, settings, "task1")
         else:
-            task2 = await _task2_on_page(page, settings, notify, capture=read_job_description)
+            task2 = await _task2_on_page(page, settings, reporter, capture=read_job_description)
             if not _task2_ok(task2):
                 task2.screenshot_path = await capture_failure_screenshot(session, settings, "task2")
             else:
@@ -507,14 +516,15 @@ async def start_tasks(
                 # Apply); only re-read if that produced nothing.
                 job_description = task2.job_description or JobDescription()
                 if not job_description.is_read:
+                    emit_step(reporter, "Please wait - reading the job description...")
                     job_description = await read_job_description(page)
-                notify(
+                reporter(
                     "Task 3: read job description "
                     f"(title={job_description.title or '(untitled)'!r}, "
                     f"{len(job_description.body)} description chars)."
                 )
                 run_id = uuid4().hex
-                _ACTIVE_RUNS[run_id] = _Run(session=session, page=page)
+                _ACTIVE_RUNS[run_id] = _Run(session=session, page=page, reporter=reporter)
         return AgentOutcome(task1=task1, task2=task2, job_description=job_description), run_id
     finally:
         if run_id is None:
@@ -527,6 +537,12 @@ async def start_tasks(
 def get_run(run_id: str | None) -> _Run | None:
     """Return the registered live session for ``run_id``, if any."""
     return _ACTIVE_RUNS.get(run_id) if run_id else None
+
+
+def get_reporter(run_id: str | None):
+    """Task 9: the run's status reporter, or ``None`` when the run is gone."""
+    run = get_run(run_id)
+    return getattr(run, "reporter", None) if run is not None else None
 
 
 async def _detach_session(session) -> None:
@@ -564,6 +580,12 @@ async def close_run(run_id: str | None) -> None:
     run = _ACTIVE_RUNS.pop(run_id, None)
     if run is None:
         return
+    # Task 9: remove the on-page status panel before the CDP handle is detached,
+    # so no stale status is left behind (best-effort; never fails the release).
+    reporter = getattr(run, "reporter", None)
+    if reporter is not None:
+        with contextlib.suppress(Exception):
+            await reporter.clear()
     await _detach_session(run.session)
 
 
@@ -730,6 +752,9 @@ async def run_full_agent(
     outcome, run_id = await start_tasks(url, search_query, settings, progress)
     if run_id is None:
         return outcome
+    # Task 9: reuse the reporter start_tasks created so the on-page panel keeps
+    # updating for the resume match and the fill too.
+    reporter = get_reporter(run_id) or progress
     try:
         run = get_run(run_id)
         outcome.task3 = await ensure_resume(
@@ -737,14 +762,14 @@ async def run_full_agent(
             settings.resumes_dir,
             settings,
             page=run.page if run is not None else None,
-            notify=progress or (lambda _message: None),
+            notify=reporter,
         )
         if outcome.task3.selected_path:
             outcome.task4, outcome.task5 = await fill_application(
-                run_id, outcome.task3.selected_path, settings, progress
+                run_id, outcome.task3.selected_path, settings, reporter
             )
     finally:
-        await release_run(run_id, outcome.task4, settings, progress)
+        await release_run(run_id, outcome.task4, settings, reporter)
     return outcome
 
 
