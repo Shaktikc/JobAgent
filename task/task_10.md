@@ -1,6 +1,6 @@
 # Task 10 — Answer similar questions from the answers.json knowledge base
 
-**Status:**
+**Status:** ✅ Done
 
 **Goal:** When the Easy Apply form asks a question that is **similar** to something
 already in the answer store (`data/answers.json`), the LLM should **answer it from
@@ -109,7 +109,7 @@ goes to Task 5 as unknown.
 
 ## Subtask 10.1 — Answer from the store's knowledge (match or derive), with provenance
 
-**Status:** 
+**Status:** ✅ Done
 
 **Goal:** Extend the question-answering call so the model may not only copy a stored
 answer but also **derive** a short answer the stored entries entail, always returning
@@ -157,7 +157,7 @@ the stored key(s) it used.
 
 ## Subtask 10.2 — Ground and validate a derived answer (never invent)
 
-**Status:** 
+**Status:** ✅ Done
 
 **Goal:** Guarantee that a derived answer is actually supported by the store and fits
 the field, so the LLM can never fill an invented or off-option value.
@@ -197,7 +197,7 @@ the field, so the LLM can never fill an invented or off-option value.
 
 ## Subtask 10.3 — Remember derived answers so the same question is instant next time
 
-**Status:** 
+**Status:** ✅ Done
 
 **Goal:** Cache a derived answer so the identical question on a later run is answered
 without another LLM call, while keeping `answers.json` reserved for answers the human
@@ -233,6 +233,7 @@ confirmed.
 
 ## Main flow — Use the reasoning chooser in the fill path
 
+**Status:** ✅ Done
 
 **Goal:** Wire Subtasks 10.1-10.3 into the existing fill path so Task 4/5 answer
 similar questions from the store end to end.

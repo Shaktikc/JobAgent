@@ -11,4 +11,4 @@ Each task lives in its own file. This index links to them.
 - [Task 7 — When every job on the page is "Applied", go to the next results page](task_7.md) — ✅ Done
 - [Task 8 — After the human submits a job, open the next one and repeat](task_8.md) — ✅ Done
 - [Task 9 — Show live progress in the browser UI (what the agent and the LLM are doing)](task_9.md) — ✅ Done
-- [Task 10 — Answer similar questions from the answers.json knowledge base](task_10.md) — 🟡 In progress
+- [Task 10 — Answer similar questions from the answers.json knowledge base](task_10.md) — ✅ Done
