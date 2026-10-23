@@ -6,12 +6,15 @@ LinkedIn, searches for jobs, selects the **Easy Apply** filter, opens a job's
 filling the form — all through a real browser (via
 [browser-use](https://github.com/browser-use/browser-use)).
 
-> Status: **Tasks 1-9** — log in, search `"software engineer"`, select the Easy
+> Status: **Tasks 1-10** — log in, search `"software engineer"`, select the Easy
 > Apply filter, open a job's Easy Apply form, read the job description, select the
 > best-matching resume, fill known fields + attach the resume, and ask you in the
 > browser about any question it cannot answer, remembering your answer for next
-> time. For each form question an **LLM (Task 4.1)** classifies the question and
-> chooses the right answer from the store. After **you** submit a job, the agent
+> time. For each form question an **LLM (Task 4.1/10)** classifies the question and
+> answers it from the store — copying a stored answer, or **deriving** one the
+> stored entries entail (e.g. a stored "years of experience with AI: 5" answers
+> "Experience on AI? [Yes/No]" as **Yes**), always citing the stored key(s) it used
+> and never inventing an answer. After **you** submit a job, the agent
 > returns to the results list, opens the next unapplied job, and repeats. A live
 > **status panel (Task 9)** on the LinkedIn page shows each step in plain language
 > and exactly what the **LLM** is doing. The graph
@@ -65,17 +68,29 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
      an unmatching resume.
 4. **fill** — **Task 4:** enumerates the still-open Easy Apply form and answers
    each question. **Task 4.1** classifies every question with an LLM
-   (`OPENROUTER_API_KEY` + `AUTOJOB_LLM_MODEL`) and chooses the appropriate
-   answer from the store (`data/answers.json`) by meaning — the model never
-   invents an answer, it only selects among stored ones. It also attaches the
+   (`OPENROUTER_API_KEY` + `AUTOJOB_LLM_MODEL`) and answers it from the store
+   (`data/answers.json`) **by meaning**, and **Task 10** lets it **match or
+   derive**: it may copy a stored answer, or produce a short answer the stored
+   entries *entail* when no stored value can be copied verbatim (a positive
+   "years of experience with artificial intelligence (ai)" entry answers
+   "Experience on AI? [Yes/No]" as **Yes**). Every answer must cite the stored
+   key(s) it used (`source_keys`); an answer with no existing cited source, a
+   derive the cited values do not entail, or a choice answer that maps to none of
+   the question's options is rejected and handed to Task 5 — the model never
+   invents an answer or uses outside knowledge. A derived answer is cached in
+   `data/derived_answers.json` (kept separate from the human-confirmed
+   `answers.json`) so the same question is instant next time. It also attaches the
    chosen resume — preferring a resume already listed on the form over uploading
    a duplicate — and advances multi-step forms. It **stops before Submit
    application** and never clicks it.
-   - **Task 5 (inside fill):** when the LLM cannot choose an answer, the agent
-     shows a banner in the browser window saying it does not know the answer,
+   - **Task 5 (inside fill):** when the LLM cannot choose a grounded answer, the
+     agent shows a banner in the browser window saying it does not know the
+     answer,
      **pauses for you to type it into the form field on the page** (the banner has
      no input of its own), reads the value you enter, fills the field, and saves
-     the question → answer mapping. Task 4.1 reuses that answer next run. Choice
+     the question → answer mapping. Task 4.1 reuses that answer next run — and, as
+     a human-confirmed answer, it always takes precedence over a derived one.
+     Choice
      fields (selects/radios) list their allowed options in the banner, and an
      answer that matches a visible option label is mapped to the right value.
      Controls the form has **already filled** (e.g. LinkedIn's pre-filled *Email
@@ -111,7 +126,7 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
    and a full-page screenshot plus the page URL are recorded under `data/debug/`.
 
 The browser interaction is deterministic (browser-use's CDP actor API). The resume
-match (Task 3.2) and the answer choice (Task 4.1) use an LLM; the LLM never drives
+match (Task 3.2) and the answer choice (Task 4.1/10) use an LLM; the LLM never drives
 the browser or submits anything.
 The login gate is human: your session is stored in the persistent Chromium
 profile under `data/profile`, so later runs skip the wait.
@@ -123,8 +138,12 @@ latest step, saying in plain language what the agent is doing at each step ("Ple
 searching for 'software engineer' jobs…"). Whenever the **LLM** is used it is shown
 with an explicit `LLM:` label and a purple heading, naming exactly what it is doing
 (summarising a resume, choosing the best-matching resume, classifying a form
-question) and what it decided. The panel is read-only, best-effort feedback: a
-failed render never fails or slows a step, and it is removed when the run ends.
+question) and what it decided. For a Task 10 answer it also names the stored
+source and whether the answer was **matched** or **derived** (e.g. `LLM: answered
+'Experience on AI? [Yes/No]' - 'Yes' (derived from 'how many years of work
+experience do you have with artificial intelligence (ai)': '5')`). The panel is
+read-only, best-effort feedback: a failed render never fails or slows a step, and
+it is removed when the run ends.
 
 ## Requirements
 
@@ -140,7 +159,7 @@ cp .env.example .env           # optional; defaults are safe
 
 Put one or more resumes in `resumes/` (supported: `.pdf`, `.docx`, `.txt`, `.md`).
 
-Task 4.1 needs an LLM to classify and choose answers. Set it in `.env`:
+Task 4.1/10 needs an LLM to classify questions and answer them. Set it in `.env`:
 
 ```bash
 OPENROUTER_API_KEY=sk-or-...          # required for Task 4.1
@@ -152,10 +171,14 @@ and model, no answer is chosen and **every** question is handed to Task 5 (ask
 the human), so the run still works — it just prompts for every question.
 
 To answer form questions automatically, add them to the answer store
-`data/answers.json`. Task 4.1's LLM reads it and picks the right answer for each
-question (matching by meaning, not exact wording); Task 5 also writes to this
-file when it asks you a new question in the browser, so answers persist across
-runs. The model only chooses among these stored answers — it never invents one.
+`data/answers.json`. Task 4.1/10's LLM reads it and answers each question —
+matching by meaning, not exact wording, and **deriving** an answer the stored
+entries entail when no stored value can be copied verbatim; Task 5 also writes to
+this file when it asks you a new question in the browser, so answers persist
+across runs. Every auto-answer is grounded: the model must copy a stored value or
+cite the stored key(s) it derived from, so it never invents one. Derived answers
+are cached in `data/derived_answers.json` (a separate file, so `answers.json`
+stays human-confirmed).
 For example:
 
 ```json
@@ -235,8 +258,10 @@ src/
       resume_attachment.py         Attach the Task 3 resume (listed option or CDP upload)
       form_walk.py                 Walk the form step by step, stopping before Submit
     llm_answers.py   Task 4.1: LLM classifies a question and picks the stored answer
+    llm_answer_reasoning.py  Task 10: LLM matches *or derives* an answer, with grounding
+    derived_answers.py  Task 10.3: cache of answers the LLM derived from the store
     matching.py      Pure keyword helpers (skills, titles, seniority) for 3.1 profiles
-    answers.py       Question -> answer store (read by Task 4.1, written by Task 5)
+    answers.py       Question -> answer store (read by Task 4.1/10, written by Task 5)
     resume_library.py  Task 3.1: job profiles -> human-provided resumes
     forms.py         Pure Easy Apply form helpers (resume match, next/submit)
   main.py            CLI entry point
@@ -282,12 +307,17 @@ tests/
 
 - The browser is **opt-in**: `--no-dry-run` is required to launch it.
 - **Login gate:** a real run pauses until you log in; it never types credentials.
-- Task 4 answers via the LLM (Task 4.1), which only **selects among stored
-  answers** — it can never invent one — attaches the chosen resume, and **never
-  clicks Submit application** — submission stays a manual human step.
-- Task 5 never guesses: when the LLM cannot choose an answer, the run pauses on a
-  browser banner and waits for you to type the answer into the form field. Answers
-  are stored in `data/answers.json` (no credentials) and reused by Task 4.1.
+- Task 4 answers via the LLM (Task 4.1/10), which only uses **stored** answers — it
+  may copy one or **derive** one the stored entries entail, always citing the
+  stored key(s) it used, so it can never invent an answer — attaches the chosen
+  resume, and **never clicks Submit application** — submission stays a manual human
+  step.
+- Task 5 never guesses: when the LLM cannot choose a grounded answer, the run
+  pauses on a browser banner and waits for you to type the answer into the form
+  field. Answers are stored in `data/answers.json` (no credentials) and reused by
+  Task 4.1/10; a human-confirmed answer always takes precedence over a derived one.
+  The derived answers the LLM produced are cached separately in
+  `data/derived_answers.json` (never written into `answers.json`).
 - Unknown questions that you skip or leave unanswered are recorded rather than
   guessed.
 - Task 3 only **reads** existing resumes — it never renames, moves, or edits them.

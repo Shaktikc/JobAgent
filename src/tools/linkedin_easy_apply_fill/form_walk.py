@@ -21,6 +21,7 @@ from src.tools.linkedin_easy_apply_fill.field_filling import _choice_hint, _fill
 from src.tools.linkedin_easy_apply_fill.form_queries import read_form, read_form_buttons
 from src.tools.linkedin_easy_apply_fill.resume_attachment import _attach_resume
 from src.tools.linkedin_status_overlay import emit_step
+from src.tools.llm_answer_reasoning import build_reasoning_answer_chooser
 from src.tools.llm_answers import AnswerChooser, build_answer_chooser
 
 # How many steps of a multi-step Easy Apply form to walk before stopping. The
@@ -84,17 +85,26 @@ async def _task4_on_page(
 
     Task 4.1 rides along: every question is classified by the LLM, which chooses
     an answer from the store (``chooser``; built from ``settings`` when not
-    supplied). Task 5 rides along too: when the LLM cannot choose an answer and
-    ``ask_human`` is on, the run pauses on a browser banner and reads the answer
-    the human types into the form field. Answers are remembered so the same
-    question is answered automatically next time. The optional ``human`` tracker
-    records the questions asked, answered, skipped, and timed out.
+    supplied). Task 10 extends that choice: when a model is configured, the
+    reasoning chooser may **match or derive** an answer and must cite the stored
+    key(s) it used (see :mod:`src.tools.llm_answer_reasoning`); the select-only
+    chooser remains the fallback. Task 5 rides along too: when the LLM cannot
+    choose a grounded answer and ``ask_human`` is on, the run pauses on a browser
+    banner and reads the answer the human types into the form field. Answers are
+    remembered so the same question is answered automatically next time. The
+    optional ``human`` tracker records the questions asked, answered, skipped, and
+    timed out.
     """
     outcome = Task4Outcome(resume_path=resume_path or "")
     human = human if human is not None else Task5Outcome()
     human.enabled = bool(settings.session.ask_human)
     if chooser is None:
-        chooser = build_answer_chooser(settings, answers)
+        # Task 10: prefer the match-or-derive chooser when a model is configured;
+        # fall back to the select-only chooser (which is also ``None`` when no
+        # model is configured, so questions flow to Task 5 unchanged).
+        chooser = build_reasoning_answer_chooser(settings, answers) or build_answer_chooser(
+            settings, answers
+        )
 
     asker = None
     if human.enabled:

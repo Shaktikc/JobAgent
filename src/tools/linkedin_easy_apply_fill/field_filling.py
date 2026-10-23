@@ -2,7 +2,8 @@
 
 This module owns the per-field filling logic, split out of
 :mod:`src.tools.linkedin_easy_apply_fill`: it keeps a value the form already
-holds, asks the LLM (Task 4.1) to choose a stored answer for the rest, falls
+holds, asks the LLM (Task 4.1/10) to answer from the store for the rest (copying a
+stored answer or deriving one the stored entries entail), falls
 back to Task 5's ask-the-human callable when the LLM cannot, and applies the
 chosen answer to the real control (text input, ``<select>``, checkbox, or radio)
 with React-friendly events.
@@ -130,12 +131,13 @@ async def _decide(
     options: list[str],
     status=None,
 ) -> QuestionDecision:
-    """Ask the LLM which stored answer fits ``question`` (Task 4.1).
+    """Ask the LLM to answer ``question`` from the store (Task 4.1/10).
 
     With no chooser (no model configured) the question is treated as unknown,
     which hands it to Task 5. ``status`` is Task 9's optional status object: it
     announces exactly what the LLM is doing before the call and what it decided
-    after.
+    after — including the stored source when a Task 10 answer was matched or
+    derived.
     """
     if chooser is None:
         return QuestionDecision(question=question)
@@ -146,11 +148,15 @@ async def _decide(
     )
     decision = await chooser(question, field_type, options)
     if decision.decided:
-        emit_llm(
-            status,
-            f"answered {shown!r}",
-            f"{decision.answer!r} ({decision.category or 'question'})",
-        )
+        # Task 10: name the stored source, and say whether the answer was copied
+        # from it ("from") or reasoned from it ("derived from").
+        detail = f"{decision.answer!r}"
+        if decision.source_summary:
+            kind = "derived from" if decision.derived else "from"
+            detail += f" ({kind} {decision.source_summary})"
+        elif decision.category:
+            detail += f" ({decision.category})"
+        emit_llm(status, f"answered {shown!r}", detail)
     else:
         emit_llm(status, f"no confident answer for {shown!r} - asking you")
     return decision
@@ -168,8 +174,9 @@ async def _fill_step(
 ) -> tuple[int, int, list[str], list[FormField]]:
     """Fill the known fields of one form step; leave the rest unknown.
 
-    Every question is first classified by the LLM (Task 4.1), which chooses an
-    answer from the store. ``ask`` is Task 5's optional async
+    Every question is first classified by the LLM (Task 4.1/10), which answers it
+    from the store (copying a stored answer or deriving one the stored entries
+    entail). ``ask`` is Task 5's optional async
     ``(question, field) -> answer | None`` callable, used when the LLM cannot
     choose a stored answer (or a chosen radio answer matches none of the step's
     options); a returned answer is filled, remembered in the store, and reused
@@ -241,6 +248,8 @@ async def _fill_step(
                 record.question_type = decision.category
                 record.matched_key = decision.matched_key
                 record.rationale = decision.rationale
+                record.derived = decision.derived
+                record.source_keys = list(decision.source_keys)
             option = (
                 next((g for g in group if answers_match(g.get("option", ""), answer)), None)
                 if answer is not None
@@ -311,6 +320,8 @@ async def _fill_step(
             record.question_type = decision.category
             record.matched_key = decision.matched_key
             record.rationale = decision.rationale
+            record.derived = decision.derived
+            record.source_keys = list(decision.source_keys)
         if answer is None and ask is not None:
             answered = await ask(question, field)
             if answered is not None:

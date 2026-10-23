@@ -4,8 +4,9 @@ Task 1 logs in, searches jobs, and selects the **Easy Apply** filter. Task 2 pic
 a job from those results and clicks its **Easy Apply** button, confirming the
 application form opens. Task 3 reads the open job's description and chooses the
 best-matching resume from the ``resumes/`` folder. Task 4 fills the open Easy
-Apply form: the LLM (Task 4.1) classifies each question and chooses the answer
-from the store, and attaches that resume — without submitting. Task 5 runs
+Apply form: the LLM (Task 4.1/10) classifies each question and answers it from
+the store (copying a stored answer or deriving one it entails), and attaches that
+resume — without submitting. Task 5 runs
 inside that fill: when the LLM cannot answer a question it pauses for the human
 (in the browser) and remembers the answer for next time. Task 8 then waits for
 the human to submit, opens the next unapplied job, and repeats.
@@ -149,7 +150,10 @@ class FormField(BaseModel):
     ``answered_by`` records who answered it: ``"llm"`` (Task 4.1 classified the
     question and chose a stored answer), ``"human"`` (Task 5 asked), or
     ``"form"`` (LinkedIn had already filled it). ``question_type`` and
-    ``rationale`` carry the LLM's decision so it stays explainable.
+    ``rationale`` carry the LLM's decision so it stays explainable. Task 10 adds
+    how the answer was grounded: ``matched_key`` is the stored key a copied answer
+    came from, ``derived`` says the answer was reasoned from ``source_keys``
+    rather than copied verbatim.
     """
 
     question: str = ""
@@ -165,14 +169,18 @@ class FormField(BaseModel):
     question_type: str = ""  # the LLM's classification of the question
     matched_key: str = ""  # the stored question the LLM chose the answer from
     rationale: str = ""  # why the LLM chose this answer
+    # Task 10: provenance for an answer matched or derived from the store.
+    derived: bool = False  # True when the answer was derived, not copied
+    source_keys: list[str] = Field(default_factory=list)  # the stored keys used
     error: str = ""
 
 
 class Task4Outcome(BaseModel):
     """What happened while filling the Easy Apply form (Task 4).
 
-    Each question is classified by the LLM (Task 4.1), which chooses a stored
-    answer; questions it cannot answer are left for Task 5 and recorded in
+    Each question is classified by the LLM (Task 4.1/10), which answers it from the
+    store (copying a stored answer or deriving one the stored entries entail);
+    questions it cannot ground are left for Task 5 and recorded in
     ``unknown_fields``. The chosen resume is preferred from the form's own resume
     list; it is only uploaded when nothing listed matches. The application is
     never submitted.
@@ -211,10 +219,10 @@ class Task4Outcome(BaseModel):
 class Task5Outcome(BaseModel):
     """What happened while asking the human about unknown questions (Task 5).
 
-    Task 5 runs inside the Task 4 fill: a question the LLM (Task 4.1) cannot
+    Task 5 runs inside the Task 4 fill: a question the LLM (Task 4.1/10) cannot
     answer pauses the run, shows a browser banner explaining the agent does not
     know the answer, and waits for the human to type the answer into the form
-    field. The answer is remembered in the answer store so Task 4.1 can reuse it
+    field. The answer is remembered in the answer store so Task 4.1/10 can reuse it
     next time.
     """
 

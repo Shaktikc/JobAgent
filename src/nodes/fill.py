@@ -60,13 +60,15 @@ async def fill(state: ApplyState) -> ApplyState:
         log.append(f"fill: unknown (left for Task 5): {outcome.unknown_fields}")
     decisions = [
         f"{field.question!r}->{field.value!r} "
-        f"(key={field.matched_key!r}, {field.question_type or 'question'}: "
+        f"({'derived' if field.derived else 'matched'}"
+        f"{', sources=' + repr(field.source_keys) if field.source_keys else ''}; "
+        f"key={field.matched_key!r}, {field.question_type or 'question'}: "
         f"{field.rationale or 'no rationale'})"
         for field in outcome.fields
         if field.answered_by == "llm"
     ]
     if decisions:
-        log.append("fill(task4.1): LLM chose " + "; ".join(decisions))
+        log.append("fill(task4.1/task10): LLM chose " + "; ".join(decisions))
     if task5.notes:
         log.append(f"fill(task5): {task5.notes}")
     if outcome.notes:

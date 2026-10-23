@@ -2,7 +2,7 @@
 
 The agent drives a browser (log in, search, select the Easy Apply filter, open a
 job's Easy Apply form, read the job description), matches resumes offline, and
-uses an LLM (Task 4.1) to choose answers from the store, so this exposes the
+uses an LLM (Task 4.1/10) to answer questions from the store, so this exposes the
 browser session settings, the LLM settings, the resumes folder, and the data
 directory used for the persistent profile and debug screenshots. Variable names
 follow the flat ``AUTOJOB_*`` scheme documented in ``.env.example``.
@@ -75,7 +75,7 @@ class SessionSettings(BaseModel):
     # Slow-motion delay inserted between visible steps so a human can follow the
     # run. 0 disables it (the default); set it high for a watchable demo.
     step_delay_seconds: float = Field(default=0.0, ge=0)
-    # Task 5: pause and ask the human (via a browser banner) when Task 4.1's LLM
+    # Task 5: pause and ask the human (via a browser banner) when Task 4.1/10's LLM
     # cannot choose an answer for a question. Off means those questions are left
     # unanswered instead of prompting.
     ask_human: bool = True
@@ -109,8 +109,9 @@ class SessionSettings(BaseModel):
 class LLMSettings(BaseModel):
     """OpenRouter (OpenAI-compatible) text model used to answer form questions.
 
-    Task 4.1 asks this model to classify each form question and choose the right
-    answer from the answer store. When it is not configured (no key or model),
+    Task 4.1/10 asks this model to classify each form question and answer it from
+    the answer store (copying a stored answer or deriving one the stored entries
+    entail). When it is not configured (no key or model),
     no answer is chosen and every question is handed to Task 5 instead.
     """
 
@@ -135,6 +136,9 @@ class Settings(BaseModel):
     data_dir: Path = PROJECT_ROOT / "data"
     resumes_dir: Path = PROJECT_ROOT / "resumes"
     answers_path: Path | None = None
+    # Task 10.3: cached answers the LLM derived from the store (kept apart from
+    # the human-confirmed answers.json).
+    derived_answers_path: Path | None = None
     resume_library_path: Path | None = None
     # Task 3.2: the LLM-written profile for each resume, keyed by its canonical
     # path (see src/tools/resume_descriptions.py).
@@ -156,6 +160,11 @@ class Settings(BaseModel):
         return self.answers_path or (self.data_dir / "answers.json")
 
     @property
+    def derived_answers_file(self) -> Path:
+        """Task 10.3 cache of answers the LLM derived from the store."""
+        return self.derived_answers_path or (self.data_dir / "derived_answers.json")
+
+    @property
     def resume_library_file(self) -> Path:
         """Job profile → human-provided resume store used by Task 3.1."""
         return self.resume_library_path or (self.data_dir / "resume_library.json")
@@ -172,6 +181,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
     data_dir = _get_str("AUTOJOB_DATA_DIR")
     resumes_dir = _get_str("AUTOJOB_RESUMES_DIR")
     answers_path = _get_str("AUTOJOB_ANSWERS_FILE")
+    derived_answers_path = _get_str("AUTOJOB_DERIVED_ANSWERS_FILE")
     resume_library_path = _get_str("AUTOJOB_RESUME_LIBRARY")
     resume_descriptions_path = _get_str("AUTOJOB_RESUME_DESCRIPTIONS")
     return Settings(
@@ -213,6 +223,9 @@ def load_settings(env_file: Path | None = None) -> Settings:
         data_dir=Path(data_dir).expanduser() if data_dir else PROJECT_ROOT / "data",
         resumes_dir=(Path(resumes_dir).expanduser() if resumes_dir else PROJECT_ROOT / "resumes"),
         answers_path=Path(answers_path).expanduser() if answers_path else None,
+        derived_answers_path=(
+            Path(derived_answers_path).expanduser() if derived_answers_path else None
+        ),
         resume_library_path=(
             Path(resume_library_path).expanduser() if resume_library_path else None
         ),

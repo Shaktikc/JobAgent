@@ -6,7 +6,8 @@ search", and select the **Easy Apply** filter) lives in
 open its **Easy Apply** form) lives in :mod:`src.tools.linkedin_job_selection`;
 Task 3 (read the open job's description and pick the best-matching resume) lives in
 :mod:`src.tools.linkedin_best_matching_resume`; Task 4 (enumerate the open Easy
-Apply form, answer each question via the LLM in Task 4.1, attach the Task 3
+Apply form, answer each question via the LLM in Task 4.1/10 — copying a stored
+answer or deriving one the store entails — attach the Task 3
 resume, and advance through multi-step forms — stopping before **Submit
 application**) lives in
 :mod:`src.tools.linkedin_easy_apply_fill`; Task 5 (ask the human for an unknown
@@ -21,8 +22,8 @@ are still reachable here (see ``__getattr__`` below), so ``browser`` remains the
 stable entry point.
 
 The interaction uses browser-use's deterministic CDP actor API (``Page`` /
-``Element``); the LLM (Task 4.1) only chooses answers, it never drives the
-browser.
+``Element``); the LLM (Task 4.1/10) only answers questions from the stored
+knowledge, it never drives the browser.
 
 A live session is kept open across graph nodes via :func:`start_tasks` (which
 registers it) and :func:`fill_application` / :func:`close_run`. The state only

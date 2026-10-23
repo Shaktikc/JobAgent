@@ -3,13 +3,13 @@
 This module owns Task 5's ask-the-human flow, split out of
 :mod:`src.tools.browser`:
 
-1. Receive a form question the LLM (Task 4.1) could not answer from the store.
+1. Receive a form question the LLM (Task 4.1/10) could not answer from the store.
 2. Show a visible browser banner saying the agent does not know the answer, pause
    the run, and read the answer the human types into (or chooses on) the form
    control itself. The answer is stored the moment it is seen (not only when the
    wait ends) and the banner confirms with a "saved" message, so nothing is lost
    to a timeout or a manual submit.
-3. Remember the question -> answer mapping so Task 4.1 can reuse it next time.
+3. Remember the question -> answer mapping so Task 4.1/10 can reuse it next time.
 
 The banner has no input: the human edits the real form control and this module
 reads it. It watches only the control(s) of the question being asked, so an

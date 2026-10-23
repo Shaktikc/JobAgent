@@ -71,6 +71,7 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | BUG-031 | Task 3 — match | unread description treated as "no resume matched" | 🟢 Fixed | `7dce47d` |
 | BUG-032 | Task 4 — walk | walk stopped at a field-less review step ("form did not advance") | 🟢 Fixed | (uncommitted) |
 | BUG-033 | General — UI overlay | Task 9 status panel rendered behind LinkedIn's Easy Apply modal | 🟢 Fixed | (uncommitted) |
+| BUG-034 | Task 4/10 — answers | "Experience on AI?" reported unknown despite the store covering it | 🟢 Fixed | (uncommitted) |
 
 ## Template for new entries
 

@@ -70,6 +70,17 @@ def test_build_answer_chooser_requires_configuration() -> None:
     assert chooser is not None
 
 
+def test_select_only_decision_has_no_task10_provenance() -> None:
+    """Task 10 extended ``QuestionDecision`` additively: the Task 4.1 chooser's
+    decisions carry no derived/source provenance, so its behaviour is unchanged."""
+    from src.tools.llm_answers import QuestionDecision
+
+    decision = QuestionDecision(question="Q", answer="A", matched_key="k")
+    assert decision.source_keys == []
+    assert decision.derived is False
+    assert decision.source_summary == ""
+
+
 class _FakeClient:
     """A minimal stand-in for ``AsyncOpenAI`` that records the call."""
 

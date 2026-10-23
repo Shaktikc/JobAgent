@@ -106,6 +106,17 @@ def test_answers_file_default_and_override(monkeypatch: pytest.MonkeyPatch, tmp_
     assert load_settings().answers_file == custom
 
 
+def test_derived_answers_file_default_and_override(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    settings = load_settings()
+    assert settings.derived_answers_file == settings.data_dir / "derived_answers.json"
+
+    custom = tmp_path / "custom-derived.json"
+    monkeypatch.setenv("AUTOJOB_DERIVED_ANSWERS_FILE", str(custom))
+    assert load_settings().derived_answers_file == custom
+
+
 def test_llm_settings_default_and_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("AUTOJOB_LLM_API_KEY", raising=False)

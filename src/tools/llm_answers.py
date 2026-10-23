@@ -13,6 +13,12 @@ The model only ever *selects among stored answers*: the answer is resolved from
 the store by its normalized key, so the model can never invent an answer. If the
 model is unavailable or errors, no answer is chosen (the question goes to
 Task 5); there is no deterministic exact-key fallback.
+
+Task 10 extends this by *deriving* an answer the stored entries entail (see
+:mod:`src.tools.llm_answer_reasoning`). That chooser records its provenance in
+:class:`QuestionDecision` through the ``source_keys`` / ``derived`` /
+``source_summary`` fields added here; the select-only chooser leaves them at
+their defaults, so its behaviour is unchanged.
 """
 
 from __future__ import annotations
@@ -21,20 +27,32 @@ import json
 import re
 from typing import Protocol
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.configuration import LLMSettings, Settings
 from src.tools.answers import normalize_question
 
 
 class QuestionDecision(BaseModel):
-    """What the LLM decided about one form question (Task 4.1)."""
+    """What the LLM decided about one form question (Task 4.1, Task 10).
+
+    ``matched_key`` records the stored key a copied answer came from. Task 10 adds
+    provenance for a *derived* answer: ``source_keys`` are the stored keys the
+    answer is grounded in, ``derived`` says it was reasoned from them rather than
+    copied, and ``source_summary`` is a short human-readable rendering of those
+    sources for Task 9's status line. The select-only chooser (Task 4.1) leaves
+    the Task 10 fields at their defaults.
+    """
 
     question: str = ""
     category: str = ""
     answer: str | None = None
     matched_key: str = ""
     rationale: str = ""
+    # Task 10: provenance for an answer matched *or* derived from the store.
+    source_keys: list[str] = Field(default_factory=list)
+    derived: bool = False
+    source_summary: str = ""
 
     @property
     def decided(self) -> bool:

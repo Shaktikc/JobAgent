@@ -14,6 +14,7 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 | BUG-022 | inline hashed-class Easy Apply form not found | 🟢 Fixed | `84b0bb5` |
 | BUG-023 | first matching modal was a hidden unrelated dialog | 🟢 Fixed | (Task 4 modal fix) |
 | BUG-032 | walk stopped at a field-less review step ("form did not advance") | 🟢 Fixed | (uncommitted) |
+| BUG-034 | "Experience on AI?" reported unknown despite the store covering it | 🟢 Fixed | (uncommitted) |
 
 ---
 
@@ -104,3 +105,42 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   steps): `step_id` `text:1029807389` → `text:3706210911` → `text:2325457445`,
   `steps_advanced` 2, `reached_terminal_step` True. Commit `97c157d` (first,
   insufficient attempt) + (uncommitted enhancement).
+
+### BUG-034 — "Experience on AI?" reported unknown even though the store covered it
+
+- **Symptom:** the Easy Apply form asked **"Experience on AI? [Yes/No]"** while
+  `data/answers.json` already held
+  `"how many years of work experience do you have with artificial intelligence (ai)": "5"`.
+  No stored value was literally `"Yes"`, so Task 4.1's select-only chooser picked
+  none and the run reported *"AutoJobApply does not know this answer"* and handed
+  the question to Task 5 — even though the answer ("Yes") is plainly entailed by
+  the stored entry. Every similar rewording/entailment case was affected.
+- **Root cause:** `src/tools/llm_answers.py` (Task 4.1) could only **copy** a stored
+  answer string. Its `parse_decision` resolves `matched_key` against the store and
+  rejected everything else, so a question whose answer was *derivable* from the
+  store had no way to be answered.
+- **Fix:** Task 10 adds a match-or-derive chooser
+  (`src/tools/llm_answer_reasoning.py`) that returns the answer plus the stored
+  `source_keys` it used, and a pure validator (`validate_decision`) that rejects
+  any answer whose cited sources do not exist, any derive the cited values do not
+  entail (positive years ⇒ "Yes"; zero ⇒ "No"; a non-numeric "No" cannot entail
+  "No" for a different question), and any choice answer that maps to none of the
+  question's options. A rejected decision stays *unknown* and flows to Task 5.
+  `QuestionDecision` gained `source_keys`/`derived`/`source_summary` and
+  `FormField` gained `derived`/`source_keys` for the audit trail; accepted derives
+  are cached in `data/derived_answers.json` (never in `answers.json`), and Task 9's
+  `LLM:` line names the source and says matched vs derived.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/llm_answer_reasoning.py` (chooser + `validate_decision`),
+  `src/tools/derived_answers.py` (the derived-answer cache),
+  `src/tools/llm_answers.py` (`QuestionDecision` provenance),
+  `src/tools/linkedin_easy_apply_fill/form_walk.py` (builds the reasoning chooser),
+  `src/tools/linkedin_easy_apply_fill/field_filling.py` (`_decide` status + record),
+  `src/state.py` (`FormField.derived`/`source_keys`), `src/nodes/fill.py` (run log);
+  `tests/unit/test_llm_answer_reasoning.py` (27 tests) and
+  `tests/unit/test_llm_answers.py`. Live browser run (real Chromium + real
+  `deepseek/deepseek-v4.1-flash`): the fixture's "Experience on AI? [Yes/No]" filled
+  **Yes** with `sources=['how many years of work experience do you have with
+  artificial intelligence (ai)']`, the unknown salary question stayed for Task 5,
+  `answers.json` was unchanged, the derived cache was written, and a second pass
+  answered from the cache with no LLM call (uncommitted).
