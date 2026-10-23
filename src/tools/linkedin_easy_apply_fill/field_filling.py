@@ -16,6 +16,7 @@ from src.state import FormField, Task5Outcome
 from src.tools.browser import _marker_element, _pace, _safe
 from src.tools.forms import answers_match, looks_like_resume_field
 from src.tools.linkedin_ask_human import _remember_answer
+from src.tools.linkedin_easy_apply_fill import checkbox_groups
 from src.tools.linkedin_status_overlay import emit_llm
 from src.tools.llm_answers import AnswerChooser, QuestionDecision
 
@@ -113,7 +114,13 @@ async def _fill_field(element, field: dict, answer: str) -> tuple[bool, str]:
         if kind == "select":
             await element.evaluate(_FILL_SELECT_JS, str(answer))
         elif kind == "checkbox":
-            if str(answer).strip().lower() in {"yes", "true", "1", "on"}:
+            # Tick the box when the answer means "yes" or names the option itself
+            # (a remembered multi-select answer is the option's label). ``check()``
+            # is idempotent, so a box the human already ticked is never toggled off.
+            text = str(answer).strip()
+            if text.lower() in {"yes", "true", "1", "on"} or answers_match(
+                str(field.get("option") or ""), text
+            ):
                 await element.check()
         elif kind == "radio":
             await element.click()
@@ -207,7 +214,49 @@ async def _fill_step(
         filled += 1 if record.filled else 0
         records.append(record)
 
+    async def _tick(option_field: dict) -> tuple[bool, str]:
+        element = await _marker_element(page, "data-autojob-fill", option_field["marker"])
+        if element is None:
+            return False, "field element not found"
+        return await _fill_field(element, option_field, option_field.get("option", ""))
+
+    checkbox_counts: dict[str, dict[str, int]] = {}
     for field in fields:
+        if field.get("kind") == "checkbox":
+            # A checkbox question is a *group*: its options share one question and
+            # one answer (which may select several). Answer it once, watching every
+            # option (BUG-035).
+            if not checkbox_counts:
+                checkbox_counts = checkbox_groups.group_counts(fields)
+            key = checkbox_groups.group_key(field, checkbox_counts)
+            if key in handled_groups:
+                continue
+            handled_groups.add(key)
+            group = [f for f in fields if f.get("kind") == "checkbox"
+                     and checkbox_groups.group_key(f, checkbox_counts) == key]
+            question = next((g.get("question") for g in group if g.get("question")), "") or key
+            option_labels = [g.get("option", "") for g in group if g.get("option")]
+            if looks_like_resume_field(question, option_labels):
+                continue  # the resume control is handled by _attach_resume
+            resolved, counted, was_filled, is_unknown = await checkbox_groups.fill_checkbox_group(
+                page,
+                group,
+                question,
+                key,
+                settings=settings,
+                answers=answers,
+                ask=ask,
+                human=human,
+                tick=_tick,
+                decide=lambda q, kind, opts: _decide(chooser, q, kind, opts, status),
+            )
+            records.append(resolved)
+            known += 1 if counted else 0
+            filled += 1 if was_filled else 0
+            if is_unknown:
+                unknown.append(question)
+            continue
+
         if field.get("kind") == "radio":
             key = field.get("name") or field.get("question") or field.get("marker")
             if key in handled_groups:

@@ -72,6 +72,7 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | BUG-032 | Task 4 — walk | walk stopped at a field-less review step ("form did not advance") | 🟢 Fixed | (uncommitted) |
 | BUG-033 | General — UI overlay | Task 9 status panel rendered behind LinkedIn's Easy Apply modal | 🟢 Fixed | (uncommitted) |
 | BUG-034 | Task 4/10 — answers | "Experience on AI?" reported unknown despite the store covering it | 🟢 Fixed | (uncommitted) |
+| BUG-035 | Task 4/5 — checkbox groups | a checkbox group was one question per option → the human's tick was never saved | 🟢 Fixed | (uncommitted) |
 
 ## Template for new entries
 

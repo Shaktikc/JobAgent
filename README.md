@@ -81,7 +81,9 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
    `data/derived_answers.json` (kept separate from the human-confirmed
    `answers.json`) so the same question is instant next time. It also attaches the
    chosen resume — preferring a resume already listed on the form over uploading
-   a duplicate — and advances multi-step forms. It **stops before Submit
+   a duplicate — and advances multi-step forms. A **checkbox** question ("select
+   all that apply") is answered as one group: its options are treated as a single
+   question, and a stored answer ticks every matching box. It **stops before Submit
    application** and never clicks it.
    - **Task 5 (inside fill):** when the LLM cannot choose a grounded answer, the
      agent shows a banner in the browser window saying it does not know the
@@ -93,7 +95,10 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
      Choice
      fields (selects/radios) list their allowed options in the banner, and an
      answer that matches a visible option label is mapped to the right value.
-     Controls the form has **already filled** (e.g. LinkedIn's pre-filled *Email
+     A **checkbox** question is asked **once** for the whole group and *every*
+     option you tick is captured — the banner watches all of the group's options,
+     so ticking any of them is saved under the group's question (and no tick you
+     make is ever toggled off by the agent). Controls the form has **already filled** (e.g. LinkedIn's pre-filled *Email
      address* / *Phone country code* selects) are left as-is and never asked
      about. Click **Skip** in the banner to skip on purpose.
      Set `AUTOJOB_SESSION_ASK_HUMAN=false` to leave unknown questions unanswered
@@ -255,6 +260,7 @@ src/
         scripts.py                 injected JS query scripts + findApplyRoot injection
         readers.py                 async readers over the scripts (read_form, read_resume_info, ...)
       field_filling.py             Fill one step's known fields (LLM / Task 5 answers)
+      checkbox_groups.py           Answer a checkbox (multi-select) question as one group
       resume_attachment.py         Attach the Task 3 resume (listed option or CDP upload)
       form_walk.py                 Walk the form step by step, stopping before Submit
     llm_answers.py   Task 4.1: LLM classifies a question and picks the stored answer
@@ -319,7 +325,8 @@ tests/
   The derived answers the LLM produced are cached separately in
   `data/derived_answers.json` (never written into `answers.json`).
 - Unknown questions that you skip or leave unanswered are recorded rather than
-  guessed.
+  guessed. A checkbox (multi-select) question is answered as one group and keeps
+  every option you tick; the agent never unticks a box you selected.
 - Task 3 only **reads** existing resumes — it never renames, moves, or edits them.
   Task 3.2 stores LLM-written profiles in `data/resume_descriptions.json`. Task 3.1
   may **add** a resume you upload when nothing matches (never overwriting an

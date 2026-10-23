@@ -19,12 +19,14 @@ discovered at runtime rather than assumed. Task 5's ask-the-human code lives in
 :mod:`src.tools.linkedin_ask_human` and is called from here when the LLM cannot
 answer a question.
 
-The flow is split across four submodules by concern:
+The flow is split across five submodules by concern:
 
 - :mod:`~src.tools.linkedin_easy_apply_fill.form_queries` — the injected DOM
   queries and the readers that wrap them.
 - :mod:`~src.tools.linkedin_easy_apply_fill.field_filling` — fill one step's
   known fields.
+- :mod:`~src.tools.linkedin_easy_apply_fill.checkbox_groups` — answer a checkbox
+  (multi-select) question as one group.
 - :mod:`~src.tools.linkedin_easy_apply_fill.resume_attachment` — attach the
   Task 3 resume wherever the dynamic form exposes it.
 - :mod:`~src.tools.linkedin_easy_apply_fill.form_walk` — walk the form step by

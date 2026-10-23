@@ -15,6 +15,7 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 | BUG-023 | first matching modal was a hidden unrelated dialog | 🟢 Fixed | (Task 4 modal fix) |
 | BUG-032 | walk stopped at a field-less review step ("form did not advance") | 🟢 Fixed | (uncommitted) |
 | BUG-034 | "Experience on AI?" reported unknown despite the store covering it | 🟢 Fixed | (uncommitted) |
+| BUG-035 | checkbox group: the human's tick was never saved (one question per option) | 🟢 Fixed | (uncommitted) |
 
 ---
 
@@ -144,3 +145,48 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   artificial intelligence (ai)']`, the unknown salary question stayed for Task 5,
   `answers.json` was unchanged, the derived cache was written, and a second pass
   answered from the cache with no LLM call (uncommitted).
+
+### BUG-035 — a checkbox group was one question per option, so the human's tick was never saved
+
+- **Symptom:** on a "select all that apply" screening question (e.g. "Before you
+  applied, where did you first encounter Propeller?*" with options LinkedIn Job Ad,
+  LinkedIn Social Post, Glassdoor, ...) the Task 5 banner asked about an **option**
+  ("LinkedIn Social Post") instead of the question, and ticking a checkbox did not
+  save the answer. Live reproduction: the human ticked *Glassdoor* while the banner
+  asked another option; nothing was captured for the question, and the run wrote
+  **five bogus entries** instead — one per option text, each holding the ticked
+  value (`'linkedin job ad': 'Glassdoor'`, `'glassdoor': 'Glassdoor'`, ...), so the
+  real question was never learned and the agent asked it again next time.
+- **Root cause:** a checkbox question is a **group** (all options share one
+  question and one answer), but the fill enumerated every option as its own
+  question (`_ENUMERATE_FORM_QUERY` could not read the group's question because
+  LinkedIn's container classes are hashed and the option's own text won), and
+  `_fill_step` handled each option independently. Task 5's answer watcher was
+  therefore scoped to a **single** option's marker, so ticking any other option
+  was out of scope and never captured. `_fill_field` also only ever ticked a box
+  for a yes/no answer, so a stored multi-select answer could not tick anything.
+- **Fix:** a checkbox question is answered as one group. A new module
+  `src/tools/linkedin_easy_apply_fill/checkbox_groups.py` resolves the group's
+  question in the page (`GROUP_QUESTION_JS`, injected into the enumeration query,
+  replacing the option-text reading), reads **every** ticked option after a short
+  settle (`READ_GROUP_TICKS_JS`), and applies an answer by ticking the matching
+  boxes. `_fill_step` groups the options by their shared name/question, asks the
+  LLM and then the human **once** with **all** the group's markers in scope (so a
+  tick on any option is captured) and records one `FormField` for the group.
+  Options already ticked are never re-clicked (`check()` on a
+  `[role="checkbox"]` wrapper would untick them), the joined selection is stored
+  under the group question, and an answer that maps to no option is left unknown
+  for Task 5 rather than guessed.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/linkedin_easy_apply_fill/checkbox_groups.py`,
+  `.../form_queries/scripts.py` (`groupLabel` + `_with_apply_root` injection),
+  `.../field_filling.py` (checkbox branch, `_fill_field` label tick);
+  `tests/unit/test_task4_checkbox_groups.py` (13 tests; the key one,
+  `test_fill_step_asks_once_for_the_whole_checkbox_group`, asked the option text
+  four times before the fix). Live browser runs (real Chromium): variant A (no
+  aria attributes), variant B (option `aria-label` = question), and variant C
+  (per-option `name`s, so the shared *question* is the group key) all saved the
+  group question once — `'before you applied, where did you first encounter
+  propeller': 'Glassdoor, YouTube'` — kept the ticks on the page, and a stored
+  multi-select answer ticked both matching boxes with no human prompt
+  (uncommitted).

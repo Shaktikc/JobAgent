@@ -13,6 +13,7 @@ The async readers that wrap these scripts live in
 from __future__ import annotations
 
 from src.tools.browser import FIND_APPLY_ROOT_JS
+from src.tools.linkedin_easy_apply_fill.checkbox_groups import GROUP_QUESTION_JS
 
 # Enumerate the Easy Apply form's controls (Task 4). Each control gets a
 # ``data-autojob-fill`` marker so it can be resolved back to a browser-use
@@ -26,6 +27,7 @@ _ENUMERATE_FORM_QUERY = r"""
   const titleEl = modal.querySelector('h3');
   const title = titleEl ? norm(titleEl.innerText) : '';
   const esc = (s) => (window.CSS && CSS.escape) ? CSS.escape(s) : s;
+  // __AUTOJOB_GROUP_QUESTION__ (injected by _with_apply_root)
 
   const ownLabel = (el) => {
     const role = (el.getAttribute('role') || '').toLowerCase();
@@ -125,13 +127,19 @@ _ENUMERATE_FORM_QUERY = r"""
       );
       if (lab && norm(lab.innerText)) return norm(lab.innerText);
     }
-    // LinkedIn puts the question on the choice control's own aria-label.
+    // LinkedIn puts the question on the choice control's own aria-label — but
+    // only when that label actually says something other than the option's own
+    // text (a checkbox option's aria-label can be just its own label).
     const role = (el.getAttribute('role') || '').toLowerCase();
     const type = (el.getAttribute('type') || '').toLowerCase();
     if (role === 'radio' || role === 'checkbox' || type === 'radio' || type === 'checkbox') {
       const aria = el.getAttribute('aria-label');
-      if (aria && norm(aria)) return norm(aria);
+      if (aria && norm(aria) && norm(aria) !== norm(el.innerText)) return norm(aria);
     }
+    // Last resort: the question rendered next to the whole option list (checkbox
+    // multi-selects whose container uses hashed class names).
+    const fromOptions = groupQuestionFromOptions(el);
+    if (fromOptions) return fromOptions;
     return '';
   };
 
@@ -377,16 +385,23 @@ _FORM_BUTTONS_QUERY = r"""
 
 
 def _with_apply_root(query: str) -> str:
-    """Make ``findApplyRoot()`` available inside a Task 4 query.
+    """Make ``findApplyRoot()`` (and the group-question helper) available to a query.
 
     The three form queries are self-contained IIFEs, so the shared root finder
-    (:data:`FIND_APPLY_ROOT_JS`) is injected where they resolve the form. This
-    keeps the classic-modal and inline layouts on one code path.
+    (:data:`FIND_APPLY_ROOT_JS`) is injected where they resolve the form, and the
+    choice-group question helper (:data:`GROUP_QUESTION_JS` from
+    :mod:`~src.tools.linkedin_easy_apply_fill.checkbox_groups`) is injected where
+    the query declares the placeholder. This keeps the classic-modal and inline
+    layouts on one code path.
     """
-    return query.replace(
+    query = query.replace(
         "const modal = findApplyRoot();",
         FIND_APPLY_ROOT_JS + "\n  const modal = findApplyRoot();",
     )
+    return query.replace(_GROUP_QUESTION_PLACEHOLDER, GROUP_QUESTION_JS)
+
+
+_GROUP_QUESTION_PLACEHOLDER = "// __AUTOJOB_GROUP_QUESTION__ (injected by _with_apply_root)"
 
 
 _ENUMERATE_FORM_QUERY = _with_apply_root(_ENUMERATE_FORM_QUERY)
