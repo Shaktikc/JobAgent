@@ -191,6 +191,10 @@ _ENUMERATE_FORM_QUERY = r"""
     if (tag === 'select') {
       Array.from(el.options).forEach((o) => options.push({ value: o.value, text: norm(o.text) }));
     }
+    // A <select>'s visible choice, so its prompt ("Select an option", value="")
+    // is not mistaken for an already-answered field (BUG-037).
+    const selectedText = tag === 'select' && el.selectedIndex >= 0
+      ? norm(el.options[el.selectedIndex].text) : '';
     // A wrapper's inner native input carries the group's name.
     let fieldName = el.getAttribute('name') || '';
     if (!fieldName) {
@@ -209,6 +213,7 @@ _ENUMERATE_FORM_QUERY = r"""
       checked: !!el.checked || el.getAttribute('aria-checked') === 'true'
         || !!(el.querySelector && el.querySelector('input:checked,[aria-checked="true"]')),
       value: norm(el.value || ''),
+      selected_text: selectedText,
       options: options
     });
   });

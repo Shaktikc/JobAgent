@@ -13,7 +13,7 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 | BUG-017 | AI/semantic job cards were `div[role=button]`, not found | 🟢 Fixed | `6d369f7` |
 | BUG-018 | fallback scan picked a job **card** as the apply button | 🟢 Fixed | `9ad31a9` |
 | BUG-019 | stale card handles after a click → jobs silently skipped | 🟢 Fixed | `84b0bb5` |
-| BUG-036 | job with Easy Apply skipped as "no Easy Apply" (stale details pane) | 🟢 Fixed | (uncommitted) |
+| BUG-036 | job with Easy Apply skipped as "no Easy Apply" (stale details pane) | 🟢 Fixed | `fdb6585` |
 
 ---
 
@@ -88,5 +88,5 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   real LinkedIn results page (attached over CDP, nothing submitted): real
   "Posted"/"Viewed" jobs opened in **one** click each with the pane matching the
   clicked card and `button='Easy Apply to this job'` found (NCS Group, Lendi,
-  BizCover), and `find_card_by_title` resolved them from the label alone
-  (uncommitted).
+  BizCover), and `find_card_by_title` resolved them from the label alone.
+  Commit `fdb6585`.

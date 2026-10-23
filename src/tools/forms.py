@@ -82,6 +82,62 @@ def answers_match(option: str, answer: str) -> bool:
     return left == right or left.startswith(right) or right in left
 
 
+# A <select> option value that means "no choice made yet". LinkedIn uses ``""``
+# for its disabled "Select an option" prompt; older forms use a sentinel value.
+_SELECT_PLACEHOLDERS = {
+    "",
+    "select",
+    "select...",
+    "select an option",
+    "select one",
+    "select option",
+    "choose",
+    "choose an option",
+    "choose one",
+    "none",
+}
+
+# Prompt *texts* (rather than values) that a <select> shows before a real choice.
+# "None" is deliberately absent: it is a legitimate answer for many questions.
+_SELECT_PROMPT_TEXTS = {
+    "select",
+    "select...",
+    "select an option",
+    "select option",
+    "select one",
+    "choose",
+    "choose an option",
+    "choose one",
+    "please select",
+    "please choose",
+    "pick an option",
+}
+
+
+def select_is_answered(value: str, selected_text: str = "") -> bool:
+    """True when a ``<select>`` holds a real answer, not its prompt option.
+
+    BUG-037: the prompt option ("Select an option") was read and stored as the
+    human's answer. The prompt can carry ``value=""`` (LinkedIn) or a sentinel
+    value (older forms) with prompt text, so both are checked.
+    """
+    text = _normalize(selected_text)
+    if text in _SELECT_PROMPT_TEXTS:
+        return False
+    normalized = _normalize(value)
+    return bool(normalized) and normalized not in _SELECT_PLACEHOLDERS
+
+
+def is_prompt_answer(answer: str) -> bool:
+    """True when ``answer`` is really a select prompt, never a real answer.
+
+    A safety net for the store: even if a layout slips past the reader, a prompt
+    must never be remembered as the human's answer (BUG-037).
+    """
+    text = _normalize(answer).strip(".:*").strip()
+    return text in _SELECT_PROMPT_TEXTS
+
+
 _RESUME_FILENAME_RE = re.compile(r"\.(pdf|docx|txt|md)\b", re.IGNORECASE)
 
 

@@ -14,7 +14,8 @@ from __future__ import annotations
 from src.configuration import Settings
 from src.state import FormField, Task5Outcome
 from src.tools.browser import _marker_element, _pace, _safe
-from src.tools.forms import answers_match, looks_like_resume_field
+from src.tools.forms import _SELECT_PLACEHOLDERS as _SELECT_PLACEHOLDERS  # re-export
+from src.tools.forms import answers_match, looks_like_resume_field, select_is_answered
 from src.tools.linkedin_ask_human import _remember_answer
 from src.tools.linkedin_easy_apply_fill import checkbox_groups
 from src.tools.linkedin_status_overlay import emit_llm
@@ -45,38 +46,22 @@ _FILL_SELECT_JS = r"""
 """
 
 
-# Placeholder values a <select> may show before a real choice is made. A select
-# holding one of these is still unanswered; anything else is treated as answered.
-_SELECT_PLACEHOLDERS = {
-    "",
-    "select",
-    "select...",
-    "select an option",
-    "select one",
-    "select option",
-    "choose",
-    "choose an option",
-    "choose one",
-    "none",
-}
-
-
 def _control_already_answered(field: dict) -> bool:
     """True when a form control already holds a real (non-placeholder) value.
 
     LinkedIn pre-fills controls from the profile (e.g. the "Email address" and
     "Phone country code" ``<select>``s). Those are already answered, so the agent
-    must not ask the human about them or overwrite them with a guess.
+    must not ask the human about them or overwrite them with a guess. A
+    ``<select>`` still showing its prompt ("Select an option") is *not* answered.
     """
     kind = field.get("kind")
     if kind in {"radio", "checkbox"}:
         return bool(field.get("checked"))
-    value = str(field.get("value") or "").strip()
-    if not value:
-        return False
     if kind == "select":
-        return value.lower() not in _SELECT_PLACEHOLDERS
-    return True
+        return select_is_answered(
+            str(field.get("value") or ""), str(field.get("selected_text") or "")
+        )
+    return bool(str(field.get("value") or "").strip())
 
 
 def _choice_hint(field: dict) -> str:

@@ -73,7 +73,8 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | BUG-033 | General — UI overlay | Task 9 status panel rendered behind LinkedIn's Easy Apply modal | 🟢 Fixed | (uncommitted) |
 | BUG-034 | Task 4/10 — answers | "Experience on AI?" reported unknown despite the store covering it | 🟢 Fixed | (uncommitted) |
 | BUG-035 | Task 4/5 — checkbox groups | a checkbox group was one question per option → the human's tick was never saved | 🟢 Fixed | (uncommitted) |
-| BUG-036 | Task 2 — open the job | a job with Easy Apply was skipped as "no Easy Apply" (stale details pane) | 🟢 Fixed | (uncommitted) |
+| BUG-036 | Task 2 — open the job | a job with Easy Apply was skipped as "no Easy Apply" (stale details pane) | 🟢 Fixed | `fdb6585` |
+| BUG-037 | Task 5 — dropdown answers | a select prompt ("Select an option") was saved as the answer, then leaked into the next question | 🟢 Fixed | (uncommitted) |
 
 ## Template for new entries
 

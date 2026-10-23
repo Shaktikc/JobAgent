@@ -99,6 +99,9 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
      Choice
      fields (selects/radios) list their allowed options in the banner, and an
      answer that matches a visible option label is mapped to the right value.
+     A dropdown's prompt ("Select an option") is never treated as your answer —
+     opening the list or clicking away changes nothing — and a value recorded for
+     one question is never reused as the answer to another.
      A **checkbox** question is asked **once** for the whole group and *every*
      option you tick is captured — the banner watches all of the group's options,
      so ticking any of them is saved under the group's question (and no tick you
@@ -271,6 +274,7 @@ src/
     llm_answers.py   Task 4.1: LLM classifies a question and picks the stored answer
     llm_answer_reasoning.py  Task 10: LLM matches *or derives* an answer, with grounding
     derived_answers.py  Task 10.3: cache of answers the LLM derived from the store
+    linkedin_ask_human/  Task 5: banner, answer watcher/reader, wait flow, answer store
     matching.py      Pure keyword helpers (skills, titles, seniority) for 3.1 profiles
     answers.py       Question -> answer store (read by Task 4.1/10, written by Task 5)
     resume_library.py  Task 3.1: job profiles -> human-provided resumes

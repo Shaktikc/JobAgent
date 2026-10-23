@@ -13,6 +13,7 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 | BUG-024 | pre-filled controls (Email/Phone) wrongly asked about | 🟢 Fixed | `4eee839`/`99265a0` |
 | BUG-025 | empty "Use answer" silently marked the question skipped | 🟢 Fixed | `2b60465` |
 | BUG-026 | banner input vs. typing in the real form field | 🟡 Fixed (superseded) | `99265a0` |
+| BUG-037 | a `<select>` prompt ("Select an option") was saved as the answer, then leaked into the next question | 🟢 Fixed | (uncommitted) |
 
 ---
 
@@ -59,3 +60,47 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 - **Evidence:** `src/tools/browser.py` (`_SHOW_UNKNOWN_JS`,
   `_WATCH_FORM_ANSWER_JS`, `_READ_FORM_ANSWER_JS`, `ask_human_for_answer`);
   `test_task5_pauses_for_the_human_and_remembers`. Commit `99265a0`.
+
+### BUG-037 — a `<select>` prompt ("Select an option") was saved as the answer
+
+- **Symptom:** after a Lendi Group application, `data/answers.json` held
+  `"which of the following statements best describes your right to work in
+  australia and new zealand": "Select an option"` and
+  `"what are your salary expectations (base salary)": "Select an option"` — the
+  dropdown's **prompt**, not the choice the human made. The same run then stored
+  the right-to-work option text against the *next* question ("Have you ever been
+  employed by the government…").
+- **Root cause:** Task 5's answer watcher read a `<select>`'s **selected option
+  text** with no placeholder check. LinkedIn's prompt option is `disabled` with
+  `value=""` and text "Select an option"; the moment the human clicked the select
+  to open its dropdown (or clicked away without choosing) the watcher recorded
+  "Select an option" with `done=true`, so the flow stored it immediately. A second
+  defect made it spread: `_READ_FORM_ANSWER_JS` trusted the last recorded value
+  (`state.value`) regardless of which question's markers it was recorded for, so it
+  could answer the next question.
+- **Fix:** the watcher and the reader now share an `isSelectPrompt()` check (prompt
+  text, or a disabled option with no value) and never read the prompt as an
+  answer; the reader only trusts a recorded value whose watcher scope matches the
+  question being read. On the Python side `forms.select_is_answered()` (option
+  value **and** selected text) drives the fill step's "already answered" check,
+  the form enumeration captures the select's `selected_text`, and
+  `forms.is_prompt_answer()` keeps a prompt out of the store even if some future
+  layout slips past the reader. The two corrupt entries and the leaked
+  government-employment answer were removed from `data/answers.json`. The 668-line
+  `linkedin_ask_human.py` was split into the `linkedin_ask_human/` package
+  (`answer_js`, `banner_js`, `flow`, `store`) under the 415-line rule, with the
+  same public API re-exported.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/linkedin_ask_human/answer_js.py` (`isSelectPrompt`,
+  scope check), `src/tools/linkedin_ask_human/store.py` (`is_prompt_answer`
+  guards), `src/tools/forms.py` (`select_is_answered`, `is_prompt_answer`),
+  `src/tools/linkedin_easy_apply_fill/field_filling.py`
+  (`_control_already_answered`),
+  `src/tools/linkedin_easy_apply_fill/form_queries/scripts.py` (`selected_text`);
+  `tests/unit/test_task5_form_answers.py` (9 tests). Live check against the real
+  LinkedIn Easy Apply form over CDP (the real "right to work" `<select>` cloned
+  into the page; nothing clicked in the real form, nothing submitted): opening the
+  dropdown and clicking away both read `{"value": "", "done": false}`, picking
+  "Full working rights - Citizenship or Permanent resident" read it back, and
+  reading another question's markers returned `{"value": "", "done": false}` (no
+  leak) — all PASS (uncommitted).
