@@ -68,6 +68,10 @@ class SessionSettings(BaseModel):
     # How long to wait for the job details apply button and then the Easy Apply
     # application form to appear.
     easy_apply_timeout_seconds: float = Field(default=20.0, gt=0)
+    # Task 2: how long to wait for a clicked job card to show up in the details
+    # pane before retrying the click. A missed click can leave the pane on the
+    # previous (already-applied) job, whose pane has no Easy Apply button.
+    pane_switch_timeout_seconds: float = Field(default=6.0, gt=0)
     # Task 1: how long to keep looking for LinkedIn's optional "Try AI job
     # search" control after the results load. 0 skips the wait (the control is
     # optional, so an absent one must never stall the run).
@@ -196,6 +200,9 @@ def load_settings(env_file: Path | None = None) -> Settings:
             post_click_wait_seconds=_get_float("AUTOJOB_SESSION_POST_CLICK_WAIT_SECONDS", 2.0),
             easy_apply_timeout_seconds=_get_float(
                 "AUTOJOB_SESSION_EASY_APPLY_TIMEOUT_SECONDS", 20.0
+            ),
+            pane_switch_timeout_seconds=_get_float(
+                "AUTOJOB_SESSION_PANE_SWITCH_TIMEOUT_SECONDS", 6.0
             ),
             ai_search_timeout_seconds=_get_float(
                 "AUTOJOB_SESSION_AI_SEARCH_TIMEOUT_SECONDS", 5.0

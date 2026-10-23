@@ -10,16 +10,20 @@ This module owns Task 2's interactive browser flow, split out of
 3. Click the details pane's **Easy Apply** button and
 4. Confirm the Easy Apply application form/modal opened.
 
+The details pane itself — which job it shows, its apply button, and the Easy Apply
+modal check — lives in :mod:`src.tools.linkedin_job_apply_button`, which this
+module re-exports for back-compat. Before judging the apply button, the walk
+verifies that the pane actually switched to the clicked job
+(:func:`open_job_card`): a card click that left the pane on the *previous*
+(already-applied) job has no Easy Apply control at all, which used to be reported
+as "no Easy Apply" and skipped a job that does offer it (BUG-036).
+
 Task 6's applied-job detection (classify a card as **Applied**, record the skip,
 and produce the "no unapplied job" note) lives in
 :mod:`src.tools.linkedin_skip_applied`; this module calls it while scanning.
 Task 7's pagination lives in :mod:`src.tools.linkedin_pagination`: when *every*
 card on the current page is Applied, this module advances the results list to the
 next page (up to ``_MAX_RESULT_PAGES``) and scans it again.
-
-The low-level browser primitives (pacing, safe probing, element resolution, the
-shared AI/semantic job-card scanner, failure screenshots, and the session /
-profile management) stay in :mod:`src.tools.browser`, which this module imports.
 The interaction uses browser-use's deterministic CDP actor API (``Page`` /
 ``Element``); no LLM is involved.
 """
@@ -34,25 +38,27 @@ from dataclasses import dataclass
 from src.configuration import Settings
 from src.state import Task2Outcome
 from src.tools.browser import (
-    _APPLY_POLL_SECONDS,
-    _JOB_CARD_ATTR,
     _RESULTS_WAIT_SECONDS,
-    FIND_APPLY_ROOT_JS,
     _append_note,
     _element_label,
-    _first_element,
-    _loads,
     _mark_ai_job_cards,
     _pace,
     _query_elements,
     _safe,
     results_count,
 )
-from src.tools.linkedin import (
-    looks_like_apply_modal,
-    looks_like_easy_apply_action,
-    looks_like_job_card_label,
-    pick_easy_apply_action_index,
+from src.tools.linkedin import looks_like_easy_apply_action
+from src.tools.linkedin_job_apply_button import (
+    _APPLY_MODAL_QUERY,
+    _JOB_DETAILS_APPLY_SELECTORS,
+    _element_is_job_card,
+    find_job_apply_button,
+    pane_shows_job,
+    read_apply_modal,
+    read_details_pane_job,
+    wait_for_details_pane_job,
+    wait_for_easy_apply_modal,
+    wait_for_job_apply_button,
 )
 from src.tools.linkedin_pagination import _MAX_RESULT_PAGES, go_to_next_page
 from src.tools.linkedin_skip_applied import applied_skip_note, skip_applied_card
@@ -77,35 +83,6 @@ _JOB_CARD_SELECTORS = (
 # How many job cards to try before giving up on the results page. The list is
 # re-read after every click (LinkedIn re-renders it), so this is only a safety cap.
 _MAX_JOB_ATTEMPTS = 40
-
-# The job's apply button in the right-hand details pane (Task 2). Its label is
-# "Easy Apply" for Easy Apply jobs and "Apply"/"Apply on company website" for
-# external ones. The AI/semantic results layout renders the button with hashed
-# CSS-in-JS classes (no ``jobs-apply-button``), so also match its accessible
-# label: ``^="Easy Apply to"`` finds "Easy Apply to this job" / "Easy Apply to
-# <job> at <company>", and deliberately does not match the results filter pill
-# ("Easy Apply filter.").
-_JOB_DETAILS_APPLY_SELECTORS = (
-    "div.jobs-search__job-details--container button.jobs-apply-button",
-    "div.scaffold-layout__detail button.jobs-apply-button",
-    "div.job-view-layout button.jobs-apply-button",
-    "div.jobs-details button.jobs-apply-button",
-    "button.jobs-apply-button",
-    "[data-live-test-job-apply-button]",
-    'button[aria-label^="Easy Apply to" i]',
-    'a[aria-label^="Easy Apply to" i]',
-)
-
-_APPLY_MODAL_QUERY = (
-    "() => {\n"
-    + FIND_APPLY_ROOT_JS
-    + "\n  const root = findApplyRoot();\n"
-    + "  return JSON.stringify({\n"
-    + "    open: !!root,\n"
-    + "    text: root ? (root.innerText || '').slice(0, 1000) : ''\n"
-    + "  });\n"
-    + "}\n"
-)
 
 
 def _first_line(text: str) -> str:
@@ -134,80 +111,58 @@ async def read_job_cards(page) -> list:
     return []
 
 
-async def _element_is_job_card(element) -> bool:
-    """True when ``element`` is a job card, not the details pane's apply button.
+async def find_card_by_title(page, title: str):
+    """Re-resolve the job card whose title matches ``title`` (fresh element handle).
 
-    AI/semantic job cards are ``div[role="button"]`` marked with
-    ``data-autojob-card`` (see :data:`_JOB_CARD_ATTR`). Their accessible text
-    also carries "Easy Apply", so without this check the fallback scan would
-    mistake the first card for the apply button and click it instead of the blue
-    "Easy Apply" button (the Task 2 bug).
-
-    A real apply button is a ``<button>`` and is never excluded by the label
-    heuristic, so a job whose title/company contains a location word (e.g.
-    "Remote") is still matched.
+    Used by :func:`open_job_card` to retry a click that did not open the job: the
+    results list re-renders when a card is clicked, so a handle read before the
+    click can go stale (the Task 2 bug behind BUG-019 and BUG-036). The match
+    tolerates small label changes (a re-rendered "Posted 2 days ago" badge), so it
+    compares the titles as well as their normalized form.
     """
-    if await _safe(element.get_attribute(_JOB_CARD_ATTR), None) is not None:
-        return True
-    tag = await _safe(element.evaluate("() => this.tagName"), "") or ""
-    if str(tag).upper() == "BUTTON":
-        return False
-    return looks_like_job_card_label(await _element_label(element))
+    wanted = _job_key(title, 0)
+    for index, card in enumerate(await read_job_cards(page)):
+        first = _first_line(await _element_label(card))
+        if not first:
+            continue
+        if _job_key(first, index) == wanted:
+            return card
+        if title.strip() and pane_shows_job(first, title):
+            return card
+    return None
 
 
-async def find_job_apply_button(page) -> tuple:
-    """Return ``(element, label)`` for the details pane's apply button, or ``(None, "")``."""
-    # Ensure AI/semantic job cards are marked so the fallback scan below can
-    # exclude them: a job card's "Easy Apply" badge is not the apply button.
-    await _mark_ai_job_cards(page)
-    button = await _first_element(page, _JOB_DETAILS_APPLY_SELECTORS)
-    if button is not None:
-        return button, await _element_label(button)
+async def open_job_card(page, card, title: str, settings: Settings, notify) -> tuple[bool, str]:
+    """Click ``card`` until the details pane shows ``title``; return ``(opened, pane_title)``.
 
-    # Fall back to scanning interactive controls for an Easy Apply *action*
-    # (an Easy Apply label that is not the results filter). Job cards are
-    # excluded — their text also contains "Easy Apply" but they are not the
-    # blue apply button.
-    controls = await _query_elements(page, "button, [role='button']")
-    labels = [await _element_label(element) for element in controls]
-    candidates = [
-        (element, label)
-        for element, label in zip(controls, labels, strict=True)
-        if looks_like_easy_apply_action(label) and not await _element_is_job_card(element)
-    ]
-    index = pick_easy_apply_action_index([label for _element, label in candidates])
-    return (candidates[index][0], candidates[index][1]) if index is not None else (None, "")
-
-
-async def wait_for_job_apply_button(page, settings: Settings) -> tuple:
-    """Wait for the details pane's apply button to appear; return ``(element, label)``."""
-    deadline = time.monotonic() + settings.session.easy_apply_timeout_seconds
-    button, label = await find_job_apply_button(page)
-    while button is None and time.monotonic() < deadline:
-        await asyncio.sleep(_APPLY_POLL_SECONDS)
-        button, label = await find_job_apply_button(page)
-    return button, label
-
-
-async def read_apply_modal(page) -> tuple[bool, str]:
-    """Return ``(open, text)`` for the Easy Apply application form/modal."""
-    payload = _loads(await _safe(page.evaluate(_APPLY_MODAL_QUERY), ""))
-    if not payload.get("open"):
-        return False, ""
-    text = payload.get("text") or ""
-    # An unrelated dialog should not count; require recognisable Easy Apply text
-    # when the modal exposes any.
-    return (not text or looks_like_apply_modal(text)), text
-
-
-async def wait_for_easy_apply_modal(page, settings: Settings) -> tuple[bool, str]:
-    """Wait for the Easy Apply application form to open; return ``(open, text)``."""
-    deadline = time.monotonic() + settings.session.easy_apply_timeout_seconds
-    opened, text = await read_apply_modal(page)
-    while not opened and time.monotonic() < deadline:
-        await asyncio.sleep(_APPLY_POLL_SECONDS)
-        opened, text = await read_apply_modal(page)
-    return opened, text
+    The pane is checked because a click can leave it showing the *previous* job —
+    an already-applied job's pane has no Easy Apply control at all, which would
+    otherwise be misread as "no Easy Apply" and skip a job that offers it. A
+    mismatch re-clicks the card through a freshly resolved handle (once); if the
+    pane still does not match, the caller reports that instead of guessing.
+    """
+    pane_title = await read_details_pane_job(page)
+    for attempt in range(2):
+        element = card
+        if attempt:
+            element = await find_card_by_title(page, title)
+            if element is None:
+                return False, pane_title
+            notify(f"Task 2: the details pane did not open {title!r}; clicking it again.")
+        await _safe(element.evaluate("() => this.scrollIntoView({block: 'center'})"))
+        try:
+            await element.click()
+        except Exception as exc:  # noqa: BLE001 - try the next job
+            return False, f"click failed: {exc}"
+        if settings.session.post_click_wait_seconds:
+            await asyncio.sleep(settings.session.post_click_wait_seconds)
+        await _pace(settings)
+        pane_title = await wait_for_details_pane_job(
+            page, title, settings.session.pane_switch_timeout_seconds
+        )
+        if pane_shows_job(pane_title, title):
+            return True, pane_title
+    return False, pane_title
 
 
 @dataclass
@@ -300,16 +255,20 @@ async def _scan_page(
         notify(f"Task 2: opening job {index + 1}: {title or '(untitled)'}")
         emit_step(notify, f"Please wait - opening job {index + 1}: {title or '(untitled)'}...")
 
-        await _safe(card.evaluate("() => this.scrollIntoView({block: 'center'})"))
-        try:
-            await card.click()
-        except Exception as exc:  # noqa: BLE001 - try the next job
-            outcome.notes = f"Could not open job {index + 1}: {exc}"
+        opened, pane_title = await open_job_card(page, card, title, settings, notify)
+        if not opened:
+            # The pane never showed this job, so its apply button says nothing
+            # about the job we asked for: report *that* (a stale card click)
+            # instead of the misleading "no Easy Apply".
             outcome.skipped_jobs += 1
+            other = pane_title or "(an unknown job)"
+            outcome.notes = _append_note(
+                outcome.notes, f"the details pane still shows {other} for job {index + 1}"
+            )
+            head = f"Task 2: the details pane did not open job {index + 1}"
+            notify(f"{head}: {title or '(untitled)'}; skipping.")
+            emit_step(notify, f"Skipping job {index + 1} - the job details did not open.")
             continue
-        if settings.session.post_click_wait_seconds:
-            await asyncio.sleep(settings.session.post_click_wait_seconds)
-        await _pace(settings)
 
         button, label = await wait_for_job_apply_button(page, settings)
         if button is None or not looks_like_easy_apply_action(label):
@@ -423,3 +382,28 @@ async def _task2_on_page(
 
 def _task2_ok(outcome: Task2Outcome) -> bool:
     return bool(outcome.easy_apply_clicked and outcome.application_form_opened)
+
+
+# Task 2's public API. The details-pane names are re-exported from
+# :mod:`src.tools.linkedin_job_apply_button` (they are imported above), so
+# ``from src.tools.linkedin_job_selection import ...`` and the lazy re-exports in
+# :mod:`src.tools.browser` keep working unchanged.
+__all__ = [
+    "_APPLY_MODAL_QUERY",
+    "_JOB_CARD_SELECTORS",
+    "_JOB_DETAILS_APPLY_SELECTORS",
+    "_MAX_JOB_ATTEMPTS",
+    "_element_is_job_card",
+    "_first_line",
+    "_task2_ok",
+    "_task2_on_page",
+    "find_card_by_title",
+    "find_job_apply_button",
+    "open_job_card",
+    "pane_shows_job",
+    "read_apply_modal",
+    "read_details_pane_job",
+    "read_job_cards",
+    "wait_for_easy_apply_modal",
+    "wait_for_job_apply_button",
+]

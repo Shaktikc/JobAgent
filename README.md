@@ -41,7 +41,11 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
      on the results page. The classic jobs search bar is not used.
    - **Task 2:** reads the job list from those results, opens the first job that
      offers Easy Apply (skipping external-apply jobs), clicks its **Easy Apply**
-     button, and confirms the application form opened.
+     button, and confirms the application form opened. Before judging that
+     button it checks the details pane really shows the job it clicked (an
+     already-applied job's pane has no Easy Apply button at all), and re-clicks
+     the card once if the pane did not switch — so a swallowed click can no
+     longer look like "no Easy Apply".
    - **Task 6:** skips cards already marked **"Applied"** (e.g. "Applied · 5
      months ago") and opens the first unapplied job instead.
    - **Task 7:** when *every* card on the current results page is **"Applied"**,
@@ -245,6 +249,7 @@ src/
     linkedin.py      Pure LinkedIn URL/text helpers
     linkedin_search.py             Task 1: log in, search jobs, select Easy Apply filter
     linkedin_job_selection.py      Task 2: select a job, open its Easy Apply form
+    linkedin_job_apply_button.py   Task 2: the details pane's job, apply button, modal
     linkedin_skip_applied.py       Task 6: skip cards already marked "Applied"
     linkedin_pagination.py         Task 7: when a page is all Applied, go to the next page
     linkedin_apply_loop.py         Task 8: detect the human's submit, open the next job
