@@ -1,6 +1,6 @@
 # Task 9 — Show live progress in the browser UI (what the agent and the LLM are doing)
 
-**Status:** 🟡 In progress — implemented; pending review
+**Status:** ✅ Done
 
 **Goal:** While a run is active, show an always-updating status panel **in the
 browser, on the same LinkedIn page** the agent is automating, that tells the
@@ -85,7 +85,7 @@ The panel is read-only feedback: it never changes the page or blocks automation.
 
 ## Subtask 9.1 — Status overlay helper (inject, update, clear — best-effort)
 
-**Status:** 🟡 In progress — implemented; pending review
+**Status:** ✅ Done
 
 **Goal:** Provide one small, testable module that renders and updates a status
 panel on the current page, plus a reporter object the rest of the code calls to
@@ -142,7 +142,7 @@ fails.
 
 ## Subtask 9.2 — Instrument the agent/browser steps (Tasks 1-8)
 
-**Status:** 🟡 In progress — implemented; pending review
+**Status:** ✅ Done
 
 **Goal:** Push a plain-language "Please wait — …" status for every major agent
 step, so the human can follow the run end to end on the LinkedIn page.
@@ -191,7 +191,7 @@ step, so the human can follow the run end to end on the LinkedIn page.
 
 ## Subtask 9.3 — Instrument the LLM steps (say exactly what the LLM is doing)
 
-**Status:** 🟡 In progress — implemented; pending review
+**Status:** ✅ Done
 
 **Goal:** Whenever the LLM is invoked, the panel must state **exactly** what the
 LLM is doing (and on which input) before the call, and what it decided after —
