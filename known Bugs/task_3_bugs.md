@@ -11,8 +11,8 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 | BUG-004 | `get_state_as_text` was dead after an agent run (page read) | 🟢 Fixed | `24d381f` |
 | BUG-021 | description read *after* Easy Apply → empty → LLM "none" | 🟢 Fixed | `7dce47d` |
 | BUG-031 | unread description treated as "no resume matched" | 🟢 Fixed | `7dce47d` |
-| BUG-038 | resume match hung for minutes / "unusable match reply" | 🟢 Fixed | (uncommitted) |
-| BUG-039 | job title read as "0 notifications" → weak resume match | 🟢 Fixed | (uncommitted) |
+| BUG-038 | resume match hung for minutes / "unusable match reply" | 🟢 Fixed | `1ca5311` |
+| BUG-039 | job title read as "0 notifications" → weak resume match | 🟢 Fixed | `1ca5311` |
 
 ---
 
@@ -79,7 +79,7 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   `test_describe_resume_retries_an_unusable_reply`),
   `tests/unit/test_configuration.py`. Live check with the real LLM: warm match
   **1.3–1.4 s** (was 6–17 s), cold four-resume pool **10–12 s** (was four
-  sequential calls plus the match). Commit: (uncommitted).
+  sequential calls plus the match). Commit `1ca5311`.
 
 ### BUG-039 — the job title was read as LinkedIn's "0 notifications"
 
@@ -97,4 +97,4 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 - **Status:** 🟢 Fixed
 - **Evidence:** `src/tools/linkedin_best_matching_resume/description_reader.py`;
   `tests/integration/test_job_description_live.py` (`global-nav` case). Live run
-  with the real Chromium query: 4 cases passed. Commit: (uncommitted).
+  with the real Chromium query: 4 cases passed. Commit `1ca5311`.
