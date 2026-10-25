@@ -58,6 +58,17 @@ async def fill(state: ApplyState) -> ApplyState:
     ]
     if outcome.unknown_fields:
         log.append(f"fill: unknown (left for Task 5): {outcome.unknown_fields}")
+    unfilled = [field for field in outcome.fields if field.known and not field.filled]
+    if unfilled:
+        log.append(
+            "fill: known but not filled: "
+            + "; ".join(
+                f"{field.question or field.name!r}"
+                + (f" ({field.error})" if field.error else "")
+                + (" [required]" if field.required else "")
+                for field in unfilled
+            )
+        )
     decisions = [
         f"{field.question!r}->{field.value!r} "
         f"({'derived' if field.derived else 'matched'}"
@@ -81,8 +92,25 @@ async def fill(state: ApplyState) -> ApplyState:
         errors.append("fill: Easy Apply form was not found")
     elif not outcome.resume_attached:
         errors.append("fill: resume was not attached")
-    elif outcome.filled_fields != outcome.known_fields:
-        errors.append("fill: some known fields were not filled")
+    else:
+        required_unknown = [
+            field for field in outcome.fields if field.required and not field.known
+        ]
+        required_unfilled = [
+            field
+            for field in outcome.fields
+            if field.required and field.known and not field.filled
+        ]
+        if required_unknown:
+            errors.append(
+                "fill: required questions are unanswered: "
+                + "; ".join(field.question or field.name for field in required_unknown)
+            )
+        if required_unfilled:
+            errors.append(
+                "fill: required fields were not filled: "
+                + "; ".join(field.question or field.name for field in required_unfilled)
+            )
     if outcome.submitted:
         errors.append("fill: Submit was clicked (must never happen)")
     if errors:

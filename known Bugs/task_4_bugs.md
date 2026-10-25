@@ -16,6 +16,7 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 | BUG-032 | walk stopped at a field-less review step ("form did not advance") | 🟢 Fixed | (uncommitted) |
 | BUG-034 | "Experience on AI?" reported unknown despite the store covering it | 🟢 Fixed | (uncommitted) |
 | BUG-035 | checkbox group: the human's tick was never saved (one question per option) | 🟢 Fixed | (uncommitted) |
+| BUG-042 | stopped at **Review** (next step not rendered yet); optional unfilled field failed the run | 🟢 Fixed | (uncommitted) |
 
 ---
 
@@ -190,3 +191,31 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   propeller': 'Glassdoor, YouTube'` — kept the ticks on the page, and a stored
   multi-select answer ticked both matching boxes with no human prompt
   (uncommitted).
+
+### BUG-042 — the walk stopped at Review before the review step rendered
+
+- **Symptom:** on the last form step, clicking **Review** ended the run with
+  `fill: form did not advance to a new step` even though Review was there; the
+  run also reported `fill: some known fields were not filled` without naming the
+  field.
+- **Root cause:** after clicking Next/Review the walk read the form **once,
+  immediately**, and treated the unchanged step as a failed advance. LinkedIn can
+  render the review step a moment later, so the first read still saw the old step.
+  Separately, any known-but-unfilled field (even an optional one) failed the run,
+  while a required field that could not be filled was never named.
+- **Fix:** after a navigation click the walk now polls for the step signature to
+  change (up to the existing easy-apply timeout) and logs the new step when it
+  appears. Only **required** unknown/unfilled fields block the walk or fail the
+  node, and they are named with their error. Optional unfilled fields are logged
+  as `known but not filled` and do not fail the run.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/linkedin_easy_apply_fill/form_walk.py`
+  (`_blocking_questions`, the advance wait), `src/nodes/fill.py` (required-only
+  errors + unfilled log); `tests/unit/test_task4_review_steps.py`
+  (`test_task4_waits_for_a_slow_review_step_to_render`),
+  `tests/unit/test_graph.py`
+  (`test_fill_node_does_not_fail_on_an_optional_unfilled_field`,
+  `test_fill_node_names_the_required_fields_that_block_review`),
+  `tests/integration/test_fill_form_live.py`
+  (`test_task4_waits_for_an_async_review_step`). Live browser fill suite: 11/11.
+  Commit: (uncommitted).

@@ -11,6 +11,7 @@ application** remains) or a step stops advancing. It never clicks Submit.
 from __future__ import annotations
 
 import asyncio
+import time
 
 from src.configuration import Settings
 from src.state import FormField, Task4Outcome, Task5Outcome
@@ -47,11 +48,21 @@ def _form_signature(title: str, fields: list[dict], step: str = "") -> str:
 
 
 def _blocking_questions(records: list[FormField]) -> list[str]:
-    """Required questions on a step that are still unanswered (they block Next)."""
+    """Required questions on a step that are still unanswered or unfilled.
+
+    A field can be *known* (an answer was chosen) but not *filled* (the click or
+    input failed). LinkedIn still blocks **Review**/Next on it, so it must be
+    reported alongside a genuinely unknown question.
+    """
     blocking: list[str] = []
     for record in records:
-        if record.required and not record.known and record.question not in blocking:
-            blocking.append(record.question)
+        if not record.required or (record.known and record.filled):
+            continue
+        question = record.question or record.name
+        if record.error:
+            question = f"{question} ({record.error})"
+        if question and question not in blocking:
+            blocking.append(question)
     return blocking
 
 
@@ -152,8 +163,24 @@ async def _task4_on_page(
         )
         if pending_advance:
             if signature == previous:
+                # The click can be accepted before the next step renders (LinkedIn
+                # shows the review step a moment after Review). Poll for the new
+                # step instead of declaring failure on the first read.
+                deadline = time.monotonic() + settings.session.easy_apply_timeout_seconds
+                while signature == previous and time.monotonic() < deadline:
+                    await asyncio.sleep(min(0.5, max(deadline - time.monotonic(), 0)))
+                    opened, title, fields, step = await read_form(page)
+                    if not opened:
+                        break
+                    signature = _form_signature(title, fields, step)
+                if opened and signature != previous:
+                    notify(
+                        f"Task 4: step {step_index}: {title or '(untitled)'!r} "
+                        f"fields={len(fields)} step_id={step!r}"
+                    )
+            if not opened or signature == previous:
                 # The click did not move to a new step: stop instead of retrying
-                # blindly, naming the required answers that are still unknown.
+                # blindly, naming the required fields that still block it.
                 outcome.notes = _append_note(
                     outcome.notes, _blocked_note("form did not advance to a new step", blocking)
                 )

@@ -24,6 +24,7 @@ from src.nodes.verify import verify
 from src.state import (
     DEFAULT_LOGIN_URL,
     ApplyState,
+    FormField,
     JobDescription,
     ResumeCandidate,
     Task1Outcome,
@@ -385,6 +386,68 @@ def test_fill_node_records_task5(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result["task5"].answered == 1
     assert result["task5"].answered_questions == ["City"]
     assert any("task5" in entry for entry in result["log"])
+
+
+def test_fill_node_does_not_fail_on_an_optional_unfilled_field(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only required fields make the fill fail; log the optional one instead."""
+    import src.tools.browser as browser_tools
+
+    outcome = _task4_ok()
+    outcome.fields = [
+        FormField(
+            question="Optional question",
+            known=True,
+            filled=False,
+            required=False,
+            error="no option matched the answer",
+        )
+    ]
+
+    async def fake_fill(run_id, resume_path, settings=None, progress=None):
+        return outcome, _task5_ok()
+
+    monkeypatch.setattr(browser_tools, "fill_application", fake_fill)
+    state = ApplyState(dry_run=False, browser_run_id="run-1", task3=_task3_ok())
+
+    result = asyncio.run(fill(state))
+
+    assert not result.get("errors")
+    assert any("known but not filled" in entry for entry in result["log"])
+
+
+def test_fill_node_names_the_required_fields_that_block_review(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.tools.browser as browser_tools
+
+    outcome = _task4_ok()
+    outcome.fields = [
+        FormField(
+            question="Required question",
+            known=True,
+            filled=False,
+            required=True,
+            error="field element not found",
+        ),
+        FormField(question="Unanswered question", known=False, required=True),
+    ]
+
+    async def fake_fill(run_id, resume_path, settings=None, progress=None):
+        return outcome, _task5_ok()
+
+    monkeypatch.setattr(browser_tools, "fill_application", fake_fill)
+    state = ApplyState(dry_run=False, browser_run_id="run-1", task3=_task3_ok())
+
+    result = asyncio.run(fill(state))
+
+    assert result["errors"]
+    message = " ".join(result["errors"])
+    assert "required fields were not filled" in message
+    assert "Required question" in message
+    assert "required questions are unanswered" in message
+    assert "Unanswered question" in message
 
 
 def test_cleanup_node_is_noop_without_a_run() -> None:

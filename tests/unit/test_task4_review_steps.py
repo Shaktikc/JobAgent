@@ -75,11 +75,30 @@ def _make_form(steps, buttons_per_step) -> _FakeForm:
     return form
 
 
-def _settings(tmp_path) -> Settings:
-    return Settings(
-        session=SessionSettings(headless=True, post_click_wait_seconds=0.0, ask_human=False),
-        data_dir=tmp_path / "data",
-    )
+class _SlowRenderForm(_FakeForm):
+    """A form whose next step renders only after a few reads (LinkedIn can lag)."""
+
+    def __init__(self, steps, buttons_per_step, *, delay_reads: int) -> None:
+        super().__init__(steps, buttons_per_step)
+        self.delay_reads = delay_reads
+        self.pending_reads = 0
+
+    def _advance(self) -> None:
+        self.pending_reads = self.delay_reads
+
+    async def evaluate(self, js: str, *args):
+        if "data-autojob-fill" in js and self.pending_reads:
+            self.pending_reads -= 1
+            if self.pending_reads == 0:
+                self.index += 1
+        return await super().evaluate(js, *args)
+
+
+def _settings(tmp_path, **session) -> Settings:
+    session.setdefault("headless", True)
+    session.setdefault("post_click_wait_seconds", 0.0)
+    session.setdefault("ask_human", False)
+    return Settings(session=SessionSettings(**session), data_dir=tmp_path / "data")
 
 
 def test_form_signature_distinguishes_fieldless_steps() -> None:
@@ -118,3 +137,38 @@ async def test_task4_advances_through_fieldless_review_steps(tmp_path) -> None:
     assert outcome.submitted is False
     assert "form did not advance" not in outcome.notes
     assert form.buttons["b0"].clicked is True
+
+
+async def test_task4_waits_for_a_slow_review_step_to_render(tmp_path) -> None:
+    """Review is clicked, the next step renders a moment later — do not stop early."""
+    def step(identity: str) -> dict:
+        return {
+            "open": True,
+            "title": "Apply to SwipeJobs",
+            "step": identity,
+            "fields": [],
+        }
+
+    form = _SlowRenderForm(
+        steps=[step("1/2 pages · text:1"), step("2/2 pages · text:2")],
+        buttons_per_step=[
+            [{"marker": "b0", "text": "Review", "disabled": False}],
+            [{"marker": "b0", "text": "Submit application", "disabled": False}],
+        ],
+        delay_reads=2,
+    )
+    form.buttons = {"b0": _FakeButton(form._advance)}
+
+    outcome = await fill_tools._task4_on_page(
+        form,
+        None,
+        None,
+        {},
+        _settings(tmp_path, easy_apply_timeout_seconds=0.2),
+        lambda _m: None,
+    )
+
+    assert outcome.steps_advanced == 1
+    assert outcome.reached_terminal_step is True
+    assert outcome.submitted is False
+    assert "form did not advance" not in outcome.notes

@@ -143,6 +143,48 @@ _FORM_HTML = """<!doctype html>
 """
 
 
+# A form whose "Review" step renders asynchronously (LinkedIn can take a moment).
+# The walk must poll for the new step instead of stopping on the first read.
+_DELAYED_REVIEW_HTML = """<!doctype html>
+<html><head><meta charset="utf-8"><title>Easy Apply</title></head>
+<body>
+<div class="jobs-easy-apply-modal artdeco-modal" role="dialog">
+  <h3>Apply to Delayed Co</h3>
+  <div class="artdeco-modal__content">
+    <section data-step="1">
+      <div class="jobs-easy-apply-form-section__grouping">
+        <span class="fb-form-element-label">Are you authorised to work here?</span>
+        <div class="fb-form-element-wrapper">
+          <div class="fb-dash-form-element" role="radio" aria-checked="true"><span>Yes</span></div>
+          <div class="fb-dash-form-element" role="radio" aria-checked="false"><span>No</span></div>
+        </div>
+      </div>
+    </section>
+    <section data-step="2" style="display:none"><p>Review your application.</p></section>
+  </div>
+  <footer class="artdeco-modal__actionbar">
+    <button id="review-btn">Review</button>
+    <button id="submit-btn" style="display:none">Submit application</button>
+  </footer>
+</div>
+<script>
+  document.getElementById('review-btn').addEventListener('click', function () {
+    setTimeout(function () {
+      document.querySelector('section[data-step="1"]').style.display = 'none';
+      document.querySelector('section[data-step="2"]').style.display = 'block';
+      document.getElementById('review-btn').style.display = 'none';
+      document.getElementById('submit-btn').style.display = 'inline-block';
+      document.querySelector('h3').textContent = 'Review your application';
+    }, 1500);
+  });
+  document.getElementById('submit-btn').addEventListener('click', function () {
+    window.__submitted = true;
+  });
+</script>
+</body></html>
+"""
+
+
 def _settings(tmp_path: Path, *, ask_human: bool = False) -> Settings:
     """Browser settings; slow motion + visibility are env-controlled.
 
@@ -387,6 +429,30 @@ async def test_task4_autofills_screening_questions_in_new_linkedin_markup(
     assert observed["step"] == 2
     assert outcome.submitted is False
     assert observed["submitted"] is False
+
+
+async def test_task4_waits_for_an_async_review_step(tmp_path: Path) -> None:
+    """Clicking Review and reading instantly must not stop before it renders."""
+    form_file = tmp_path / "delayed_review.html"
+    form_file.write_text(_DELAYED_REVIEW_HTML, encoding="utf-8")
+    settings = _settings(tmp_path)
+
+    browser = browser_tools.build_browser(settings)
+    try:
+        await browser.start()
+        page = await browser.new_page()
+        await page.goto(form_file.as_uri())
+        await browser_tools._wait_for_load(page, 10)
+        outcome = await browser_tools._task4_on_page(
+            page, browser, None, {}, settings, lambda _m: None
+        )
+    finally:
+        await browser.kill()
+
+    assert outcome.steps_advanced == 1
+    assert outcome.reached_terminal_step is True
+    assert outcome.submitted is False
+    assert "form did not advance" not in outcome.notes
 
 
 async def test_task4_fills_form_and_prefers_listed_resume(tmp_path: Path) -> None:
