@@ -20,7 +20,7 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 | BUG-029 | Windows CLI | "I/O operation on closed pipe" noise after a successful run | 🟢 Fixed | `2b60465` |
 | BUG-030 | Cleanup | agent closed the browser on timeout (it must never close it) | 🟢 Fixed | `ef2ad44`, `31553e2` |
 | BUG-033 | UI overlay | Task 9 status panel rendered behind LinkedIn's Easy Apply modal | 🟢 Fixed | (uncommitted) |
-| BUG-041 | Task 8 loop | advanced to the next job without a real submission | 🟢 Fixed | (uncommitted) |
+| BUG-041 | Task 8 loop | advanced to the next job without a real submission | 🟢 Fixed | `f928866` |
 
 ---
 
@@ -164,5 +164,5 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   `await_human_submit`); `tests/unit/test_linkedin_apply_loop.py`
   (`test_await_human_submit_ignores_a_card_already_applied_before_the_wait`,
   `test_await_human_submit_ignores_a_stale_confirmation_from_the_previous_job`,
-  `test_await_human_submit_detects_a_card_flipping_to_applied`). Commit:
-  (uncommitted).
+  `test_await_human_submit_detects_a_card_flipping_to_applied`). Commit
+  `f928866`.

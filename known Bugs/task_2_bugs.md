@@ -14,7 +14,7 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 | BUG-018 | fallback scan picked a job **card** as the apply button | 🟢 Fixed | `9ad31a9` |
 | BUG-019 | stale card handles after a click → jobs silently skipped | 🟢 Fixed | `84b0bb5` |
 | BUG-036 | job with Easy Apply skipped as "no Easy Apply" (stale details pane) | 🟢 Fixed | `fdb6585` |
-| BUG-040 | every clicked job "did not open" (search-query tab title read as the pane title) | 🟢 Fixed | (uncommitted) |
+| BUG-040 | every clicked job "did not open" (search-query tab title read as the pane title) | 🟢 Fixed | `f928866` |
 
 ---
 
@@ -112,4 +112,4 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   new live-browser regression
   `tests/integration/test_task2_skip_applied_live.py::test_task2_reads_the_pane_heading_not_the_search_page_title`
   (the tab title is the search query; the pane heading is the clicked job);
-  full live Task 2 suite 4/4. Commit: (uncommitted).
+  full live Task 2 suite 4/4. Commit `f928866`.

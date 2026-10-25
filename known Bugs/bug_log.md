@@ -77,8 +77,8 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | BUG-037 | Task 5 — dropdown answers | a select prompt ("Select an option") was saved as the answer, then leaked into the next question | 🟢 Fixed | (uncommitted) |
 | BUG-038 | Task 3 — match | resume match hung for minutes / failed as "unusable match reply" | 🟢 Fixed | `1ca5311` |
 | BUG-039 | Task 3 — read | job title read as "0 notifications" → weak resume match | 🟢 Fixed | `1ca5311` |
-| BUG-040 | Task 2 — pane | every clicked job "did not open" (search-query tab title) | 🟢 Fixed | (uncommitted) |
-| BUG-041 | Task 8 — loop | advanced to the next job without a real submission | 🟢 Fixed | (uncommitted) |
+| BUG-040 | Task 2 — pane | every clicked job "did not open" (search-query tab title) | 🟢 Fixed | `f928866` |
+| BUG-041 | Task 8 — loop | advanced to the next job without a real submission | 🟢 Fixed | `f928866` |
 
 ## Template for new entries
 
