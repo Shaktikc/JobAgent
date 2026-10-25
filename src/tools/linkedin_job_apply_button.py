@@ -80,23 +80,58 @@ _APPLY_MODAL_QUERY = (
     + "}\n"
 )
 
-# Which job the details pane is showing. LinkedIn's page title is
-# "<job title> | <company> | LinkedIn" while a job is open, and it follows the
-# pane (not the clicked card), which is exactly the signal needed here.
+# Which job the details pane is showing.
+#
+# The pane's own heading is the **first** signal. ``document.title`` must never be
+# preferred: on a results page it is the search query ("... Jobs | LinkedIn"), so
+# every clicked card looked like it had not opened (the live log: every job was
+# skipped as "the details pane did not open"). It is only a fallback for the
+# full-page job view, and search/chrome titles are rejected.
 _PANE_JOB_QUERY = (
     "() => {\n"
-    + "  const norm = (s) => (s || '').replace(/\\s+/g, ' ').trim();\n"
-    + "  const pane = document.querySelector(\n"
-    + "    'div.jobs-search__job-details--container, div.scaffold-layout__detail, '\n"
-    + "    + 'div.job-view-layout, div.jobs-details, div.jobs-details__main-content'\n"
-    + "  );\n"
-    + "  let title = norm(document.title).split('|')[0];\n"
-    + "  if (pane) {\n"
-    + "    const heading = pane.querySelector('h1, h2');\n"
-    + "    if (!title && heading) title = norm(heading.innerText);\n"
+    + "  const clean = (s) => (s || '').replace(/\\s+/g, ' ').trim();\n"
+    + "  const pick = (scope, selectors) => {\n"
+    + "    if (!scope) return '';\n"
+    + "    for (const selector of selectors) {\n"
+    + "      let el = null;\n"
+    + "      try { el = scope.querySelector(selector); } catch (err) { continue; }\n"
+    + "      const text = el ? clean(el.innerText) : '';\n"
+    + "      if (text) return text;\n"
+    + "    }\n"
+    + "    return '';\n"
+    + "  };\n"
+    + "  const paneSelectors = [\n"
+    + "    'div.jobs-search__job-details--container',\n"
+    + "    'div.scaffold-layout__detail',\n"
+    + "    'div.job-view-layout',\n"
+    + "    'div.jobs-details',\n"
+    + "    'div.jobs-details__main-content'\n"
+    + "  ];\n"
+    + "  let pane = null;\n"
+    + "  for (const selector of paneSelectors) {\n"
+    + "    try { pane = document.querySelector(selector); } catch (err) { continue; }\n"
+    + "    if (pane) break;\n"
     + "  }\n"
-    + "  if (/^(jobs?|linkedin)/i.test(title)) title = '';\n"
-    + "  return JSON.stringify({ title: norm(title) });\n"
+    + "  const jobTitleSelectors = [\n"
+    + "    '.job-details-jobs-unified-top-card__job-title',\n"
+    + "    '.jobs-unified-top-card__job-title',\n"
+    + "    '.top-card-layout__title',\n"
+    + "    '.topcard__title',\n"
+    + "    '[class*=\"job-title\"]',\n"
+    + "    'h1'\n"
+    + "  ];\n"
+    + "  let title = pick(pane, jobTitleSelectors);\n"
+    + "  if (!title && pane) title = pick(pane, ['h2']);\n"
+    + "  if (!title) {\n"
+    + "    const pageTitle = clean(document.title).split('|')[0];\n"
+    + "    const isSearchOrChrome = !pageTitle\n"
+    + "      || /^(jobs?|linkedin)\\b/i.test(pageTitle)\n"
+    + "      || /\\bjobs$/i.test(pageTitle)\n"
+    + "      || /\\bnotifications?$/i.test(pageTitle)\n"
+    + "      || /^\\(\\d+\\)/.test(pageTitle);\n"
+    + "    if (!isSearchOrChrome) title = pageTitle;\n"
+    + "  }\n"
+    + "  return JSON.stringify({ title: clean(title) });\n"
     + "}\n"
 )
 

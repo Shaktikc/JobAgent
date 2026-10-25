@@ -247,6 +247,72 @@ _SEMANTIC_LAYOUT_HTML = """<!doctype html>
 """
 
 
+# The results page's tab title is the **search query** ("Full Stack Engineer Jobs"),
+# not the open job's title. The pane check used to read document.title first, so
+# every clicked card looked like it had not opened and was skipped ("the details
+# pane did not open"). The pane's own heading must win.
+_SEARCH_TITLE_JOB = (
+    "Sr Full Stack Engineer - AI, LLM & Intelligent Document Processing (Verified job)"
+)
+_SEARCH_TITLE_LAYOUT_HTML = """<!doctype html>
+<html><head><meta charset="utf-8">
+<title>Full Stack Engineer Jobs | LinkedIn</title></head>
+<body>
+<ul class="jobs-search__results-list">
+  <li class="jobs-search-results__list-item">
+    <div class="base-search-card__title">__TITLE__</div>
+    <div class="base-search-card__subtitle">Acme</div>
+    <div class="job-search-card__snippet">Easy Apply</div>
+  </li>
+</ul>
+<div class="jobs-search__job-details--container" style="display:none">
+  <h1 class="job-details-jobs-unified-top-card__job-title"></h1>
+  <button class="jobs-apply-button" aria-label="Easy Apply to this job">Easy Apply</button>
+</div>
+<div class="jobs-easy-apply-modal artdeco-modal" role="dialog" style="display:none">
+  <div class="artdeco-modal__content">Review your application. Easy Apply.</div>
+</div>
+<script>
+  var details = document.querySelector('.jobs-search__job-details--container');
+  var heading = details.querySelector('h1');
+  var applyBtn = details.querySelector('.jobs-apply-button');
+  var modal = document.querySelector('.jobs-easy-apply-modal');
+  document.querySelectorAll('li.jobs-search-results__list-item').forEach(function (li) {
+    li.addEventListener('click', function () {
+      details.style.display = 'block';
+      heading.textContent = (li.innerText || '').split('\\n')[0].trim();
+      applyBtn.setAttribute('aria-label', 'Easy Apply to ' + heading.textContent);
+    });
+  });
+  applyBtn.addEventListener('click', function () { modal.style.display = 'block'; });
+</script>
+</body></html>
+""".replace("__TITLE__", _SEARCH_TITLE_JOB)
+
+
+async def test_task2_reads_the_pane_heading_not_the_search_page_title(tmp_path: Path) -> None:
+    page_file = tmp_path / "search_title_layout.html"
+    page_file.write_text(_SEARCH_TITLE_LAYOUT_HTML, encoding="utf-8")
+
+    settings = _settings(tmp_path)
+    browser = browser_tools.build_browser(settings)
+    try:
+        await browser.start()
+        page = await browser.new_page()
+        await page.goto(page_file.as_uri())
+        await browser_tools._wait_for_load(page, 10)
+        outcome = await browser_tools._task2_on_page(page, settings, lambda _m: None)
+    finally:
+        await browser.kill()
+
+    # The clicked card opened even though the tab title is the search query.
+    assert outcome.job_index == 0
+    assert outcome.easy_apply_button_found is True
+    assert outcome.easy_apply_clicked is True
+    assert outcome.application_form_opened is True
+    assert "Sr Full Stack Engineer" in outcome.job_title
+
+
 async def test_task2_semantic_layout_uses_label_and_fresh_handles(tmp_path: Path) -> None:
     """The label-only apply button is found and the re-rendered list is re-read."""
     page_file = tmp_path / "semantic_layout.html"

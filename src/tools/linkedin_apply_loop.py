@@ -70,17 +70,26 @@ def looks_like_submission(text: str) -> bool:
     return any(hint in normalized for hint in _SUBMISSION_HINTS)
 
 
-def submission_detected(*, confirmation: str, form_open: bool, card_applied: bool) -> bool:
+def submission_detected(
+    *,
+    confirmation: str,
+    form_open: bool,
+    card_applied: bool,
+    card_was_applied: bool = False,
+) -> bool:
     """Decide whether the human's submission is confirmed.
 
     The confirmation dialog is the strong signal. As a fallback (for a human who
     dismisses the confirmation before the next poll), the Easy Apply form being
     closed **and** the open job's card now reading **"Applied"** also counts — a
     card only flips to Applied after a real submit, so an X-dismissed form does
-    not trigger it.
+    not trigger it. ``card_was_applied`` guards the stale case: a card that
+    already read Applied before the wait is not evidence of a submission now.
     """
     if looks_like_submission(confirmation):
         return True
+    if card_was_applied:
+        return False
     return card_applied and not form_open
 
 
@@ -207,15 +216,36 @@ async def await_human_submit(
         "Waiting for you - submit this application yourself, then close the window.",
     )
     deadline = None if timeout <= 0 else time.monotonic() + timeout
+    # The card's "Applied" badge is only evidence of *this* submission when it
+    # flips from unapplied to Applied during the wait. A card that already read
+    # Applied at the start (a stale status the scan let through, or a job applied
+    # in an earlier run) must not make a dismissed form look like a submission —
+    # that advanced the loop and opened the next job without the human submitting.
+    initial = await read_submission_state(run.page, title)
+    baseline = _normalize(initial["confirmation"])
+    if baseline:
+        # A confirmation already on screen when this wait starts belongs to the
+        # previous job (its dialog stayed open on the results page). Dismiss it
+        # and ignore that exact text; only a *new* confirmation counts — otherwise
+        # the loop could "detect" a submission the human never made and open the
+        # next job by itself.
+        await _dismiss_confirmation(run.page, initial)
+        initial = await read_submission_state(run.page, title)
+        baseline = _normalize(initial["confirmation"])
+    already_applied = bool(initial.get("card_applied"))
     while True:
         if not run_is_connected(run_id):
             forget_run(run_id)
             return "closed"
         state = await read_submission_state(run.page, title)
+        confirmation = state["confirmation"]
+        if baseline and _normalize(confirmation) == baseline:
+            confirmation = ""  # the stale dialog from the previous job
         if submission_detected(
-            confirmation=state["confirmation"],
+            confirmation=confirmation,
             form_open=state["form_open"],
             card_applied=state["card_applied"],
+            card_was_applied=already_applied,
         ):
             notify("Task 8: submission detected.")
             emit_step(notify, "Submission detected - looking for the next job.")

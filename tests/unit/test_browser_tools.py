@@ -211,6 +211,10 @@ class FakePage:
         if "jobs-easy-apply-modal" in js:
             text = self.modal_text if self.modal_open else ""
             return json.dumps({"open": self.modal_open, "text": text})
+        if "const paneSelectors" in js:
+            # Task 2's pane-title query. An empty title keeps the check permissive
+            # for these fakes (they do not model the pane heading).
+            return json.dumps({"title": ""})
         if "job-details-jobs-unified-top-card" in js:
             return json.dumps(self.job_description)
         if "aria-pressed" in js:

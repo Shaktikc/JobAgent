@@ -47,15 +47,16 @@ class _FakeSession:
 
 
 class _FakeSubmitPage:
-    """Answers Task 8's submission probe with a canned payload."""
+    """Answers Task 8's submission probe with canned payload(s)."""
 
-    def __init__(self, payload: dict) -> None:
-        self.payload = payload
+    def __init__(self, payload: dict | list[dict]) -> None:
+        self.payloads = list(payload) if isinstance(payload, list) else [payload]
         self.done_elements: dict[str, _FakeElement] = {}
 
     async def evaluate(self, js: str, *args):
         if "data-autojob-done" in js:
-            return json.dumps(self.payload)
+            payload = self.payloads.pop(0) if len(self.payloads) > 1 else self.payloads[0]
+            return json.dumps(payload)
         return ""
 
     async def get_elements_by_css_selector(self, selector: str) -> list:
@@ -103,6 +104,10 @@ def test_submission_detected_falls_back_to_the_applied_card() -> None:
     assert not submission_detected(confirmation="", form_open=False, card_applied=False)
     # Card Applied but the form still open -> not a submission yet.
     assert not submission_detected(confirmation="", form_open=True, card_applied=True)
+    # A card that already read Applied before the wait is stale, not a submit.
+    assert not submission_detected(
+        confirmation="", form_open=False, card_applied=True, card_was_applied=True
+    )
 
 
 # --- read_submission_state -------------------------------------------------
@@ -131,12 +136,15 @@ async def test_read_submission_state_reads_the_probe() -> None:
 
 async def test_await_human_submit_detects_a_submission_and_dismisses() -> None:
     page = _FakeSubmitPage(
-        {
-            "form_open": False,
-            "confirmation": "Application sent",
-            "card_applied": False,
-            "done_marker": "d0",
-        }
+        [
+            {"form_open": True, "confirmation": "", "card_applied": False},
+            {
+                "form_open": False,
+                "confirmation": "Application sent",
+                "card_applied": False,
+                "done_marker": "d0",
+            },
+        ]
     )
     done = _FakeElement()
     page.done_elements["d0"] = done
@@ -149,6 +157,73 @@ async def test_await_human_submit_detects_a_submission_and_dismisses() -> None:
 
     assert result == "submitted"
     assert done.clicked is True
+
+
+async def test_await_human_submit_ignores_a_card_already_applied_before_the_wait() -> None:
+    # A stale "Applied" card plus a dismissed form must NOT advance the loop:
+    # nothing was submitted for this job during the wait.
+    page = _FakeSubmitPage(
+        [
+            {"form_open": False, "confirmation": "", "card_applied": True},
+            {"form_open": False, "confirmation": "", "card_applied": True},
+        ]
+    )
+    _register("run-stale-applied", page)
+
+    try:
+        result = await await_human_submit(
+            "run-stale-applied",
+            _settings(keep_open_timeout_seconds=0.05, keep_open_poll_seconds=0.01),
+        )
+    finally:
+        browser_tools._ACTIVE_RUNS.pop("run-stale-applied", None)
+
+    assert result == "timeout"
+
+
+async def test_await_human_submit_ignores_a_stale_confirmation_from_the_previous_job() -> None:
+    # The previous job's "Application sent" dialog stayed on the results page.
+    # It must not make this job look submitted (which opened the next job by itself).
+    page = _FakeSubmitPage(
+        [
+            {"form_open": False, "confirmation": "Application sent", "card_applied": False},
+            {"form_open": True, "confirmation": "Application sent", "card_applied": False},
+            {"form_open": True, "confirmation": "Application sent", "card_applied": False},
+        ]
+    )
+    _register("run-stale-confirmation", page)
+
+    try:
+        result = await await_human_submit(
+            "run-stale-confirmation",
+            _settings(keep_open_timeout_seconds=0.05, keep_open_poll_seconds=0.01),
+        )
+    finally:
+        browser_tools._ACTIVE_RUNS.pop("run-stale-confirmation", None)
+
+    assert result == "timeout"
+
+
+async def test_await_human_submit_detects_a_card_flipping_to_applied() -> None:
+    # The fallback still works when the card flips during the wait (the human
+    # submitted and dismissed the confirmation before the next poll).
+    page = _FakeSubmitPage(
+        [
+            {"form_open": True, "confirmation": "", "card_applied": False},
+            {"form_open": False, "confirmation": "", "card_applied": True},
+        ]
+    )
+    _register("run-flip", page)
+
+    try:
+        result = await await_human_submit(
+            "run-flip",
+            _settings(keep_open_timeout_seconds=0.2, keep_open_poll_seconds=0.01),
+        )
+    finally:
+        browser_tools._ACTIVE_RUNS.pop("run-flip", None)
+
+    assert result == "submitted"
 
 
 async def test_await_human_submit_reports_a_closed_browser() -> None:

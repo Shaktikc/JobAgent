@@ -20,6 +20,7 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 | BUG-029 | Windows CLI | "I/O operation on closed pipe" noise after a successful run | 🟢 Fixed | `2b60465` |
 | BUG-030 | Cleanup | agent closed the browser on timeout (it must never close it) | 🟢 Fixed | `ef2ad44`, `31553e2` |
 | BUG-033 | UI overlay | Task 9 status panel rendered behind LinkedIn's Easy Apply modal | 🟢 Fixed | (uncommitted) |
+| BUG-041 | Task 8 loop | advanced to the next job without a real submission | 🟢 Fixed | (uncommitted) |
 
 ---
 
@@ -142,3 +143,26 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 - **Evidence:** `src/tools/linkedin_status_overlay.py` (`_UPDATE_STATUS_JS`); live
   Chromium A/B check with a dark `dialog::backdrop` (panel crisp in front, a plain
   popover dimmed behind). Status: 🟢 Fixed. Commit: (uncommitted).
+
+### BUG-041 — the Task 8 loop could open the next job without a real submission
+
+- **Symptom:** after a job was filled, the loop could move on and open another job
+  even though the human had not clicked **Submit**.
+- **Root cause:** two stale signals counted as a submission. (a) The fallback
+  `card_applied and not form_open` did not check whether the card already read
+  **Applied** before the wait, so closing/dismissing the form on a job with a stale
+  Applied badge looked like a submit. (b) A previous job's **"Application sent"**
+  dialog can still be on the results page when the next wait starts; it was
+  detected immediately as the new job's confirmation.
+- **Fix:** capture the card state and the visible confirmation when the wait starts.
+  A stale confirmation is dismissed and that exact text is ignored; only a **new**
+  confirmation counts. The card fallback only counts when the card flips from
+  unapplied to Applied **during** this wait. A confirmation dialog still counts
+  immediately.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/linkedin_apply_loop.py` (`submission_detected`,
+  `await_human_submit`); `tests/unit/test_linkedin_apply_loop.py`
+  (`test_await_human_submit_ignores_a_card_already_applied_before_the_wait`,
+  `test_await_human_submit_ignores_a_stale_confirmation_from_the_previous_job`,
+  `test_await_human_submit_detects_a_card_flipping_to_applied`). Commit:
+  (uncommitted).
