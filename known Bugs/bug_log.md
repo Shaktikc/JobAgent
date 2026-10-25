@@ -75,6 +75,8 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | BUG-035 | Task 4/5 — checkbox groups | a checkbox group was one question per option → the human's tick was never saved | 🟢 Fixed | (uncommitted) |
 | BUG-036 | Task 2 — open the job | a job with Easy Apply was skipped as "no Easy Apply" (stale details pane) | 🟢 Fixed | `fdb6585` |
 | BUG-037 | Task 5 — dropdown answers | a select prompt ("Select an option") was saved as the answer, then leaked into the next question | 🟢 Fixed | (uncommitted) |
+| BUG-038 | Task 3 — match | resume match hung for minutes / failed as "unusable match reply" | 🟢 Fixed | (uncommitted) |
+| BUG-039 | Task 3 — read | job title read as "0 notifications" → weak resume match | 🟢 Fixed | (uncommitted) |
 
 ## Template for new entries
 

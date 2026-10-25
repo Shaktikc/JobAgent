@@ -182,6 +182,12 @@ Any OpenAI-compatible endpoint works via `AUTOJOB_LLM_BASE_URL`. Without a key
 and model, no answer is chosen and **every** question is handed to Task 5 (ask
 the human), so the run still works — it just prompts for every question.
 
+Task 3.2's structured calls (resume descriptions and the resume match) ask for
+JSON and, on OpenRouter, skip the model's hidden reasoning by default
+(`AUTOJOB_LLM_DISABLE_REASONING=true`). That keeps a warm resume match to a
+couple of seconds and avoids an empty reply when reasoning fills the output
+budget. Set it to `false` if your endpoint needs the model's reasoning.
+
 To answer form questions automatically, add them to the answer store
 `data/answers.json`. Task 4.1/10's LLM reads it and answers each question —
 matching by meaning, not exact wording, and **deriving** an answer the stored
@@ -257,10 +263,18 @@ src/
     linkedin_pagination.py         Task 7: when a page is all Applied, go to the next page
     linkedin_apply_loop.py         Task 8: detect the human's submit, open the next job
     linkedin_status_overlay.py     Task 9: the on-page status panel + status reporter
-    linkedin_best_matching_resume.py
-                     Task 3: read the job description, drive the LLM match;
-                     Task 3.1: ask the human when nothing matches
-    resume_descriptions.py  Task 3.2: LLM resume profiles + the LLM pick
+    linkedin_best_matching_resume/  Task 3: read the job description + LLM match
+      __init__.py                   public API (re-exports the submodules below)
+      description_reader.py         deterministic job read (title scoped to the pane)
+      resume_text.py                resume discovery + text extraction (read-only)
+      resume_prompt.py              Task 3.1 browser banner (upload / skip)
+      selection.py                  Task 3 flow: describe pool, LLM pick, fallback
+    resume_descriptions/            Task 3.2: LLM resume profiles + the LLM pick
+      __init__.py                   public API (re-exports the submodules below)
+      models.py                     ResumeDescription / ResumeMatch / error type
+      messages.py                   prompts + tolerant balanced-JSON parsing
+      store.py                      description store + parallel ensure_descriptions
+      client.py                     JSON-mode LLM calls (reasoning off, retry)
     linkedin_easy_apply_fill/      Task 4: fill the Easy Apply form, attach the resume
       __init__.py                  Task 4 public API (re-exports the submodules below)
       form_queries/                DOM queries + readers for the form, resume controls, buttons

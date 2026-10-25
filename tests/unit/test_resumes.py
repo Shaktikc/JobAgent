@@ -6,11 +6,11 @@ import zipfile
 
 import pytest
 
-from src.tools import linkedin_best_matching_resume as resumes_tools
 from src.tools.linkedin_best_matching_resume import (
     RESUME_SUFFIXES,
     extract_resume_text,
     list_resume_files,
+    resume_text,
 )
 
 
@@ -62,7 +62,7 @@ def test_extract_docx_uses_stdlib(tmp_path) -> None:
 def test_extract_pdf_dispatches_to_pdf_reader(monkeypatch, tmp_path) -> None:
     pdf = tmp_path / "resume.pdf"
     pdf.write_bytes(b"%PDF-1.4 fake")
-    monkeypatch.setattr(resumes_tools, "_extract_pdf", lambda _path: "PDF resume text")
+    monkeypatch.setattr(resume_text, "_extract_pdf", lambda _path: "PDF resume text")
 
     assert extract_resume_text(pdf) == "PDF resume text"
 

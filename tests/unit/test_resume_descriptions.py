@@ -37,8 +37,8 @@ def _settings(tmp_path, **llm) -> Settings:
 class _FakeClient:
     """A minimal stand-in for ``AsyncOpenAI`` that records the call."""
 
-    def __init__(self, content: str = "", *, error: Exception | None = None) -> None:
-        self.content = content
+    def __init__(self, content: str | list[str] = "", *, error: Exception | None = None) -> None:
+        self.contents = list(content) if isinstance(content, list) else [content]
         self.error = error
         self.calls: list[dict] = []
         self.chat = self
@@ -48,7 +48,8 @@ class _FakeClient:
         self.calls.append(kwargs)
         if self.error is not None:
             raise self.error
-        return _FakeResponse(self.content)
+        content = self.contents.pop(0) if len(self.contents) > 1 else self.contents[0]
+        return _FakeResponse(content)
 
 
 class _FakeResponse:
@@ -354,3 +355,60 @@ async def test_ensure_descriptions_redescribes_a_changed_resume(tmp_path) -> Non
     await ensure_descriptions(tmp_path, store, settings, client=fake)
 
     assert len(fake.calls) == calls_after_first + 1
+
+
+# --- reliability of the structured LLM calls --------------------------------
+
+
+def test_parse_match_finds_the_answer_after_an_example_object() -> None:
+    # The old greedy ``{.*}`` regex swallowed both objects and failed to parse.
+    ids = {"c1": "a.pdf"}
+    text = 'Example {"choice": "c9"}.\nFinal: {"choice": "c1", "rationale": "fits {stack}"}.'
+    match = parse_match(text, ids)
+
+    assert match.selected_path == "a.pdf"
+    assert match.rationale == "fits {stack}"
+
+
+async def test_pick_best_resume_requests_json_and_no_reasoning(tmp_path) -> None:
+    fake = _FakeClient('{"choice": "c1", "rationale": "r"}')
+
+    await pick_best_resume(
+        JobDescription(title="X", body="Y"),
+        [("a.pdf", ResumeDescription(summary="s"))],
+        _settings(tmp_path, api_key="k", model="m"),
+        client=fake,
+    )
+
+    call = fake.calls[0]
+    assert call["response_format"] == {"type": "json_object"}
+    assert call["extra_body"] == {"reasoning": {"enabled": False}}
+
+
+async def test_pick_best_resume_retries_an_empty_reply(tmp_path) -> None:
+    # A reasoning model can return finish_reason=length with empty content; the
+    # match retries once instead of failing the whole job.
+    fake = _FakeClient(["", '{"choice": "c1", "rationale": "r"}'])
+
+    match = await pick_best_resume(
+        JobDescription(title="X", body="Y"),
+        [("a.pdf", ResumeDescription(summary="s"))],
+        _settings(tmp_path, api_key="k", model="m"),
+        client=fake,
+    )
+
+    assert match.selected_path == "a.pdf"
+    assert len(fake.calls) == 2
+
+
+async def test_describe_resume_retries_an_unusable_reply(tmp_path) -> None:
+    resume = tmp_path / "r.txt"
+    resume.write_text("Python", encoding="utf-8")
+    fake = _FakeClient(["not json", '{"summary": "Backend"}'])
+
+    description = await describe_resume(
+        resume, _settings(tmp_path, api_key="k", model="m"), client=fake
+    )
+
+    assert description.summary == "Backend"
+    assert len(fake.calls) == 2

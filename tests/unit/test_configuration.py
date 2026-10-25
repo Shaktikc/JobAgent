@@ -127,6 +127,7 @@ def test_llm_settings_default_and_override(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setenv("AUTOJOB_LLM_TEMPERATURE", "0.5")
     monkeypatch.setenv("AUTOJOB_LLM_TIMEOUT_SECONDS", "30")
     monkeypatch.setenv("AUTOJOB_LLM_MAX_RETRIES", "1")
+    monkeypatch.setenv("AUTOJOB_LLM_DISABLE_REASONING", "false")
 
     llm = load_settings().llm
     assert llm.configured is True
@@ -136,6 +137,7 @@ def test_llm_settings_default_and_override(monkeypatch: pytest.MonkeyPatch) -> N
     assert llm.temperature == 0.5
     assert llm.timeout_seconds == 30.0
     assert llm.max_retries == 1
+    assert llm.disable_reasoning is False
 
 
 def test_invalid_values_are_rejected() -> None:

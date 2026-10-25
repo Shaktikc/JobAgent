@@ -13,11 +13,11 @@ from src.configuration import SessionSettings, Settings
 from src.state import DEFAULT_LOGIN_URL, Task4Outcome, Task5Outcome
 from src.tools import browser as browser_tools
 from src.tools import linkedin_ask_human as ask_human_tools
-from src.tools import linkedin_best_matching_resume as resume_tools
 from src.tools import linkedin_easy_apply_fill as fill_tools
 from src.tools import linkedin_search as linkedin_tools
 from src.tools.answers import normalize_question
 from src.tools.linkedin import build_jobs_search_url
+from src.tools.linkedin_best_matching_resume import selection as resume_selection
 from src.tools.llm_answers import QuestionDecision
 from src.tools.resume_descriptions import ResumeDescription, ResumeMatch
 
@@ -2915,8 +2915,8 @@ async def test_run_full_agent_end_to_end_offline(monkeypatch: pytest.MonkeyPatch
             selected_path=candidates[0][0] if candidates else None, rationale="best fit"
         )
 
-    monkeypatch.setattr(resume_tools, "describe_resume", fake_describe)
-    monkeypatch.setattr(resume_tools, "pick_best_resume", fake_pick)
+    monkeypatch.setattr(resume_selection, "describe_resume", fake_describe)
+    monkeypatch.setattr(resume_selection, "pick_best_resume", fake_pick)
 
     settings = Settings(
         session=SessionSettings(

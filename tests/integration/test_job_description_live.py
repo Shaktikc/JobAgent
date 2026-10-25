@@ -97,6 +97,28 @@ _HASHED = """<!doctype html><html><head><meta charset="utf-8">
 </body></html>"""
 
 
+# The AI/semantic job view inside LinkedIn's global chrome. Both the tab title
+# and a global-nav heading say "0 notifications"; the job title must still come
+# from the details pane. The old global ``h1``/``h2`` fallback returned the nav
+# text, so the LLM matched a Full Stack Engineer job labelled "0 notifications".
+_GLOBAL_NAV = """<!doctype html><html><head><meta charset="utf-8">
+<title>0 notifications | LinkedIn</title></head><body>
+<header class="global-nav">
+  <h2>0 notifications</h2>
+  <h1>LinkedIn</h1>
+</header>
+<main>
+  <div class="ckym8e ckym8d">
+    <h1 class="ckyjzz">Senior Full Stack Engineer</h1>
+  </div>
+  <div class="ckym4l ckym4k">
+    <p>We're looking for a Senior Engineer to build products customers love.</p>
+    <p>Our stack includes TypeScript, Node.js, React, AWS and MongoDB.</p>
+  </div>
+</main>
+</body></html>"""
+
+
 def _settings(tmp_path: Path) -> Settings:
     headless = os.environ.get("AUTOJOB_SESSION_HEADLESS", "true").strip().lower() not in {
         "0",
@@ -117,6 +139,7 @@ def _settings(tmp_path: Path) -> Settings:
         ("classic", _CLASSIC, "Backend Engineer", "Python"),
         ("bem", _BEM, "Senior Software Engineer", "MongoDB"),
         ("hashed", _HASHED, "Senior Full Stack Engineer", "TypeScript"),
+        ("global-nav", _GLOBAL_NAV, "Senior Full Stack Engineer", "TypeScript"),
     ],
 )
 async def test_reads_the_description_across_linkedin_layouts(
