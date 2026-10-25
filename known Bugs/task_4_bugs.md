@@ -16,7 +16,7 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 | BUG-032 | walk stopped at a field-less review step ("form did not advance") | 🟢 Fixed | (uncommitted) |
 | BUG-034 | "Experience on AI?" reported unknown despite the store covering it | 🟢 Fixed | (uncommitted) |
 | BUG-035 | checkbox group: the human's tick was never saved (one question per option) | 🟢 Fixed | (uncommitted) |
-| BUG-042 | stopped at **Review** (next step not rendered yet); optional unfilled field failed the run | 🟢 Fixed | (uncommitted) |
+| BUG-042 | stopped at **Review** (next step not rendered yet); optional unfilled field failed the run | 🟢 Fixed | `e5a21a2` |
 
 ---
 
@@ -218,4 +218,4 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   `test_fill_node_names_the_required_fields_that_block_review`),
   `tests/integration/test_fill_form_live.py`
   (`test_task4_waits_for_an_async_review_step`). Live browser fill suite: 11/11.
-  Commit: (uncommitted).
+  Commit `e5a21a2`.

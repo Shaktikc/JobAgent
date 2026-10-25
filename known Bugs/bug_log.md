@@ -79,7 +79,7 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | BUG-039 | Task 3 — read | job title read as "0 notifications" → weak resume match | 🟢 Fixed | `1ca5311` |
 | BUG-040 | Task 2 — pane | every clicked job "did not open" (search-query tab title) | 🟢 Fixed | `f928866` |
 | BUG-041 | Task 8 — loop | advanced to the next job without a real submission | 🟢 Fixed | `f928866` |
-| BUG-042 | Task 4 — walk | stopped at Review before the next step rendered; optional unfilled field failed the run | 🟢 Fixed | (uncommitted) |
+| BUG-042 | Task 4 — walk | stopped at Review before the next step rendered; optional unfilled field failed the run | 🟢 Fixed | `e5a21a2` |
 
 ## Template for new entries
 
