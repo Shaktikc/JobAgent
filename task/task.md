@@ -12,3 +12,4 @@ Each task lives in its own file. This index links to them.
 - [Task 8 — After the human submits a job, open the next one and repeat](task_8.md) — ✅ Done
 - [Task 9 — Show live progress in the browser UI (what the agent and the LLM are doing)](task_9.md) — ✅ Done
 - [Task 10 — Answer similar questions from the answers.json knowledge base](task_10.md) — ✅ Done
+- [Self-Healing Loop — record, fix, and resume after a new Easy Apply crash](self_healing_loop.md) — ⬜ Not started yet

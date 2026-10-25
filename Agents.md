@@ -13,6 +13,14 @@
   other tasks. Do not leave other parts of the codebase inconsistent.
 - Always verify that changed code works by testing it (run the relevant tests,
   build, or a manual check) before declaring the task complete.
+- **Self-healing loop (important — never skip):** when a live Easy Apply run
+  hits a **new** crash (a changed element, a missing control, a step that will
+  not advance, or an unexpected exception), do not merely stop: record the
+  failure, close the browser session cleanly, fix the root cause, test the fix,
+  reopen the browser, and resume the **same** LinkedIn job application from the
+  failing step. Cap repair attempts (default **3**) and stop with the evidence
+  preserved if the tests keep failing. See
+  [Self-healing loop](#self-healing-loop-required) below.
 - **Bug log (important — never skip):** whenever you find and fix a bug, always
   record it in the bug log under `known Bugs/`. A fix with no log entry is **not
   complete**. See [Bug log](#bug-log-required) below.
@@ -39,6 +47,38 @@
   re-test — until the given task genuinely works.
 - After changing automation code, actually run it against the real site and
   confirm the expected behavior. Never mark a task done on an untested assumption.
+
+## Self-healing loop (required)
+
+LinkedIn's Easy Apply form is dynamic, so a live run can encounter a **new**
+layout, control, or step that the code has never seen. When that happens, follow
+this loop instead of ending the run at the first failure:
+
+1. **Record first.** Capture the failure before changing code: the error/traceback,
+   the current job and Easy Apply step, a screenshot, the failing DOM snippet, and
+   any console output. Add a `BUG-NNN` entry to the matching
+   `known Bugs/task_N_bugs.md` (or `general_bugs.md`) and the `bug_log.md` index.
+2. **Close the current browser session cleanly.** Do not leave a stale CDP
+   connection or profile lock behind; the old session may be why the next attempt
+   inherits the crash.
+3. **Fix the root cause.** Implement the smallest targeted fix for the new element
+   or step, following the existing code patterns and the file-size limit. Update
+   every interrelated caller.
+4. **Add a regression test** for the failure (unit test where possible, live
+   browser test when the behavior depends on real DOM).
+5. **Test the fix.** Run the focused test first, then the relevant suite (and the
+   live-browser check required by this file). Do not reopen the browser on a fix
+   that has not passed.
+6. **Reopen the browser and resume the same job application** from the step that
+   failed. Keep the answers already collected and re-attach the resume if needed.
+   Do not start over at a different job unless the same job is genuinely gone.
+7. **Cap the repair loop.** Allow at most **2-3 repair attempts** for the same
+   failure fingerprint. If the tests still fail, preserve all logs, screenshots,
+   and the bug entry (status 🔴 Open), stop the run, and report what remains —
+   never keep patching or retrying indefinitely.
+
+Never click **Submit application** during this loop; submission remains a manual
+human step.
 
 ## Bug log (required)
 
