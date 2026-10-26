@@ -132,6 +132,17 @@ def _summary(state: ApplyState) -> str:
         )
         if task5.answered_questions:
             lines.append(f"remembered  : {task5.answered_questions}")
+    healing = state.get("self_healing")
+    if healing is not None:
+        lines += [
+            f"self-heal   : attempts={healing.attempts} "
+            f"recovered={healing.recovered} exhausted={healing.exhausted}",
+            f"self-heal bug: {', '.join(healing.bug_ids) or '(none recorded)'}",
+        ]
+        if healing.stop_reason:
+            lines.append(f"self-heal stop: {healing.stop_reason}")
+        if healing.last_bundle:
+            lines.append(f"self-heal evidence: {healing.last_bundle}")
     task8 = state.get("task8")
     if task8 is not None:
         cap = task8.max_jobs if task8.max_jobs else "none"

@@ -2,8 +2,9 @@
 
 The live browser session (kept open by the ``browse`` node and registered under
 ``state['browser_run_id']``) is used here to fill the same Easy Apply modal. The
-session is **not** closed here — the ``cleanup`` node owns that, so a failed fill
-can still be screenshotted first. The application is never submitted.
+session is **not** closed here unless Task 11's self-healing loop has to restart
+it; the ``cleanup`` node owns the final release, so a failed fill can still be
+screenshotted first. The application is never submitted.
 
 Task 5 runs inside this fill (see :func:`fill_application`): unknown questions
 pause on a browser banner for the human and their answers are remembered.
@@ -11,39 +12,46 @@ pause on a browser banner for the human and their answers are remembered.
 
 from __future__ import annotations
 
-from src.state import ApplyState
+import contextlib
+import traceback
+
+from src.configuration import load_settings
+from src.state import ApplyState, Task4Outcome, Task5Outcome
 
 
-async def fill(state: ApplyState) -> ApplyState:
-    """Fill known fields and attach the Task 3 resume; never submit."""
-    if state.get("dry_run", True):
-        return {"status": "filled", "log": ["fill: dry-run, form not filled"]}
+def _fill_errors(outcome: Task4Outcome) -> list[str]:
+    """Turn a Task 4 outcome into the errors that make the fill fail."""
+    errors: list[str] = []
+    if not outcome.form_open:
+        errors.append("fill: Easy Apply form was not found")
+    elif not outcome.resume_attached:
+        errors.append("fill: resume was not attached")
+    else:
+        required_unknown = [
+            field for field in outcome.fields if field.required and not field.known
+        ]
+        required_unfilled = [
+            field
+            for field in outcome.fields
+            if field.required and field.known and not field.filled
+        ]
+        if required_unknown:
+            errors.append(
+                "fill: required questions are unanswered: "
+                + "; ".join(field.question or field.name for field in required_unknown)
+            )
+        if required_unfilled:
+            errors.append(
+                "fill: required fields were not filled: "
+                + "; ".join(field.question or field.name for field in required_unfilled)
+            )
+    if outcome.submitted:
+        errors.append("fill: Submit was clicked (must never happen)")
+    return errors
 
-    run_id = state.get("browser_run_id")
-    task3 = state.get("task3")
-    if not run_id or task3 is None or not task3.selected_path:
-        return {
-            "status": "failed",
-            "errors": ["fill: no open browser session or selected resume"],
-            "log": ["fill: form filling skipped"],
-        }
 
-    from src.tools.browser import fill_application  # lazy: needs the `browser` extra
-
-    try:
-        from src.tools.browser import get_reporter  # lazy: keeps this node light
-
-        progress = get_reporter(run_id) or print
-        outcome, task5 = await fill_application(
-            run_id, task3.selected_path, progress=progress
-        )
-    except Exception as exc:  # noqa: BLE001 - surface any fill failure
-        return {
-            "status": "failed",
-            "errors": [f"fill: {exc}"],
-            "log": ["fill: form filling failed"],
-        }
-
+def _fill_log(outcome: Task4Outcome, task5: Task5Outcome) -> list[str]:
+    """Build the audit log for one fill (kept compatible with earlier runs)."""
     log = [
         "fill: "
         f"form_open={outcome.form_open} "
@@ -84,35 +92,124 @@ async def fill(state: ApplyState) -> ApplyState:
         log.append(f"fill(task5): {task5.notes}")
     if outcome.notes:
         log.append(f"fill: {outcome.notes}")
+    return log
 
-    update: ApplyState = {"task4": outcome, "task5": task5, "status": "filled", "log": log}
 
-    errors: list[str] = []
-    if not outcome.form_open:
-        errors.append("fill: Easy Apply form was not found")
-    elif not outcome.resume_attached:
-        errors.append("fill: resume was not attached")
-    else:
-        required_unknown = [
-            field for field in outcome.fields if field.required and not field.known
-        ]
-        required_unfilled = [
-            field
-            for field in outcome.fields
-            if field.required and field.known and not field.filled
-        ]
-        if required_unknown:
-            errors.append(
-                "fill: required questions are unanswered: "
-                + "; ".join(field.question or field.name for field in required_unknown)
-            )
-        if required_unfilled:
-            errors.append(
-                "fill: required fields were not filled: "
-                + "; ".join(field.question or field.name for field in required_unfilled)
-            )
+def _should_heal(outcome: Task4Outcome, error: str, settings) -> tuple[bool, str]:
+    """Decide whether the failure is structural enough to retry in a new browser."""
+    from src.tools.self_healing.fingerprint import classify_failure, is_recoverable
+
+    if not settings.self_healing.enabled:
+        return False, "self-healing is disabled"
+    if settings.self_healing.max_repair_attempts <= 0:
+        return False, "the self-healing attempt cap is zero"
     if outcome.submitted:
-        errors.append("fill: Submit was clicked (must never happen)")
+        return False, "Submit was clicked; never retrying that automatically"
+    category = classify_failure(error, outcome)
+    return is_recoverable(category, outcome), category
+
+
+async def fill(state: ApplyState) -> ApplyState:
+    """Fill known fields and attach the Task 3 resume; never submit."""
+    if state.get("dry_run", True):
+        return {"status": "filled", "log": ["fill: dry-run, form not filled"]}
+
+    run_id = state.get("browser_run_id")
+    task3 = state.get("task3")
+    if not run_id or task3 is None or not task3.selected_path:
+        return {
+            "status": "failed",
+            "errors": ["fill: no open browser session or selected resume"],
+            "log": ["fill: form filling skipped"],
+        }
+
+    settings = load_settings()
+    from src.tools.browser import fill_application, get_reporter  # lazy: browser extra
+
+    progress = get_reporter(run_id) or print
+    if settings.self_healing.enabled:
+        with contextlib.suppress(Exception):
+            from src.tools.self_healing.capture import install_console_capture
+
+            await install_console_capture(run_id)
+
+    error = ""
+    traceback_text = ""
+    outcome = Task4Outcome(resume_path=task3.selected_path)
+    task5 = Task5Outcome()
+    try:
+        outcome, task5 = await fill_application(
+            run_id, task3.selected_path, settings=settings, progress=progress
+        )
+    except Exception as exc:  # noqa: BLE001 - surface any fill failure
+        error = str(exc)
+        traceback_text = traceback.format_exc()
+        outcome = Task4Outcome(
+            resume_path=task3.selected_path,
+            notes=f"fill raised: {exc}",
+        )
+
+    log = _fill_log(outcome, task5)
+    update: ApplyState = {"task4": outcome, "task5": task5, "status": "filled", "log": log}
+    errors = _fill_errors(outcome)
+    if error:
+        errors.insert(0, f"fill: {error}")
+
+    should_heal, category = _should_heal(outcome, error, settings)
+    if errors and should_heal:
+        from src.tools.self_healing.loop import (
+            HealResult,
+            heal_fill_failure,
+            job_target_from_state,
+        )
+
+        try:
+            healing = await heal_fill_failure(
+                run_id=run_id,
+                task4=outcome,
+                task5=task5,
+                settings=settings,
+                progress=progress,
+                target=job_target_from_state(state),
+                resume_path=str(task3.selected_path),
+                task2=state.get("task2"),
+                description=state.get("job_description"),
+                error=error,
+                traceback_text=traceback_text,
+            )
+        except Exception as exc:  # noqa: BLE001 - healing must not crash the run
+            healing = HealResult(
+                recovered=False,
+                errors=[f"self-heal: loop failed: {exc}"],
+                log=[f"fill(self-heal): loop failed: {exc}"],
+            )
+        update["self_healing"] = healing.outcome
+        log.extend(healing.log)
+        if healing.task4 is not None:
+            outcome = healing.task4
+            task5 = healing.task5 or task5
+            update["task4"] = outcome
+            update["task5"] = task5
+        if healing.run_id:
+            update["browser_run_id"] = healing.run_id
+        if healing.task2 is not None:
+            previous_task2 = state.get("task2")
+            if healing.task2.job_index is None and previous_task2 is not None:
+                healing.task2.job_index = previous_task2.job_index
+            update["task2"] = healing.task2
+        if healing.description is not None:
+            update["job_description"] = healing.description
+        if healing.recovered:
+            errors = _fill_errors(outcome)
+            log.append(
+                "fill(self-heal): recovered the same job after "
+                f"{healing.outcome.attempts} attempt(s)"
+            )
+        else:
+            errors.extend(error for error in healing.errors if error not in errors)
+    elif errors and not should_heal:
+        log.append(f"fill: not auto-recovering - {category}")
+
     if errors:
         update["errors"] = errors
     return update

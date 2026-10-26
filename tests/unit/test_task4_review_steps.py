@@ -139,6 +139,48 @@ async def test_task4_advances_through_fieldless_review_steps(tmp_path) -> None:
     assert form.buttons["b0"].clicked is True
 
 
+class _OneMissForm(_FakeForm):
+    """A form whose first Next click is swallowed; the retry must advance it."""
+
+    def __init__(self, steps, buttons_per_step) -> None:
+        super().__init__(steps, buttons_per_step)
+        self.clicks = 0
+
+    def _advance(self) -> None:
+        self.clicks += 1
+        if self.clicks > 1:
+            self.index += 1
+
+
+async def test_task4_retries_a_swallowed_next_click_once(tmp_path) -> None:
+    """One missed Next click must be retried with a fresh handle (BUG-048)."""
+    form = _OneMissForm(
+        steps=[
+            {"open": True, "title": "Apply to Acme", "step": "1/2 pages", "fields": []},
+            {"open": True, "title": "Apply to Acme", "step": "2/2 pages", "fields": []},
+        ],
+        buttons_per_step=[
+            [{"marker": "b0", "text": "Next", "disabled": False}],
+            [{"marker": "b0", "text": "Submit application", "disabled": False}],
+        ],
+    )
+    form.buttons = {"b0": _FakeButton(form._advance)}
+
+    outcome = await fill_tools._task4_on_page(
+        form,
+        None,
+        None,
+        {},
+        _settings(tmp_path, easy_apply_timeout_seconds=0.1),
+        lambda _m: None,
+    )
+
+    assert form.clicks == 2
+    assert outcome.steps_advanced == 1
+    assert outcome.reached_terminal_step is True
+    assert "form did not advance" not in outcome.notes
+
+
 async def test_task4_waits_for_a_slow_review_step_to_render(tmp_path) -> None:
     """Review is clicked, the next step renders a moment later — do not stop early."""
     def step(identity: str) -> dict:

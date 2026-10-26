@@ -24,12 +24,13 @@ from src.tools.linkedin import (
     pick_easy_apply_filter_index,
     pick_easy_apply_index,
 )
-from src.tools.linkedin_best_matching_resume import (
-    RESUME_SUFFIXES,
-    extract_resume_text,
-    list_resume_files,
-)
 from src.tools.matching import skills_in_text
+
+# ``linkedin_best_matching_resume`` imports ``src.state``; importing it eagerly
+# here makes ``src.state -> src.tools.self_healing.models`` circular (the graph
+# state needs the Task 11 model). Re-export it lazily, exactly like
+# :mod:`src.tools.browser` does for its moved modules.
+_RESUME_REEXPORTS = frozenset({"RESUME_SUFFIXES", "extract_resume_text", "list_resume_files"})
 
 __all__ = [
     "RESUME_SUFFIXES",
@@ -59,3 +60,13 @@ __all__ = [
     "save_answer",
     "skills_in_text",
 ]
+
+
+def __getattr__(name: str):
+    """Import resume helpers on demand to keep the state/model import acyclic."""
+    if name in _RESUME_REEXPORTS:
+        import importlib
+
+        resume_tools = importlib.import_module("src.tools.linkedin_best_matching_resume")
+        return getattr(resume_tools, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

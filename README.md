@@ -6,7 +6,7 @@ LinkedIn, searches for jobs, selects the **Easy Apply** filter, opens a job's
 filling the form — all through a real browser (via
 [browser-use](https://github.com/browser-use/browser-use)).
 
-> Status: **Tasks 1-10** — log in, search `"software engineer"`, select the Easy
+> Status: **Tasks 1-11** — log in, search `"software engineer"`, select the Easy
 > Apply filter, open a job's Easy Apply form, read the job description, select the
 > best-matching resume, fill known fields + attach the resume, and ask you in the
 > browser about any question it cannot answer, remembering your answer for next
@@ -89,6 +89,14 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
    all that apply") is answered as one group: its options are treated as a single
    question, and a stored answer ticks every matching box. It **stops before Submit
    application** and never clicks it.
+   - **Task 11 (inside fill):** if a dynamic-form step crashes (no resume control,
+     the form will not advance, a navigation button disappears, or the fill raises),
+     the agent writes a failure bundle and a `BUG-NNN` entry, closes the browser,
+     optionally runs the configured OpenCode repair command and its tests, then reopens the
+     **same** job and re-fills it. Attempts are capped
+     (`AUTOJOB_SELF_HEAL_MAX_ATTEMPTS`, default `3`); on exhaustion the evidence is
+     preserved and the run stops. With no repair command configured it performs
+     runtime recovery only.
    - **Task 5 (inside fill):** when the LLM cannot choose a grounded answer, the
      agent shows a banner in the browser window saying it does not know the
      answer,
@@ -157,10 +165,46 @@ experience do you have with artificial intelligence (ai)': '5')`). The panel is
 read-only, best-effort feedback: a failed render never fails or slows a step, and
 it is removed when the run ends.
 
+**Task 11 — self-healing a broken Easy Apply step.** When a fill stops for a
+structural reason, `src/tools/self_healing/` captures a screenshot, DOM excerpt,
+visible page text, browser console/error lines, the current fields/buttons/resume
+controls, and the exception. The bundle is written under
+`data/debug/self_healing/<timestamp>-<fingerprint>/`; `known Bugs/self_healing_bugs.md`
+gets a deduplicated `BUG-NNN` entry and `known Bugs/bug_log.md` is updated. The
+failed browser is then closed with `session.kill()` (not just detached), and the
+loop reopens the **same job URL** in a fresh Chromium session before re-filling.
+It never clicks **Submit application**.
+
+`AUTOJOB_SELF_HEAL_REPAIR_COMMAND` is optional and opt-in. It runs after the
+browser is closed, with `AUTOJOB_FAILURE_BUNDLE`, `AUTOJOB_FAILURE_REPORT`,
+`AUTOJOB_FAILURE_FINGERPRINT`, `AUTOJOB_FAILURE_CATEGORY`, and `AUTOJOB_BUG_ID` in
+its environment, followed by `AUTOJOB_SELF_HEAL_TEST_COMMAND` (default
+`uv run pytest -q`). A failing test stops the loop instead of patching again. After
+a successful repair/test the browser and fill modules are reloaded in-process;
+changes to graph/node/state modules still require a normal agent restart. Without a
+repair command the loop only retries the same job within the attempt cap.
+
+The shipped command points the repair hook at the **OpenCode agent**:
+
+```env
+AUTOJOB_SELF_HEAL_REPAIR_COMMAND=uv run python scripts/self_heal_repair.py
+AUTOJOB_SELF_HEAL_TEST_COMMAND=uv run pytest -q
+```
+
+`scripts/self_heal_repair.py` reads the bundle, builds a prompt from the AGENTS.md
+self-healing loop, and runs `opencode run --auto --file <report> "<prompt>"` in the
+project root, so the agent diagnoses the root cause, fixes the code, adds a
+regression test, and updates the bug log before the loop reopens the job. The
+repair session reuses `AUTOJOB_LLM_MODEL` by default (mapped to OpenCode's
+`openrouter/...` id); set `AUTOJOB_SELF_HEAL_REPAIR_MODEL` / `..._AGENT` to override
+the model/agent, or `AUTOJOB_SELF_HEAL_OPENCODE` when the CLI is not on `PATH`.
+
 ## Requirements
 
 - Python 3.11 or 3.12
 - [uv](https://docs.astral.sh/uv/)
+- [OpenCode](https://opencode.ai/) CLI — only for the opt-in self-healing repair hook
+  (`AUTOJOB_SELF_HEAL_REPAIR_COMMAND`); the wrapper runs `opencode run` to fix the code.
 
 ## Setup
 
@@ -241,13 +285,13 @@ uv run langgraph dev
 ```
 src/
   configuration.py   Typed settings from AUTOJOB_* environment variables
-  state.py           The graph's shared state (Task1-8 outcomes, JobDescription)
+  state.py           The graph's shared state (Task1-11 outcomes, JobDescription)
   graph.py           Graph assembly (START -> ingest -> browse -> match -> fill -> await_submit -> next_job -> ... -> cleanup -> verify -> END)
   nodes/
     ingest.py        Validate the LinkedIn URL and search query
     browse.py        Tasks 1-3 browser work (login, search, Easy Apply, description)
     match.py         Task 3: describe the pool + LLM-pick the best resume (offline)
-    fill.py          Task 4: fill the Easy Apply form + attach the resume
+    fill.py          Task 4 + Task 11: fill the form, recover a structural crash
     apply_loop.py    Task 8: wait for the human's submit (await_submit) + open the next job (next_job)
     cleanup.py       Close the shared browser session (or leave it open at the last step)
     verify.py        Confirm every task's acceptance criteria
@@ -293,7 +337,10 @@ src/
     answers.py       Question -> answer store (read by Task 4.1/10, written by Task 5)
     resume_library.py  Task 3.1: job profiles -> human-provided resumes
     forms.py         Pure Easy Apply form helpers (resume match, next/submit)
+    self_healing/    Task 11: failure fingerprint, evidence capture, bug log, bounded
+                     close/reopen/resume loop, optional OpenCode repair+test hook
   main.py            CLI entry point
+scripts/             Task 11: self_heal_repair.py hands a failure bundle to OpenCode
 resumes/             Candidate resumes (.pdf, .docx, .txt, .md)
 tests/
   unit/              Fast, offline tests
@@ -351,6 +398,10 @@ tests/
   guessed. A checkbox (multi-select) question is answered as one group and keeps
   every option you tick; the agent never unticks a box you selected.
 - Task 3 only **reads** existing resumes — it never renames, moves, or edits them.
+- Task 11 records a structural Easy Apply failure **before** recovery, never
+  submits during recovery, and stops after the configured attempt cap instead of
+  retrying or patching forever. If no repair command is set, it only reopens the
+  same job with the current code.
   Task 3.2 stores LLM-written profiles in `data/resume_descriptions.json`. Task 3.1
   may **add** a resume you upload when nothing matches (never overwriting an
   existing file) and remembers its job profile in `data/resume_library.json`

@@ -1,6 +1,6 @@
 # Task — Self-Healing Loop Engineering System for LinkedIn Easy Apply
 
-**Status:** ⬜ Not started yet
+**Status:** 🟡 In progress
 
 **Goal:** Make the live Easy Apply run resilient to LinkedIn's dynamic form/element
 changes. When a **new crash** is discovered (for example a step that cannot be
@@ -95,7 +95,7 @@ the code.
   `__init__.py`.
 
 ## Subtask — Failure detection & evidence capture
-**Status:** ⬜ Not started yet
+**Status:** 🟡 In progress
 
 Detect any hard stop in the Easy Apply loop (unhandled exception, missing
 control, un-advanceable step) and write a structured failure report (screenshot,
@@ -103,20 +103,20 @@ DOM snippet, step info, console error) to `data/debug/` and a `BUG-NNN` entry in
 `known Bugs/`.
 
 ## Subtask — Clean session close & code repair
-**Status:** ⬜ Not started yet
+**Status:** 🟡 In progress
 
 Close the current browser session cleanly, implement the smallest targeted fix
 for the failing step, and add a regression test for it.
 
 ## Subtask — Bounded retry with resume
-**Status:** ⬜ Not started yet
+**Status:** 🟡 In progress
 
 Reopen the browser and resume the same LinkedIn job application from the failing
 step. Retry up to the repair-attempt limit (default 3); on exhaustion preserve
 evidence and stop cleanly.
 
 ## Subtask — Bug-log integration
-**Status:** ⬜ Not started yet
+**Status:** 🟡 In progress
 
 Every recorded failure becomes a `BUG-NNN` entry with symptom, root cause, fix,
 status, and evidence; the `bug_log.md` index is updated in the same change.

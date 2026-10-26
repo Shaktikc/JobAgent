@@ -23,6 +23,8 @@ from typing import Annotated, TypedDict
 
 from pydantic import BaseModel, Field
 
+from src.tools.self_healing.models import SelfHealingOutcome
+
 DEFAULT_LOGIN_URL = "https://www.linkedin.com/login/"
 DEFAULT_SEARCH_QUERY = "software engineer"
 
@@ -298,6 +300,7 @@ class ApplyState(TypedDict, total=False):
     task4: Task4Outcome
     task5: Task5Outcome
     task8: Task8Outcome
+    self_healing: SelfHealingOutcome
 
     # --- live browser session handle (Tasks 2-4 share one session) ---
     browser_run_id: str

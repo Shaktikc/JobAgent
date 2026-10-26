@@ -179,8 +179,46 @@ async def _task4_on_page(
                         f"fields={len(fields)} step_id={step!r}"
                     )
             if not opened or signature == previous:
-                # The click did not move to a new step: stop instead of retrying
-                # blindly, naming the required fields that still block it.
+                # The first click can be swallowed (a transient overlay, a stale
+                # handle, or LinkedIn's own saving layer). Re-resolve the current
+                # step's Next button and try exactly once before declaring the form
+                # stuck; a real validation block still stops after this retry.
+                retry_buttons = await read_form_buttons(page)
+                retry = pick_next_button(retry_buttons)
+                if retry is not None:
+                    notify(
+                        "Task 4: Next did not advance; retrying once with a fresh "
+                        "button handle."
+                    )
+                    retry_element = await _marker_element(
+                        page, "data-autojob-btn", retry["marker"]
+                    )
+                    if retry_element is not None:
+                        await _safe(retry_element.click())
+                        if settings.session.post_click_wait_seconds:
+                            await asyncio.sleep(settings.session.post_click_wait_seconds)
+                        retry_deadline = (
+                            time.monotonic()
+                            + settings.session.easy_apply_timeout_seconds
+                        )
+                        while (
+                            signature == previous and time.monotonic() < retry_deadline
+                        ):
+                            await asyncio.sleep(
+                                min(0.5, max(retry_deadline - time.monotonic(), 0))
+                            )
+                            opened, title, fields, step = await read_form(page)
+                            if not opened:
+                                break
+                            signature = _form_signature(title, fields, step)
+                        if opened and signature != previous:
+                            notify(
+                                f"Task 4: step {step_index}: {title or '(untitled)'!r} "
+                                f"fields={len(fields)} step_id={step!r}"
+                            )
+            if not opened or signature == previous:
+                # The click still did not move to a new step: stop instead of
+                # retrying blindly, naming the required fields that still block it.
                 outcome.notes = _append_note(
                     outcome.notes, _blocked_note("form did not advance to a new step", blocking)
                 )

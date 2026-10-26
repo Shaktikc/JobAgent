@@ -39,6 +39,10 @@ def test_defaults_are_safe() -> None:
     assert settings.session.clean_stale_profile is True
     assert settings.session.skip_applied is True
     assert settings.session.max_jobs_per_run == 5
+    assert settings.self_healing.enabled is True
+    assert settings.self_healing.max_repair_attempts == 3
+    assert settings.self_healing.repair_command is None
+    assert settings.self_healing.test_command is None
 
 
 def test_env_overrides_are_read(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -57,6 +61,12 @@ def test_env_overrides_are_read(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AUTOJOB_SESSION_CLEAN_STALE_PROFILE", "false")
     monkeypatch.setenv("AUTOJOB_SESSION_SKIP_APPLIED", "false")
     monkeypatch.setenv("AUTOJOB_SESSION_MAX_JOBS", "3")
+    monkeypatch.setenv("AUTOJOB_SELF_HEAL_ENABLED", "false")
+    monkeypatch.setenv("AUTOJOB_SELF_HEAL_MAX_ATTEMPTS", "2")
+    monkeypatch.setenv("AUTOJOB_SELF_HEAL_REPAIR_COMMAND", "repair --bundle")
+    monkeypatch.setenv("AUTOJOB_SELF_HEAL_TEST_COMMAND", "pytest")
+    monkeypatch.setenv("AUTOJOB_SELF_HEAL_COMMAND_TIMEOUT_SECONDS", "30")
+    monkeypatch.setenv("AUTOJOB_SELF_HEAL_CLOSE_TIMEOUT_SECONDS", "5")
 
     settings = load_settings()
     assert settings.session.headless is True
@@ -74,6 +84,12 @@ def test_env_overrides_are_read(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.session.clean_stale_profile is False
     assert settings.session.skip_applied is False
     assert settings.session.max_jobs_per_run == 3
+    assert settings.self_healing.enabled is False
+    assert settings.self_healing.max_repair_attempts == 2
+    assert settings.self_healing.repair_command == "repair --bundle"
+    assert settings.self_healing.test_command == "pytest"
+    assert settings.self_healing.command_timeout_seconds == 30.0
+    assert settings.self_healing.close_timeout_seconds == 5.0
 
 
 def test_data_dir_override(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:

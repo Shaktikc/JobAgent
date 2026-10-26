@@ -1,0 +1,126 @@
+# Self-Healing Loop — Bugs (auto-recorded)
+
+Bugs captured by the bounded Easy Apply self-healing loop (Task 11). Each entry is
+written **before** recovery starts, with a link to the failure bundle under
+`data/debug/self_healing/` (screenshot, DOM excerpt, page text, browser console,
+and structured evidence).
+
+See [`bug_log.md`](bug_log.md) for the master index, status markers, and the shared
+entry format. A repeated failure fingerprint updates the existing entry's
+occurrence count instead of creating a duplicate.
+
+Implementation bugs found while building the loop are recorded here too, so the
+same index covers runtime crashes and the recovery machinery itself.
+
+| ID | Symptom (short) | Status | Fix commit(s) |
+|----|-----------------|--------|---------------|
+| BUG-043 | state ↔ tools import cycle broke graph tests | 🟢 Fixed | (uncommitted) |
+| BUG-044 | repeated fingerprint crashed on Windows backslash paths | 🟢 Fixed | (uncommitted) |
+| BUG-045 | bug index update overwrote symptom/status columns | 🟢 Fixed | (uncommitted) |
+| BUG-046 | same-job reopen ignored non-HTTP job URLs | 🟢 Fixed | (uncommitted) |
+| BUG-047 | failed reopen left the new browser alive | 🟢 Fixed | (uncommitted) |
+| BUG-048 | status overlay swallowed the Easy Apply Next click | 🟢 Fixed | (uncommitted) |
+| BUG-049 | failure screenshot captured the active tab, not the failing page | 🟢 Fixed | (uncommitted) |
+
+---
+
+### BUG-043 — importing the graph failed with a state ↔ tools cycle
+
+- **Symptom:** collecting `tests/unit/test_graph.py` raised
+  `ImportError: cannot import name 'JobDescription' from partially initialized
+  module 'src.state'` after `state.py` imported `SelfHealingOutcome`.
+- **Root cause:** `src/tools/__init__.py` eagerly imported
+  `linkedin_best_matching_resume`, which imports `src.state`; `state.py` then
+  imported the Task 11 model, closing the cycle.
+- **Fix:** re-export the resume helpers lazily from `src/tools/__init__.py`, the
+  same pattern `src/tools/browser.py` already uses for moved modules.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/__init__.py`, `src/state.py`,
+  `src/tools/self_healing/models.py`; full unit suite; commit `(uncommitted)`.
+
+### BUG-044 — repeated failure fingerprint crashed on Windows paths
+
+- **Symptom:** recording the same failure twice raised
+  `re.error: bad escape \U at position 64` while updating `Occurrences`.
+- **Root cause:** `re.sub(..., line, ...)` treated the Windows bundle path in the
+  replacement string as regex escape sequences.
+- **Fix:** use `lambda _match: line` as the replacement so path text is literal.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/self_healing/buglog.py`;
+  `test_buglog_deduplicates_and_updates_the_index`; commit `(uncommitted)`.
+
+### BUG-045 — bug index update overwrote the symptom/status columns
+
+- **Symptom:** inserting a `BUG-NNN` row shifted the status into the symptom
+  column and the fix into the status column.
+- **Root cause:** the split row's leading empty cell was not accounted for, so
+  indices 3/4 were one column too early.
+- **Fix:** update status at index 4 and fix at index 5; keep the insertion
+  separated by blank lines.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/self_healing/buglog.py`;
+  `test_buglog_deduplicates_and_updates_the_index`; commit `(uncommitted)`.
+
+### BUG-046 — same-job reopen ignored a non-HTTP job URL
+
+- **Symptom:** the live recovery test fell back to searching the results list and
+  reported "the details pane still shows …" instead of opening the recorded job.
+- **Root cause:** `_open_target` only accepted URLs starting with `http`; local
+  `file:` fixtures (and any other supported scheme) were skipped.
+- **Fix:** accept `http://`, `https://`, and `file:` URLs; the card/title search
+  remains the fallback.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/self_healing/recovery.py`;
+  `test_reopen_same_job_opens_the_recorded_url`; commit `(uncommitted)`.
+
+### BUG-047 — a failed reopen left the new browser holding the profile
+
+- **Symptom:** after a failed same-job reopen, the next recovery attempt could hit
+  "another browser is already using the AutoJobApply profile".
+- **Root cause:** the failure paths called `close_run`, which only detaches the
+  CDP handle and leaves Chromium open.
+- **Fix:** use `close_run_force` on both reopen failure and exception paths.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/self_healing/recovery.py`; live self-healing test;
+  commit `(uncommitted)`.
+
+### BUG-048 — one swallowed Next click made the walk stop as "form did not advance"
+
+- **Symptom:** the contact step (`1/3 pages`) had an enabled **Next** button and all
+  visible fields filled, but the walk stayed on the same step and stopped with
+  `no resume control found on this form step; form did not advance to a new step`.
+- **Root cause:** the walk advanced with exactly one click. If that click was
+  swallowed (a transient overlay, a stale handle, or LinkedIn's saving layer), the
+  form stayed on the same step and the walk treated it as permanently stuck. The
+  missing-resume note was incidental: the resume step comes later. The original
+  screenshot could not prove the exact click blocker (it captured the wrong tab,
+  BUG-049), and the same job now advances on a live re-run.
+- **Fix:** re-resolve the current step's **Next** button and retry it **once** with a
+  fresh handle before declaring the form stuck. Also mark the read-only Task 9 status
+  panel `pointer-events:none` (a live probe proves a top-layer panel can block a
+  click), and classify a stuck step ahead of the soft "no resume control" note.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/linkedin_easy_apply_fill/form_walk.py`; unit
+  `test_task4_retries_a_swallowed_next_click_once`; `src/tools/linkedin_status_overlay.py`;
+  unit `test_panel_never_intercepts_clicks`; live
+  `test_status_panel_does_not_swallow_the_next_click`; same job re-run advanced to
+  3/3 pages; original bundle
+  `data/debug/self_healing/20261025-220753-518929-6905d56d8351`; live probe:
+  a panel without the CSS blocked the click (0), with `pointer-events:none` the
+  click landed (1); commit `(uncommitted)`.
+- **Failure fingerprint:** `6905d56d8351d55edfc4`
+- **Occurrences:** 1 (first 2026-10-25T22:07:54+00:00)
+
+### BUG-049 — failure screenshot captured the active tab, not the failing page
+
+- **Symptom:** the BUG-048 bundle's `screenshot.png` showed a black LinkedIn loading
+  screen while `dom.html` and `failure.json` showed the contact form, so the screenshot
+  was misleading during diagnosis.
+- **Root cause:** `capture_failure` used `session.take_screenshot`, which captures the
+  browser's currently active page/tab; the run page is not guaranteed to be active.
+- **Fix:** capture `run.page.screenshot()` (base64) for the exact failing page, with
+  `session.take_screenshot` only as a fallback.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/self_healing/capture.py`; live two-page probe (failing
+  page screenshot mean 253/255, active black tab via the old session call 3.8/255);
+  BUG-048 bundle comparison; commit `(uncommitted)`.

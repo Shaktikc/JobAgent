@@ -123,6 +123,16 @@ def test_emit_helpers_accept_none() -> None:
     status.emit_llm(None, "x")
 
 
+def test_panel_never_intercepts_clicks() -> None:
+    """The read-only panel must not swallow a click on the control beneath it.
+
+    It is a top-layer popover with the maximum z-index, so without
+    ``pointer-events:none`` it could sit over the Easy Apply footer's Next button
+    and leave the form stuck (BUG-048).
+    """
+    assert "pointer-events:none" in status._UPDATE_STATUS_JS
+
+
 async def test_emit_llm_uses_the_reporter_panel() -> None:
     page = _FakePage()
     emitted: list[str] = []

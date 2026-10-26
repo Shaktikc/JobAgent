@@ -137,11 +137,29 @@ class LLMSettings(BaseModel):
         return bool(self.api_key and self.model)
 
 
+class SelfHealingSettings(BaseModel):
+    """Task 11: bounded recovery when the Easy Apply form changes or crashes.
+
+    ``repair_command`` is optional and opt-in. It runs **after** the failed browser
+    is closed, with ``AUTOJOB_FAILURE_BUNDLE`` and ``AUTOJOB_BUG_ID`` in its
+    environment; ``test_command`` then guards reopening. With neither configured,
+    the loop only restarts the browser and retries the same job.
+    """
+
+    enabled: bool = True
+    max_repair_attempts: int = Field(default=3, ge=0, le=10)
+    repair_command: str | None = None
+    test_command: str | None = None
+    command_timeout_seconds: float = Field(default=900.0, gt=0)
+    close_timeout_seconds: float = Field(default=20.0, gt=0)
+
+
 class Settings(BaseModel):
     """Root settings object."""
 
     session: SessionSettings = Field(default_factory=SessionSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
+    self_healing: SelfHealingSettings = Field(default_factory=SelfHealingSettings)
     data_dir: Path = PROJECT_ROOT / "data"
     resumes_dir: Path = PROJECT_ROOT / "resumes"
     answers_path: Path | None = None
@@ -232,6 +250,16 @@ def load_settings(env_file: Path | None = None) -> Settings:
             timeout_seconds=_get_float("AUTOJOB_LLM_TIMEOUT_SECONDS", 60.0),
             max_retries=_get_int("AUTOJOB_LLM_MAX_RETRIES", 3),
             disable_reasoning=_get_bool("AUTOJOB_LLM_DISABLE_REASONING", True),
+        ),
+        self_healing=SelfHealingSettings(
+            enabled=_get_bool("AUTOJOB_SELF_HEAL_ENABLED", True),
+            max_repair_attempts=_get_int("AUTOJOB_SELF_HEAL_MAX_ATTEMPTS", 3),
+            repair_command=_get_str("AUTOJOB_SELF_HEAL_REPAIR_COMMAND"),
+            test_command=_get_str("AUTOJOB_SELF_HEAL_TEST_COMMAND"),
+            command_timeout_seconds=_get_float(
+                "AUTOJOB_SELF_HEAL_COMMAND_TIMEOUT_SECONDS", 900.0
+            ),
+            close_timeout_seconds=_get_float("AUTOJOB_SELF_HEAL_CLOSE_TIMEOUT_SECONDS", 20.0),
         ),
         data_dir=Path(data_dir).expanduser() if data_dir else PROJECT_ROOT / "data",
         resumes_dir=(Path(resumes_dir).expanduser() if resumes_dir else PROJECT_ROOT / "resumes"),

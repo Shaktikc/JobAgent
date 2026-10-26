@@ -28,6 +28,7 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | [`task_4_bugs.md`](task_4_bugs.md) | Fill the Easy Apply form, attach the resume, advance steps |
 | [`task_5_bugs.md`](task_5_bugs.md) | Ask the human for unknown answers, remember them |
 | [`task_6_bugs.md`](task_6_bugs.md) | Skip jobs already marked "Applied" |
+| [`self_healing_bugs.md`](self_healing_bugs.md) | Self-healing loop: auto-captured Easy Apply crashes, recovery, same-job resume |
 | [`general_bugs.md`](general_bugs.md) | Browser session, profile/CDP, CLI, cleanup, build, security, tests |
 
 > Task 7 (pagination) and Task 8 (await submit / next job) have no distinct root
@@ -80,6 +81,13 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | BUG-040 | Task 2 — pane | every clicked job "did not open" (search-query tab title) | 🟢 Fixed | `f928866` |
 | BUG-041 | Task 8 — loop | advanced to the next job without a real submission | 🟢 Fixed | `f928866` |
 | BUG-042 | Task 4 — walk | stopped at Review before the next step rendered; optional unfilled field failed the run | 🟢 Fixed | `e5a21a2` |
+| BUG-043 | Self-Healing — import | state ↔ tools import cycle broke graph test collection | 🟢 Fixed | (uncommitted) |
+| BUG-044 | Self-Healing — bug log | repeated fingerprint crashed on Windows backslash paths | 🟢 Fixed | (uncommitted) |
+| BUG-045 | Self-Healing — bug log | index update overwrote symptom/status columns | 🟢 Fixed | (uncommitted) |
+| BUG-046 | Self-Healing — reopen | same-job reopen ignored non-HTTP job URLs | 🟢 Fixed | (uncommitted) |
+| BUG-047 | Self-Healing — reopen | failed reopen left the new browser holding the profile | 🟢 Fixed | (uncommitted) |
+| BUG-048 | Task 4 — walk | one swallowed Next click stopped the walk as "form did not advance" | 🟢 Fixed | (uncommitted) |
+| BUG-049 | Self-Healing — evidence | failure screenshot captured the active tab, not the failing page | 🟢 Fixed | (uncommitted) |
 
 ## Template for new entries
 

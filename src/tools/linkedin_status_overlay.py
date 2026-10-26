@@ -53,6 +53,11 @@ _UPDATE_STATUS_JS = r"""
     box.style.cssText = [
       'position:fixed', 'inset:auto auto 24px 24px', 'margin:0',
       'z-index:2147483647', 'max-width:460px', 'min-width:280px',
+      // Feedback only: never intercept a click. The panel is a top-layer popover
+      // with the maximum z-index, so without this it can sit over the Easy Apply
+      // footer's Next button and swallow the CDP click, leaving the form stuck on
+      // the same step (BUG-048).
+      'pointer-events:none',
       'background:#ffffff', 'color:#1a1a1a', 'border:2px solid #0a66c2',
       'border-radius:8px', 'box-shadow:0 8px 24px rgba(0,0,0,.35)',
       'padding:14px',
