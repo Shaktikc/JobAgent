@@ -53,6 +53,7 @@ def _successful_fill() -> Task4Outcome:
         resume_attached=True,
         resume_selection="listed",
         resume_listed_name="a.pdf",
+        reached_terminal_step=True,
     )
 
 
@@ -77,6 +78,7 @@ def _record(tmp_path: Path) -> FailureRecord:
         symptom="no resume control",
     )
 
+
 def _reopened() -> ReopenResult:
     return ReopenResult(
         run_id="run-2",
@@ -84,14 +86,13 @@ def _reopened() -> ReopenResult:
         description=JobDescription(title="Backend Engineer", company="Acme"),
     )
 
-# --- classification / fingerprinting ---------------------------------------
 
 def test_no_resume_control_is_recoverable() -> None:
     outcome = _failed_fill()
     category = classify_failure("", outcome)
     assert category == "resume_control_missing"
     assert is_recoverable(category, outcome) is True
-    assert "no resume control" in fill_failure_reason(outcome)
+    assert "resume was not attached" in fill_failure_reason(outcome)
 
 
 def test_required_unknown_question_is_not_auto_retried() -> None:
@@ -115,14 +116,16 @@ def test_a_stuck_step_outranks_the_missing_resume_note() -> None:
     outcome = Task4Outcome(
         form_open=True,
         resume_attached=False,
-        notes=(
-            "no resume control found on this form step; "
-            "form did not advance to a new step"
-        ),
+        notes=("no resume control found on this form step; form did not advance to a new step"),
     )
     assert classify_failure("", outcome) == "form_did_not_advance"
 
-# --- evidence capture ------------------------------------------------------
+    # BUG-050: an already-listed resume must not turn a stuck walk into a success,
+    # or the fill node never starts self-healing.
+    attached = outcome.model_copy(update={"resume_attached": True})
+    errors = importlib.import_module("src.nodes.fill")._fill_errors(attached)
+    assert errors and "form did not advance" in errors[0]
+
 
 class _FakeSession:
     def __init__(self) -> None:
@@ -178,9 +181,7 @@ class _FakePage:
 async def test_capture_writes_the_bundle(tmp_path: Path) -> None:
     run_id = "heal-capture"
     session = _FakeSession()
-    browser_tools._ACTIVE_RUNS[run_id] = browser_tools._Run(
-        session=session, page=_FakePage()
-    )
+    browser_tools._ACTIVE_RUNS[run_id] = browser_tools._Run(session=session, page=_FakePage())
     try:
         captured = await capture_failure(
             run_id,
@@ -201,9 +202,6 @@ async def test_capture_writes_the_bundle(tmp_path: Path) -> None:
     assert captured.evidence.step == "2/3 pages"
     assert captured.evidence.fields[0]["question"] == "Phone"
     assert captured.evidence.screenshot_path.endswith("screenshot.png")
-
-
-# --- bug log ---------------------------------------------------------------
 
 
 def test_buglog_deduplicates_and_updates_the_index(tmp_path: Path) -> None:
@@ -250,9 +248,6 @@ def test_buglog_deduplicates_and_updates_the_index(tmp_path: Path) -> None:
     assert "| BUG-043 |" in index and "🟢 Fixed" in index
 
 
-# --- browser lifecycle -----------------------------------------------------
-
-
 async def test_close_run_force_kills_the_given_run(tmp_path, monkeypatch) -> None:
     run_id = "heal-close"
     session = _FakeSession()
@@ -264,9 +259,6 @@ async def test_close_run_force_kills_the_given_run(tmp_path, monkeypatch) -> Non
     assert closed is True
     assert session.killed is True
     assert "closed" in detail
-
-
-# --- bounded loop ----------------------------------------------------------
 
 
 async def test_loop_recovers_by_reopening_the_same_job(tmp_path: Path) -> None:
@@ -368,9 +360,6 @@ async def test_repair_failure_stops_before_reopening(tmp_path: Path) -> None:
     assert commands == ["repair"]
     assert "repair command failed" in result.outcome.stop_reason
     assert (tmp_path / "bundle" / "repair.log").is_file()
-
-
-# --- fill-node integration -------------------------------------------------
 
 
 async def test_fill_node_uses_the_healing_result(monkeypatch, tmp_path: Path) -> None:

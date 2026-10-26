@@ -83,6 +83,7 @@ def _task4_ok() -> Task4Outcome:
         resume_attached=True,
         resume_selection="listed",
         resume_path="resumes/a.pdf",
+        reached_terminal_step=True,
     )
 
 
@@ -494,9 +495,7 @@ def test_cleanup_logs_a_wait_timeout(monkeypatch) -> None:
 
     result = asyncio.run(cleanup(state))
 
-    assert result["log"] == [
-        "cleanup: browser left open for the human; wait ended"
-    ]
+    assert result["log"] == ["cleanup: browser left open for the human; wait ended"]
 
 
 def test_cleanup_releases_the_run_when_not_at_the_terminal_step(monkeypatch) -> None:
@@ -585,9 +584,7 @@ def test_await_submit_records_a_submitted_job(monkeypatch) -> None:
         return "submitted"
 
     monkeypatch.setattr(loop, "await_human_submit", fake_wait)
-    monkeypatch.setattr(
-        apply_loop, "load_settings", lambda: _settings(max_jobs_per_run=5)
-    )
+    monkeypatch.setattr(apply_loop, "load_settings", lambda: _settings(max_jobs_per_run=5))
     state = ApplyState(
         dry_run=False,
         browser_run_id="run-1",

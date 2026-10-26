@@ -20,33 +20,31 @@ from src.state import ApplyState, Task4Outcome, Task5Outcome
 
 
 def _fill_errors(outcome: Task4Outcome) -> list[str]:
-    """Turn a Task 4 outcome into the errors that make the fill fail."""
-    errors: list[str] = []
-    if not outcome.form_open:
-        errors.append("fill: Easy Apply form was not found")
-    elif not outcome.resume_attached:
-        errors.append("fill: resume was not attached")
-    else:
-        required_unknown = [
-            field for field in outcome.fields if field.required and not field.known
-        ]
-        required_unfilled = [
-            field
-            for field in outcome.fields
-            if field.required and field.known and not field.filled
-        ]
-        if required_unknown:
-            errors.append(
-                "fill: required questions are unanswered: "
-                + "; ".join(field.question or field.name for field in required_unknown)
-            )
-        if required_unfilled:
-            errors.append(
-                "fill: required fields were not filled: "
-                + "; ".join(field.question or field.name for field in required_unfilled)
-            )
-    if outcome.submitted:
-        errors.append("fill: Submit was clicked (must never happen)")
+    """Turn a Task 4 outcome into the errors that make the fill fail.
+
+    Delegates to :func:`~src.tools.self_healing.fingerprint.fill_failure_reason`
+    so the fill node, the self-healing loop, and ``verify`` apply the **same**
+    success rule. A stopped walk (it never reached the final review step) must be
+    an error, otherwise a crashed fill looks like a success and self-healing never
+    fires (BUG-050).
+    """
+    from src.tools.self_healing.fingerprint import fill_failure_reason
+
+    reason = fill_failure_reason(outcome)
+    if not reason:
+        return []
+    errors = [reason]
+    # ``fill_failure_reason`` reports the first blocker; also name required fields
+    # that are known but failed to fill so one message lists every blocker.
+    unfilled = [
+        field for field in outcome.fields if field.required and field.known and not field.filled
+    ]
+    if unfilled:
+        extra = "fill: required fields were not filled: " + "; ".join(
+            field.question or field.name for field in unfilled
+        )
+        if extra not in errors:
+            errors.append(extra)
     return errors
 
 

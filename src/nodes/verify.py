@@ -50,6 +50,7 @@ def _task4_succeeded(state: ApplyState) -> bool:
         and outcome.form_open
         and outcome.resume_attached
         and outcome.filled_fields == outcome.known_fields
+        and outcome.reached_terminal_step
         and not outcome.submitted
     )
 

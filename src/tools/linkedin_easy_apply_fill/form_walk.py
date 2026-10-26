@@ -158,8 +158,7 @@ async def _task4_on_page(
         )
         emit_step(
             notify,
-            f"Please wait - filling form step {step_index + 1}"
-            f"{f': {title}' if title else ''}...",
+            f"Please wait - filling form step {step_index + 1}{f': {title}' if title else ''}...",
         )
         if pending_advance:
             if signature == previous:
@@ -187,26 +186,18 @@ async def _task4_on_page(
                 retry = pick_next_button(retry_buttons)
                 if retry is not None:
                     notify(
-                        "Task 4: Next did not advance; retrying once with a fresh "
-                        "button handle."
+                        "Task 4: Next did not advance; retrying once with a fresh button handle."
                     )
-                    retry_element = await _marker_element(
-                        page, "data-autojob-btn", retry["marker"]
-                    )
+                    retry_element = await _marker_element(page, "data-autojob-btn", retry["marker"])
                     if retry_element is not None:
                         await _safe(retry_element.click())
                         if settings.session.post_click_wait_seconds:
                             await asyncio.sleep(settings.session.post_click_wait_seconds)
                         retry_deadline = (
-                            time.monotonic()
-                            + settings.session.easy_apply_timeout_seconds
+                            time.monotonic() + settings.session.easy_apply_timeout_seconds
                         )
-                        while (
-                            signature == previous and time.monotonic() < retry_deadline
-                        ):
-                            await asyncio.sleep(
-                                min(0.5, max(retry_deadline - time.monotonic(), 0))
-                            )
+                        while signature == previous and time.monotonic() < retry_deadline:
+                            await asyncio.sleep(min(0.5, max(retry_deadline - time.monotonic(), 0)))
                             opened, title, fields, step = await read_form(page)
                             if not opened:
                                 break
@@ -265,8 +256,7 @@ async def _task4_on_page(
                 )
                 emit_step(
                     notify,
-                    "Waiting for you - review and submit the application, "
-                    "then close the browser.",
+                    "Waiting for you - review and submit the application, then close the browser.",
                 )
             break
 
@@ -295,5 +285,6 @@ def _task4_ok(outcome: Task4Outcome) -> bool:
         outcome.form_open
         and outcome.resume_attached
         and outcome.filled_fields == outcome.known_fields
+        and outcome.reached_terminal_step
         and not outcome.submitted
     )

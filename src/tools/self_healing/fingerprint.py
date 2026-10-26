@@ -86,7 +86,7 @@ def classify_failure(
     # A stuck or disappearing navigation is the real, actionable stop; the
     # "no resume control" note is only a soft signal (the resume step often comes
     # later), so the advance failures are classified first (BUG-048).
-    if "form did not advance" in combined:
+    if "form did not advance" in combined or "did not reach the final" in combined:
         return "form_did_not_advance"
     if "navigation button disappeared" in combined:
         return "navigation_missing"
@@ -99,8 +99,7 @@ def classify_failure(
 
     fields = _fields_of(task4)
     if any(
-        bool(_field_value(f, "required")) and not bool(_field_value(f, "known"))
-        for f in fields
+        bool(_field_value(f, "required")) and not bool(_field_value(f, "known")) for f in fields
     ):
         return "required_question_unanswered"
     if any(
@@ -179,8 +178,11 @@ def symptom_for(category: str, task4: Any = None, error: str = "") -> str:
 def fill_failure_reason(task4: Any) -> str:
     """Return why a Task 4 outcome is not a successful fill, or ``""``.
 
-    This mirrors the fill node's acceptance rule while staying browser-free so the
-    self-healing loop can call it after a retry without importing the browser extra.
+    This is the single source of truth for "did Task 4 finish?": the fill node, the
+    self-healing loop, and ``verify`` must agree, or a crashed walk can look like a
+    success and never trigger recovery (BUG-050). A fill succeeds only when the form
+    opened, the resume was attached, every required known field was filled, and the
+    walk reached the final review step (only **Submit application** left).
     """
     if task4 is None:
         return "fill: no Task 4 outcome"
@@ -190,8 +192,6 @@ def fill_failure_reason(task4: Any) -> str:
         return "fill: Easy Apply form was not found"
 
     notes = _normalize(getattr(task4, "notes", ""))
-    if "no resume control" in notes:
-        return "fill: no resume control found on this form step"
     if "form did not advance" in notes:
         return "fill: form did not advance to a new step"
     if "only navigation button is disabled" in notes:
@@ -202,7 +202,10 @@ def fill_failure_reason(task4: Any) -> str:
         return "fill: resume upload failed"
     if "fill raised" in notes:
         return f"fill: {getattr(task4, 'notes', '')}"
+
     if not bool(getattr(task4, "resume_attached", False)):
+        # "no resume control" on an early step is expected (the control usually
+        # appears later); the failure is that no step ever attached the resume.
         return "fill: resume was not attached"
 
     fields = _fields_of(task4)
@@ -222,9 +225,10 @@ def fill_failure_reason(task4: Any) -> str:
     ]
     if required_unfilled:
         return "fill: required fields were not filled: " + "; ".join(
-            str(_field_value(f, "question") or _field_value(f, "name"))
-            for f in required_unfilled
+            str(_field_value(f, "question") or _field_value(f, "name")) for f in required_unfilled
         )
+    if not bool(getattr(task4, "reached_terminal_step", False)):
+        return "fill: the form did not reach the final review step"
     return ""
 
 

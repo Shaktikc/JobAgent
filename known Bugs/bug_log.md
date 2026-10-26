@@ -88,6 +88,9 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | BUG-047 | Self-Healing — reopen | failed reopen left the new browser holding the profile | 🟢 Fixed | (uncommitted) |
 | BUG-048 | Task 4 — walk | one swallowed Next click stopped the walk as "form did not advance" | 🟢 Fixed | (uncommitted) |
 | BUG-049 | Self-Healing — evidence | failure screenshot captured the active tab, not the failing page | 🟢 Fixed | (uncommitted) |
+| BUG-050 | Task 11 — trigger | stuck walk with an already-listed resume never started self-healing | 🟢 Fixed | (auto-recorded) |
+
+| BUG-051 | Self-Healing — fill | form did not advance to a new step: no resume control found on this form step; form did not advance to a new step; stopp | 🔴 Open | (pending) |
 
 ## Template for new entries
 

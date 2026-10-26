@@ -21,6 +21,7 @@ same index covers runtime crashes and the recovery machinery itself.
 | BUG-047 | failed reopen left the new browser alive | 🟢 Fixed | (uncommitted) |
 | BUG-048 | status overlay swallowed the Easy Apply Next click | 🟢 Fixed | (uncommitted) |
 | BUG-049 | failure screenshot captured the active tab, not the failing page | 🟢 Fixed | (uncommitted) |
+| BUG-050 | stuck walk with a listed resume never triggered self-healing | 🟢 Fixed | (uncommitted) |
 
 ---
 
@@ -124,3 +125,36 @@ same index covers runtime crashes and the recovery machinery itself.
 - **Evidence:** `src/tools/self_healing/capture.py`; live two-page probe (failing
   page screenshot mean 253/255, active black tab via the old session call 3.8/255);
   BUG-048 bundle comparison; commit `(uncommitted)`.
+
+### BUG-050 — a stuck walk with an already-listed resume never triggered self-healing
+
+- **Symptom:** a live run stopped with
+  `fill: no resume control found on this form step; form did not advance to a new
+  step; stopping before Submit`, yet **no** `self-heal:` line appeared: the browser
+  was left open and `verify` failed with "acceptance criteria not met".
+- **Root cause:** the fill node's `_fill_errors` ignored whether the walk actually
+  reached the terminal step. When the form's resume was already listed
+  (`resume_attached=True`) and every required field was filled, a crashed walk looked
+  like a successful fill, so `errors` was empty and `heal_fill_failure` was never
+  called. The loop's own `fill_failure_reason` knew the walk had stopped, but the
+  node did not use it - the two success rules had diverged.
+- **Fix:** Automatic runtime recovery: the failed browser session was closed, the same job was reopened, and the fill succeeded without a source change.
+  `reached_terminal_step`; the fill node now delegates `_fill_errors` to it, and
+  `verify._task4_succeeded` / `_task4_ok` require the terminal step too. A stopped
+  walk is now `form_did_not_advance` and triggers the loop.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/nodes/fill.py`, `src/tools/self_healing/fingerprint.py`,
+  `src/nodes/verify.py`, `src/tools/linkedin_easy_apply_fill/form_walk.py`; unit
+  `test_a_stuck_step_outranks_the_missing_resume_note` (attached resume still
+  errors) and the full unit suite; commit `(uncommitted)`.
+- **Recovery evidence:** bundle `C:\Users\shakt\AppData\Local\Temp\bug050-yaymulie\b`; attempts=1; run=`run-2`
+
+### BUG-051 — form did not advance to a new step: no resume control found on this form step; form did not advance to a new step; stopping before submit
+
+- **Symptom:** fill: form did not advance to a new step
+- **Root cause:** Auto-classified as `form_did_not_advance` during `fill`; see the bundle for the failing step/DOM. A source-level root cause is still pending.
+- **Fix:** Pending. Recorded before any repair attempt.
+- **Status:** 🔴 Open
+- **Evidence:** bundle `C:\Users\shakt\OneDrive\Desktop\project\AutoJobApply\data\debug\self_healing\20261026-075609-194086-db6a12a862ca`; captured 2026-10-26T07:56:09.355521+00:00
+- **Failure fingerprint:** `db6a12a862ca6b3775dc`
+- **Occurrences:** 1 (first 2026-10-26T07:56:09+00:00)
