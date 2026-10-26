@@ -8,7 +8,10 @@ Task 8 loop:
    page until the human **submits** the application, closes the browser, or the
    wait times out. The agent **never** clicks **Submit application**; it only
    observes the result. A dismissed modal (X) or a closed window without a
-   submission confirmation is **not** a submission.
+   submission confirmation is **not** a submission. Once the submission is seen,
+   any post-apply dialog (the "Your application was sent to X!" confirmation and
+   the "Turn your resume into a profile" promo) is closed with a safe dismiss
+   control — **Not now** (or the X / **Done**) — never **Update profile**.
 2. :func:`open_next_job` — back on the results list, re-read the cards, skip the
    ones already marked **"Applied"** (Task 6), paginate when a whole page is
    Applied (Task 7), and open the first unapplied **Easy Apply** job, reading its
@@ -56,12 +59,37 @@ _SUBMISSION_HINTS = (
     "you applied",
 )
 
-# Phrases that mean "close this confirmation" — safe to click (never Submit).
-_DISMISS_HINTS = ("done", "dismiss", "close", "got it")
+# Exact button labels that only close a dialog — safe to click (never Submit, and
+# never the promo's "Update profile"). "Not now" is the decline button on
+# LinkedIn's newer post-apply dialog ("Your application was sent to X!" / "Turn
+# your resume into a profile that recruiters notice"); the older confirmation
+# offers "Done"/the X. Keep in sync with the regex in ``_SUBMISSION_QUERY_TEMPLATE``.
+_DISMISS_HINTS = (
+    "done",
+    "dismiss",
+    "close",
+    "got it",
+    "not now",
+    "no thanks",
+    "maybe later",
+    "skip",
+)
+
+_DISMISS_RE = re.compile(r"^(?:" + "|".join(map(re.escape, _DISMISS_HINTS)) + r")$")
 
 
 def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").strip().lower())
+
+
+def is_dismiss_label(label: str) -> bool:
+    """True for a control that only closes a dialog (never submits or applies).
+
+    The post-apply promo ("Turn your resume into a profile that recruiters
+    notice") offers **Not now** and **Update profile**; only the former matches,
+    so the agent can never click the profile-editing call to action.
+    """
+    return bool(_DISMISS_RE.match(_normalize(label)))
 
 
 def looks_like_submission(text: str) -> bool:
@@ -113,6 +141,11 @@ _SUBMISSION_QUERY_TEMPLATE = (
   let confirmation = '';
   let doneMarker = '';
   let i = 0;
+  // Keep in sync with _DISMISS_HINTS in this module. Never add "Update profile":
+  // the post-apply promo offers that alongside "Not now", and clicking it would
+  // edit the human's profile.
+  const dismissRe = /^(done|dismiss|close|got it|not now|no thanks|maybe later|skip)$/i;
+  const preferRe = /^(not now|no thanks|maybe later|skip)$/i;
   const dialogs = Array.from(document.querySelectorAll(
     'div[role="dialog"], .artdeco-modal, div[data-test-modal-container], '
     + '.artdeco-modal--layer-default'
@@ -122,15 +155,18 @@ _SUBMISSION_QUERY_TEMPLATE = (
     if (!confirmRe.test(text)) return;
     if (!confirmation) confirmation = text.slice(0, 500);
     if (doneMarker) return;
-    dialog.querySelectorAll('button, [role="button"]').forEach((b) => {
-      if (doneMarker) return;
-      const label = norm(b.innerText) || norm(b.getAttribute('aria-label'));
-      if (/^(done|dismiss|close|got it)$/i.test(label)) {
-        const marker = 'd' + (i++);
-        b.setAttribute('data-autojob-done', marker);
-        doneMarker = marker;
-      }
-    });
+    // Prefer an explicit "Not now" style decline over the X/Done; match labels
+    // exactly so the promo's "Update profile" is never picked.
+    const buttons = Array.from(dialog.querySelectorAll('button, [role="button"]'));
+    const labels = buttons.map(
+      (b) => norm(b.innerText) || norm(b.getAttribute('aria-label'))
+    );
+    let pick = labels.findIndex((label) => preferRe.test(label));
+    if (pick < 0) pick = labels.findIndex((label) => dismissRe.test(label));
+    if (pick < 0) return;
+    const marker = 'd' + (i++);
+    buttons[pick].setAttribute('data-autojob-done', marker);
+    doneMarker = marker;
   });
 
   // Fallback: the open job's own results card now reads "Applied".
@@ -173,16 +209,47 @@ async def read_submission_state(page, title: str = "") -> dict:
     }
 
 
-async def _dismiss_confirmation(page, state: dict) -> None:
-    """Click a safe "Done"/dismiss control to reveal the results list (best effort)."""
-    marker = state.get("done_marker")
-    if not marker:
+# How many dismiss clicks to attempt (a second dialog, e.g. the promo, can appear
+# after the confirmation closes).
+_MAX_DISMISS_PASSES = 3
+
+
+async def _dismiss_confirmation(page, state: dict, title: str = "") -> None:
+    """Click a safe "Not now"/"Done"/dismiss control to reveal the results list.
+
+    LinkedIn's post-apply dialog confirms the submission ("Your application was
+    sent to <company>!") and sometimes also offers a "Turn your resume into a
+    profile" promo. It is closed with **Not now** (or the X / **Done**), never
+    with **Update profile**: this only clicks a control whose label is an exact
+    dismiss label (:func:`is_dismiss_label`). Waits briefly and repeats so a
+    second dialog that appears after the first also closes (best effort).
+    """
+    for _ in range(_MAX_DISMISS_PASSES):
+        marker = state.get("done_marker")
+        if not marker:
+            return
+        element = await _first_element(page, [f'[data-autojob-done="{marker}"]'])
+        if element is None:
+            return
+        await _safe(element.click())
+        await asyncio.sleep(0.5)
+        state = await read_submission_state(page, title)
+
+
+async def dismiss_post_apply_modals(page, title: str = "") -> None:
+    """Close a post-apply dialog still covering the results list (best effort).
+
+    LinkedIn can leave the "Your application was sent to X!" / "Turn your resume
+    into a profile" dialog on the results page after a submission. Its backdrop
+    would block the next job's click, so dismiss it before re-reading the cards.
+    Only dialog-closing controls are clicked (never **Update profile**); see
+    :func:`is_dismiss_label`.
+    """
+    try:
+        state = await read_submission_state(page, title)
+    except Exception:  # noqa: BLE001 - best-effort cleanup of a stale dialog
         return
-    element = await _first_element(page, [f'[data-autojob-done="{marker}"]'])
-    if element is None:
-        return
-    await _safe(element.click())
-    await asyncio.sleep(0.5)
+    await _dismiss_confirmation(page, state, title)
 
 
 async def await_human_submit(
@@ -229,7 +296,7 @@ async def await_human_submit(
         # and ignore that exact text; only a *new* confirmation counts — otherwise
         # the loop could "detect" a submission the human never made and open the
         # next job by itself.
-        await _dismiss_confirmation(run.page, initial)
+        await _dismiss_confirmation(run.page, initial, title)
         initial = await read_submission_state(run.page, title)
         baseline = _normalize(initial["confirmation"])
     already_applied = bool(initial.get("card_applied"))
@@ -249,7 +316,7 @@ async def await_human_submit(
         ):
             notify("Task 8: submission detected.")
             emit_step(notify, "Submission detected - looking for the next job.")
-            await _dismiss_confirmation(run.page, state)
+            await _dismiss_confirmation(run.page, state, title)
             return "submitted"
         if deadline is not None and time.monotonic() >= deadline:
             notify(
@@ -305,6 +372,10 @@ async def open_next_job(
 
     skip_keys = {_job_key(skip_title, -1)} if skip_title else set()
     emit_step(notify, "Please wait - opening the next unapplied job...")
+    # The post-apply "Your application was sent..." / "Turn your resume into a
+    # profile" dialog can still cover the results list; its backdrop would block
+    # the next card's click, so dismiss it (Not now) before re-reading the cards.
+    await dismiss_post_apply_modals(run.page, skip_title)
     task2 = await _task2_on_page(
         run.page, settings, notify, skip_keys=skip_keys, capture=read_job_description
     )
@@ -322,6 +393,8 @@ async def open_next_job(
 __all__ = [
     "NextJobResult",
     "await_human_submit",
+    "dismiss_post_apply_modals",
+    "is_dismiss_label",
     "looks_like_submission",
     "open_next_job",
     "read_submission_state",

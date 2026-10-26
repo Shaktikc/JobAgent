@@ -15,7 +15,12 @@ from src.configuration import Settings
 from src.state import FormField, Task5Outcome
 from src.tools.browser import _marker_element, _pace, _safe
 from src.tools.forms import _SELECT_PLACEHOLDERS as _SELECT_PLACEHOLDERS  # re-export
-from src.tools.forms import answers_match, looks_like_resume_field, select_is_answered
+from src.tools.forms import (
+    TYPEAHEAD_COMMIT_JS,
+    answers_match,
+    looks_like_resume_field,
+    select_is_answered,
+)
 from src.tools.linkedin_ask_human import _remember_answer
 from src.tools.linkedin_easy_apply_fill import checkbox_groups
 from src.tools.linkedin_status_overlay import emit_llm
@@ -28,6 +33,7 @@ _FILL_INPUT_JS = r"""
     ? window.HTMLTextAreaElement.prototype
     : window.HTMLInputElement.prototype;
   const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+  this.focus();
   setter.call(this, value);
   this.dispatchEvent(new Event('input', { bubbles: true }));
   this.dispatchEvent(new Event('change', { bubbles: true }));
@@ -111,6 +117,9 @@ async def _fill_field(element, field: dict, answer: str) -> tuple[bool, str]:
             await element.click()
         else:
             await element.evaluate(_FILL_INPUT_JS, str(answer))
+            # A city/location combobox needs its matching suggestion clicked to
+            # commit; a plain text input ignores this helper (BUG-056).
+            await _safe(element.evaluate(TYPEAHEAD_COMMIT_JS, str(answer)))
         return True, ""
     except Exception as exc:  # noqa: BLE001 - one bad field must not stop the run
         return False, f"{type(exc).__name__}: {exc}"
@@ -189,8 +198,17 @@ async def _fill_step(
         record.value = answer
         record.answered_by = source
         element = await _marker_element(page, "data-autojob-fill", field["marker"])
+        if element is None and source != "human":
+            # A stale marker: React re-rendered the marked wrapper away. Re-resolve
+            # the radio group by its stable ``name`` and re-mark the option (BUG-057).
+            if await checkbox_groups.remark_radio_by_name(page, field, answer):
+                element = await _marker_element(page, "data-autojob-fill", field["marker"])
         if element is None:
-            record.error = "field element not found"
+            # A human answered in Task 5, so the control already holds it (BUG-055).
+            if source == "human":
+                record.filled = True
+            else:
+                record.error = "field element not found"
         else:
             ok, error = await _fill_field(element, field, answer)
             record.filled = ok

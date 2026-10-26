@@ -290,3 +290,61 @@ async def test_fill_step_applies_a_stored_multi_select_answer(tmp_path) -> None:
     assert records[0].value == "LinkedIn Social Post, YouTube"
     assert elements["c1"].checked is True and elements["c3"].checked is True
     assert elements["c0"].checked is False and elements["c2"].checked is False
+
+
+# --- A stale radio marker (BUG-057) -----------------------------------------
+class _StaleRadioPage(_FakePage):
+    """A page whose radio fill marker is stale until re-resolved by name (BUG-057)."""
+
+    def __init__(self, group_name: str) -> None:
+        super().__init__({})
+        self.group_name = group_name
+        self.remark_calls: list[tuple] = []
+        self.option = _FakeElement("Yes")
+
+    async def evaluate(self, js: str, *args):
+        if "groupName" in js:  # REMARK_RADIO_BY_NAME_JS
+            self.remark_calls.append(tuple(args))
+            name, _answer, marker = args
+            if name == self.group_name:
+                self.elements[str(marker)] = self.option
+                return json.dumps({"ok": True})
+            return json.dumps({"ok": False})
+        return await super().evaluate(js, *args)
+
+
+async def test_fill_step_re_resolves_a_stale_radio_marker_by_name(tmp_path) -> None:
+    """BUG-057: an LLM-answered radio is filled even when its marker went stale.
+
+    React can re-render the marked radio wrapper away while the LLM is choosing an
+    answer, so the cached ``data-autojob-fill`` marker no longer resolves. The
+    group's native ``name`` survives, so the fill re-resolves it by name and fills
+    the matching option instead of reporting ``field element not found``.
+    """
+    question = "Have you implemented and integrated conversational AI platforms?"
+    fields = [
+        {
+            "kind": "radio",
+            "type": "radio",
+            "name": "radio-group-_r_kd_",
+            "question": question,
+            "option": option,
+            "marker": f"f{index}",
+            "checked": False,
+            "required": True,
+        }
+        for index, option in enumerate(("Yes", "No"))
+    ]
+    page = _StaleRadioPage("radio-group-_r_kd_")
+
+    known, filled, unknown, records = await _fill_step(
+        page, fields, {}, _settings(tmp_path, ask_human=False), ask=None,
+        human=Task5Outcome(), chooser=_store_chooser("Yes"),
+    )
+
+    assert (known, filled, unknown) == (1, 1, [])
+    assert page.remark_calls == [("radio-group-_r_kd_", "Yes", "f0")]
+    assert page.option.checked is True
+    record = records[0]
+    assert record.filled is True and record.error == ""
+    assert record.answered_by == "llm"

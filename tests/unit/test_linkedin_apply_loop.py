@@ -11,6 +11,8 @@ from src.tools import browser as browser_tools
 from src.tools import linkedin_apply_loop as loop
 from src.tools.linkedin_apply_loop import (
     await_human_submit,
+    dismiss_post_apply_modals,
+    is_dismiss_label,
     looks_like_submission,
     open_next_job,
     read_submission_state,
@@ -110,6 +112,21 @@ def test_submission_detected_falls_back_to_the_applied_card() -> None:
     )
 
 
+# --- dismiss labels --------------------------------------------------------
+
+
+def test_is_dismiss_label_accepts_only_closing_controls() -> None:
+    assert is_dismiss_label("Not now")
+    assert is_dismiss_label("  not now  ")
+    assert is_dismiss_label("Done")
+    assert is_dismiss_label("Dismiss")
+    # The promo's other button edits the profile and must never be clicked.
+    assert not is_dismiss_label("Update profile")
+    assert not is_dismiss_label("Submit application")
+    assert not is_dismiss_label("Easy Apply")
+    assert not is_dismiss_label("")
+
+
 # --- read_submission_state -------------------------------------------------
 
 
@@ -157,6 +174,66 @@ async def test_await_human_submit_detects_a_submission_and_dismisses() -> None:
 
     assert result == "submitted"
     assert done.clicked is True
+
+
+async def test_await_human_submit_dismisses_the_resume_promo_with_not_now() -> None:
+    # The newer post-apply dialog confirms the submission *and* pitches a resume
+    # promo; it is closed with "Not now" (never "Update profile").
+    page = _FakeSubmitPage(
+        [
+            {"form_open": True, "confirmation": "", "card_applied": False},
+            {
+                "form_open": False,
+                "confirmation": (
+                    "Your application was sent to Cleared Recruitment! "
+                    "Turn your resume into a profile that recruiters notice. "
+                    "Not now Update profile"
+                ),
+                "card_applied": False,
+                "done_marker": "d0",
+            },
+            # After the click the promo is gone (both polls return nothing).
+            {"form_open": False, "confirmation": "", "card_applied": False},
+        ]
+    )
+    not_now = _FakeElement()
+    page.done_elements["d0"] = not_now
+    _register("run-promo", page)
+
+    try:
+        result = await await_human_submit("run-promo", _settings(), title="Backend Engineer")
+    finally:
+        browser_tools._ACTIVE_RUNS.pop("run-promo", None)
+
+    assert result == "submitted"
+    assert not_now.clicked is True
+
+
+async def test_dismiss_post_apply_modals_clicks_not_now() -> None:
+    page = _FakeSubmitPage(
+        [
+            {
+                "form_open": False,
+                "confirmation": "Your application was sent to Acme!",
+                "card_applied": True,
+                "done_marker": "d1",
+            },
+            {"form_open": False, "confirmation": "", "card_applied": True},
+        ]
+    )
+    not_now = _FakeElement()
+    page.done_elements["d1"] = not_now
+
+    await dismiss_post_apply_modals(page, title="Backend Engineer")
+
+    assert not_now.clicked is True
+
+
+async def test_dismiss_post_apply_modals_is_a_noop_without_a_dialog() -> None:
+    page = _FakeSubmitPage({"form_open": False, "confirmation": "", "card_applied": True})
+
+    # No confirmation dialog and no dismiss marker: nothing to click, no error.
+    await dismiss_post_apply_modals(page, title="Backend Engineer")
 
 
 async def test_await_human_submit_ignores_a_card_already_applied_before_the_wait() -> None:

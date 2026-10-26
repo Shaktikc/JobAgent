@@ -21,6 +21,7 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 | BUG-030 | Cleanup | agent closed the browser on timeout (it must never close it) | 🟢 Fixed | `ef2ad44`, `31553e2` |
 | BUG-033 | UI overlay | Task 9 status panel rendered behind LinkedIn's Easy Apply modal | 🟢 Fixed | (uncommitted) |
 | BUG-041 | Task 8 loop | advanced to the next job without a real submission | 🟢 Fixed | `f928866` |
+| BUG-054 | Task 8 loop | post-apply "resume to profile" promo modal not closed → no next job | 🟢 Fixed | (uncommitted) |
 
 ---
 
@@ -166,3 +167,36 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   `test_await_human_submit_ignores_a_stale_confirmation_from_the_previous_job`,
   `test_await_human_submit_detects_a_card_flipping_to_applied`). Commit
   `f928866`.
+
+### BUG-054 — the post-apply "resume to profile" promo modal was not closed
+
+- **Symptom:** after the human clicked **Submit application**, LinkedIn showed a
+  dialog titled **"Your application was sent to <company>!"** that also pitched a
+  resume promo — **"Turn your resume into a profile that recruiters notice"** —
+  with the buttons **Not now** and **Update profile** (and an X). The agent did
+  not close it, so its backdrop stayed over the results list and the Task 8 loop
+  could not open the next unapplied job.
+- **Root cause:** the dismissible-control labels the agent looked for were only
+  **done / dismiss / close / got it**. LinkedIn's newer post-apply dialog declines
+  the promo with **Not now**, which matched none of them, so the agent never
+  clicked the closing control (the X is not consistently present/labelled on this
+  variant). Nothing then removed the dialog before Task 2 re-read the cards.
+- **Fix:** recognise **Not now** (and **no thanks / maybe later / skip**) as exact
+  safe-dismiss labels in the submission probe, and prefer them over the X/Done so
+  the promo is declined; the probe still never matches **Update profile** or
+  anything that submits. `_dismiss_confirmation` now retries (bounded) so a second
+  dialog that appears after the first also closes, and `open_next_job` dismisses
+  any leftover post-apply dialog (via the new `dismiss_post_apply_modals`) before
+  re-reading the cards and opening the next job.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/linkedin_apply_loop.py` (`is_dismiss_label`,
+  `_DISMISS_HINTS`, the `_SUBMISSION_QUERY_TEMPLATE` dismiss regex,
+  `_dismiss_confirmation`, `dismiss_post_apply_modals`, `open_next_job`);
+  `tests/unit/test_linkedin_apply_loop.py`
+  (`test_is_dismiss_label_accepts_only_closing_controls`,
+  `test_await_human_submit_dismisses_the_resume_promo_with_not_now`,
+  `test_dismiss_post_apply_modals_clicks_not_now`,
+  `test_dismiss_post_apply_modals_is_a_noop_without_a_dialog`);
+  `tests/integration/test_apply_loop_live.py` (opt-in live Chromium fixture
+  reproducing the exact dialog: detects the submission, clicks **Not now**, never
+  the X or **Update profile**, and closes the modal). Commit (uncommitted).

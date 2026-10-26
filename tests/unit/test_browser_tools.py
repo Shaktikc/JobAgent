@@ -1965,7 +1965,10 @@ async def test_task4_follows_dynamic_form_and_selects_resume_from_select(tmp_pat
             {"open": True, "title": "Contact info", "fields": _contact_step_fields()},
             {"open": True, "title": "Resume", "fields": []},
         ],
-        form_buttons_queue=[[{"marker": "b0", "text": "Next", "disabled": False}], []],
+        form_buttons_queue=[
+            [{"marker": "b0", "text": "Next", "disabled": False}],
+            [{"marker": "b1", "text": "Submit application", "disabled": False}],
+        ],
         resume_options=[
             {"options": [], "fileInput": False, "select": None, "uploadButton": None},
             {
@@ -1989,7 +1992,7 @@ async def test_task4_follows_dynamic_form_and_selects_resume_from_select(tmp_pat
         "f2": FakeElement("Mobile phone number"),
     }
     page.select_elements = {"s0": FakeElement("Select a resume")}
-    page.button_elements = {"b0": FakeElement("Next")}
+    page.button_elements = {"b0": FakeElement("Next"), "b1": FakeElement("Submit application")}
 
     answers = {
         "email address": "me@example.com",
@@ -2021,7 +2024,7 @@ async def test_task4_clicks_upload_button_to_reveal_file_input(
     """When no resume control is visible, an Upload button may reveal the input."""
     page = FakePage(
         form_enumerations=[{"open": True, "title": "Resume", "fields": []}],
-        form_buttons_queue=[[]],
+        form_buttons_queue=[[{"marker": "b0", "text": "Submit application", "disabled": False}]],
         resume_options=[
             {
                 "options": [],

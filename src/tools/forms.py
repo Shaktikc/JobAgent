@@ -196,3 +196,89 @@ REQUIRED_MARKER_JS = r"""const requiredOf = (el, isChoice, questionText) => {
     if (near) texts.push(near.innerText);
     return texts.some((text) => /\*\s*$/.test(norm(text || '')));
   };"""
+
+
+# Injected into the form-enumeration query to derive a stable step identity. It
+# hides transient live-region/typeahead text before hashing the modal's content: a
+# city suggestion list opening or closing must not look like a new step, or a
+# Next click that did not advance is mistaken for progress (BUG-056). It shares
+# the query's ``norm`` helper.
+STEP_IDENTITY_JS = r"""const stepIdentity = (modal) => {
+    const transient = Array.from(modal.querySelectorAll(
+      '[role="status"], [aria-live], [role="listbox"], [role="option"], '
+      + '[data-testid*="typeahead-result"], [data-testid*="typeahead-list"]'
+    ));
+    const saved = transient.map((el) => el.style.display);
+    transient.forEach((el) => { el.style.display = 'none'; });
+    const text = norm(modal.innerText);
+    transient.forEach((el, index) => { el.style.display = saved[index]; });
+    const progressMatch = text.match(
+      /\b\d+\s*(?:\/|of)\s*\d+\s*(?:pages?|steps?)\b/i
+    );
+    const progress = progressMatch ? progressMatch[0] : '';
+    const headings = Array.from(modal.querySelectorAll('h1, h2, h3, h4'))
+      .map((h) => norm(h.innerText)).filter(Boolean).join(' | ');
+    let hash = 0;
+    for (let i = 0; i < text.length; i++) {
+      hash = (hash * 31 + text.charCodeAt(i)) | 0;
+    }
+    return [progress, headings, 'text:' + (hash >>> 0)].filter(Boolean).join(' \u00b7 ');
+  };"""
+
+
+# Commit a value typed into a LinkedIn typeahead (its city/location control is a
+# combobox, not a plain text input). Setting the input's value alone leaves the
+# field uncommitted, so Next stays on the step and the suggestion list toggles the
+# modal text (BUG-056). This clicks the suggestion matching the value once the
+# list renders, and blurs the field so the following Next click is not swallowed.
+TYPEAHEAD_COMMIT_JS = r"""
+(value) => {
+  const autocomplete = (this.getAttribute('aria-autocomplete') || '').toLowerCase();
+  const role = (this.getAttribute('role') || '').toLowerCase();
+  const testid = (this.getAttribute('data-testid') || '').toLowerCase();
+  const isTypeahead = autocomplete === 'list' || role === 'combobox'
+    || testid.includes('typeahead');
+  if (!isTypeahead) return '';
+  const norm = (s) => (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const wanted = norm(value);
+  const first = wanted.split(/[,/(]/)[0].trim();
+  const pick = () => {
+    const ids = (this.getAttribute('aria-owns') || '').split(/\s+/).filter(Boolean);
+    let options = [];
+    ids.forEach((id) => {
+      const list = document.getElementById(id);
+      if (list) options.push(...list.querySelectorAll('[role="option"], li'));
+    });
+    if (!options.length) {
+      options = Array.from(document.querySelectorAll('[role="option"]'))
+        .filter((option) => option.getClientRects().length);
+    }
+    const scored = options.map((option) => {
+      const text = norm(option.innerText);
+      let score = -1;
+      if (text && text === wanted) score = 3;
+      else if (text && wanted && (text.includes(wanted) || wanted.includes(text))) score = 2;
+      else if (first && text && text.split(/[,/(]/)[0].trim() === first) score = 1;
+      return { option: option, score: score };
+    }).filter((item) => item.score > 0);
+    if (!scored.length) return false;
+    scored.sort((a, b) => b.score - a.score);
+    const option = scored[0].option;
+    ['mousedown', 'mouseup', 'click'].forEach((type) =>
+      option.dispatchEvent(new MouseEvent(type, {
+        bubbles: true, cancelable: true, view: window
+      }))
+    );
+    setTimeout(() => { if (this.blur) this.blur(); }, 0);
+    return true;
+  };
+  if (pick()) return 'clicked';
+  // Suggestions can render after the input/change event; watch briefly for them.
+  const observer = new MutationObserver(() => {
+    if (pick()) observer.disconnect();
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+  setTimeout(() => observer.disconnect(), 3000);
+  return 'watching';
+}
+"""

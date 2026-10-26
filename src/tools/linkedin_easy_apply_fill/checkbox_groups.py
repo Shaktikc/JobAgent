@@ -12,8 +12,10 @@ each option as its *own* question, which broke it three ways:
 This module owns the whole group: it resolves the group's question in the page
 (:data:`GROUP_QUESTION_JS`, injected into the enumeration query), reads every
 ticked option from the live form (:data:`READ_GROUP_TICKS_JS`), matches an answer
-to the group's options, and applies it by ticking the matching boxes. Everything
-here is best-effort: a missing element or a failed read leaves the question for
+to the group's options, and applies it by ticking the matching boxes. It also
+re-resolves a **radio** group by its stable ``name`` when React re-renders the
+marked wrapper away (:func:`remark_radio_by_name`, BUG-057). Everything here is
+best-effort: a missing element or a failed read leaves the question for
 Task 5 rather than mis-filling the form.
 """
 
@@ -111,6 +113,54 @@ READ_GROUP_TICKS_JS = r"""
 }
 """
 
+# Re-resolve a *radio* group by its stable ``name`` and re-mark the option that
+# matches the answer. React re-renders the wrapper that carried
+# ``data-autojob-fill`` away (a human edit or the group's own state change), so
+# the cached marker goes stale even though the native input keeps its ``name``.
+# The fill uses this to recover the control (BUG-057), mirroring the name-based
+# fallback Task 5's answer reader already relies on.
+REMARK_RADIO_BY_NAME_JS = r"""
+(groupName, answer, marker) => {
+  const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+  const esc = (s) => (window.CSS && CSS.escape) ? CSS.escape(s) : s;
+  const name = norm(groupName);
+  if (!name) return JSON.stringify({ ok: false });
+  const selector = 'input[type="radio"][name="' + esc(name) + '"],'
+    + '[role="radio"][name="' + esc(name) + '"]';
+  const controls = Array.from(document.querySelectorAll(selector));
+  if (!controls.length) return JSON.stringify({ ok: false });
+  const optionText = (el) => {
+    if (norm(el.innerText)) return norm(el.innerText);
+    const nested = el.querySelector ? el.querySelector('input') : null;
+    const own = (el.labels && el.labels[0])
+      || (nested && nested.labels && nested.labels[0]) || null;
+    if (own && norm(own.innerText)) return norm(own.innerText);
+    if (el.id) {
+      const l = document.querySelector('label[for="' + esc(el.id) + '"]');
+      if (l && norm(l.innerText)) return norm(l.innerText);
+    }
+    const wrap = el.closest('label');
+    if (wrap && norm(wrap.innerText)) return norm(wrap.innerText);
+    const sib = el.nextElementSibling || el.previousElementSibling;
+    if (sib && norm(sib.innerText)) return norm(sib.innerText);
+    if (norm(el.value) && el.value !== 'on') return norm(el.value);
+    if (nested && norm(nested.value) && nested.value !== 'on') return norm(nested.value);
+    return '';
+  };
+  const wrapper = (el) => el.closest('[role="radio"]') || el;
+  const want = norm(answer).toLowerCase();
+  const labelOf = (el) => norm(optionText(wrapper(el))).toLowerCase();
+  const match = controls.find((el) => labelOf(el) === want)
+    || controls.find((el) => {
+      const text = labelOf(el);
+      return !!text && !!want && (text.includes(want) || want.includes(text));
+    });
+  if (!match) return JSON.stringify({ ok: false });
+  wrapper(match).setAttribute('data-autojob-fill', String(marker));
+  return JSON.stringify({ ok: true });
+}
+"""
+
 # A group answer may list several options ("A, B"); split on commas/semicolons.
 _SPLIT_RE = re.compile(r"[;,]")
 
@@ -200,6 +250,25 @@ async def read_ticked_options(
         if now >= deadline:
             return selected
         await asyncio.sleep(0.2)
+
+
+async def remark_radio_by_name(page, field: dict, answer: str) -> bool:
+    """Re-mark a radio option by its group ``name`` after a stale marker (BUG-057).
+
+    When React re-renders the marked wrapper away, the group's native ``name``
+    survives. Resolve the group by name, re-mark the option whose visible text
+    matches ``answer`` with the field's own marker, and report whether one was
+    found so the fill can click it through the normal path. A missing name or a
+    no-match answer returns ``False`` and leaves the field to the existing error.
+    """
+    name = str(field.get("name") or "")
+    marker = str(field.get("marker") or "")
+    if not name or not marker or not str(answer or "").strip():
+        return False
+    payload = _loads(
+        await _safe(page.evaluate(REMARK_RADIO_BY_NAME_JS, name, str(answer), marker), "")
+    )
+    return bool(payload.get("ok"))
 
 
 async def fill_checkbox_group(
@@ -311,10 +380,12 @@ async def fill_checkbox_group(
 __all__ = [
     "GROUP_QUESTION_JS",
     "READ_GROUP_TICKS_JS",
+    "REMARK_RADIO_BY_NAME_JS",
     "fill_checkbox_group",
     "group_counts",
     "group_key",
     "read_ticked_options",
+    "remark_radio_by_name",
     "selected_options",
     "selects_option",
 ]

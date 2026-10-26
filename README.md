@@ -122,15 +122,19 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
 5. **await_submit** — **Task 8 (subtask 8.1):** leaves the browser open on the
    terminal step and **waits for you to submit** the application yourself (the
    agent **never** clicks **Submit application**). It polls for a submission
-   confirmation ("Application sent" / "Done") or the job's card flipping to
-   **"Applied"**, bounded by `AUTOJOB_SESSION_KEEP_OPEN_TIMEOUT_SECONDS`. A modal
-   dismissed with X, or a closed window, without a confirmation is **not** a
-   submission. On a detected submission the job is recorded (title, company,
-   resume) on the Task 8 outcome.
+   confirmation ("Your application was sent to X!" / "Application sent" / "Done")
+   or the job's card flipping to **"Applied"**, bounded by
+   `AUTOJOB_SESSION_KEEP_OPEN_TIMEOUT_SECONDS`. A modal dismissed with X, or a
+   closed window, without a confirmation is **not** a submission. On a detected
+   submission the post-apply dialog is closed with a safe dismiss control —
+   **Not now** (or the X / **Done**) — never **Update profile** — and the job is
+   recorded (title, company, resume) on the Task 8 outcome.
 6. **next_job** — **Task 8 (subtask 8.2):** back on the results list, re-reads the
    cards, skips the **"Applied"** ones (Task 6), paginates when a whole page is
    Applied (Task 7), and opens the first unapplied **Easy Apply** job, reading its
-   description so `match` and `fill` run for it again. The loop repeats until
+   description so `match` and `fill` run for it again. Any leftover post-apply
+   dialog ("Your application was sent..." / "Turn your resume into a profile") is
+   dismissed first so it cannot cover the next card. The loop repeats until
    `AUTOJOB_SESSION_MAX_JOBS` jobs have been submitted (default `5`; `0` = until no
    unapplied job remains), every job is Applied, you close the browser, or a step
    fails — each with a clear `stopped_reason`. The session is reused across

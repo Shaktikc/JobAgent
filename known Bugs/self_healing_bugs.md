@@ -24,6 +24,10 @@ same index covers runtime crashes and the recovery machinery itself.
 | BUG-050 | stuck walk with a listed resume never triggered self-healing | 🟢 Fixed | (uncommitted) |
 | BUG-051 | form did not advance on a contact step (modal closed mid-walk) | 🔴 Open | (pending) |
 | BUG-052 | SDUI required question read as optional → walk stopped as "form did not advance" | 🟢 Fixed | (uncommitted) |
+| BUG-053 | a human-answered radio lost its marker → "required field was not filled" | 🟢 Fixed | (uncommitted) |
+| BUG-055 | a human-answered radio lost its marker → "required field was not filled" | 🟢 Fixed | (uncommitted) |
+| BUG-056 | SDUI `<dialog>`/typeahead race → false step advance, no resume attached | 🟢 Fixed | (uncommitted) |
+| BUG-057 | an LLM-answered radio lost its marker → "required field was not filled" | 🟢 Fixed | (uncommitted) |
 
 ---
 
@@ -160,6 +164,11 @@ same index covers runtime crashes and the recovery machinery itself.
 - **Evidence:** bundle `C:\Users\shakt\OneDrive\Desktop\project\AutoJobApply\data\debug\self_healing\20261026-075609-194086-db6a12a862ca`; captured 2026-10-26T07:56:09.355521+00:00
 - **Failure fingerprint:** `db6a12a862ca6b3775dc`
 - **Occurrences:** 1 (first 2026-10-26T07:56:09+00:00)
+- **Related:** this bundle also shows the BUG-055 stale-marker defect (the optional
+  "Do you have experience using Databricks?" radio the human answered was recorded
+  `filled=false, error="field element not found"`); that part is fixed by BUG-055.
+  The "form did not advance" stop itself (the footer buttons read as `[]`) is a
+  separate issue and stays 🔴 Open.
 
 ### BUG-052 — a required SDUI question was read as optional, so the walk stopped as "form did not advance"
 
@@ -201,12 +210,155 @@ same index covers runtime crashes and the recovery machinery itself.
 - **Failure fingerprint:** `bd4ac7ea2b35e7fa8437`
 - **Occurrences:** 1 (first 2026-10-26T08:02:18+00:00)
 
-### BUG-053 — required field was not filled: no resume control found on this form step; reached the last step (only submit remains)
+### BUG-053 — a human-answered radio lost its marker → "required field was not filled"
 
-- **Symptom:** fill: required fields were not filled: Experience on Agile & Scrum ?
-- **Root cause:** Auto-classified as `required_field_not_filled` during `fill`; see the bundle for the failing step/DOM. A source-level root cause is still pending.
-- **Fix:** Pending. Recorded before any repair attempt.
-- **Status:** 🔴 Open
-- **Evidence:** bundle `C:\Users\shakt\OneDrive\Desktop\project\AutoJobApply\data\debug\self_healing\20261026-083840-711732-e6e2e833d523`; captured 2026-10-26T08:38:40.889239+00:00
+- **Symptom:** on a Synechron Easy Apply form (`4/4 pages · Review your
+  application`) the required radio **"Experience on Agile & Scrum ?"** was recorded
+  `known=true, filled=false, error="field element not found"`, so the fill node
+  reported `required fields were not filled`, even though the review page
+  (`page.txt`) showed it answered **Yes**.
+- **Root cause:** same stale-marker defect as BUG-055. The enumeration marks a
+  choice control by putting `data-autojob-fill` on its clickable label; when the
+  human answers the radio on the real control in Task 5, React re-renders the marked
+  wrapper away, so the cached marker no longer resolves. `_apply` then recorded
+  `field element not found` although `ask_human_for_answer` had just read the
+  human's answer from that same (already-set) control.
+- **Fix:** fixed by BUG-055's change in `field_filling._apply` — a field whose cached
+  marker is gone but whose answer came from the human (`source == "human"`) is
+  recorded as filled, because the human set the control directly.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/linkedin_easy_apply_fill/field_filling.py`; unit
+  `test_task4_human_answered_radio_survives_a_stale_marker`; bundle
+  `C:\Users\shakt\OneDrive\Desktop\project\AutoJobApply\data\debug\self_healing\20261026-083840-711732-e6e2e833d523`;
+  captured 2026-10-26T08:38:40.889239+00:00; commit `(uncommitted)`.
 - **Failure fingerprint:** `e6e2e833d523024d8224`
 - **Occurrences:** 1 (first 2026-10-26T08:38:40+00:00)
+
+### BUG-055 — a human-answered radio lost its marker → "required field was not filled"
+
+- **Symptom:** on the Additional Questions step of a Galileo Search Easy Apply form
+  (`4/4 pages · Review your application`) two required radios the human had answered
+  in Task 5 — **"Have you delivered an AI solution into production inside a medium or
+  large organisation?"** and **"Are you available for a full-time contract?"** — were
+  recorded `known=true, filled=false, error="field element not found"`. The fill node
+  reported `required fields were not filled: …` and the self-healing loop reopened
+  the same job. The review page (`page.txt`/`dom.html`) showed both answered **Yes**,
+  so the answers were already on the form.
+- **Root cause:** the enumeration marks a choice control by putting
+  `data-autojob-fill` on its clickable label (`clickTarget`). When the human answers
+  the question on the real control in Task 5, React re-renders the marked wrapper
+  away, so the cached marker no longer resolves. `_apply` then found no element and
+  recorded `field element not found`, even though `ask_human_for_answer` had read
+  the human's answer from that same (already-set) control. The checkbox path already
+  handles this by reading the group's live selection and never toggling what the
+  form holds; the radio path did not.
+- **Fix:** in `_apply`
+  (`src/tools/linkedin_easy_apply_fill/field_filling.py`), when the cached marker is
+  gone but the answer came from the human (`source == "human"`), record the field as
+  filled instead of `field element not found`: the human set the control directly, so
+  the answer is already on the form.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/linkedin_easy_apply_fill/field_filling.py`; unit
+  `test_task4_human_answered_radio_survives_a_stale_marker` (fails before the fix
+  with `filled_fields == 0`, passes after); full unit suite; bundle
+  `C:\Users\shakt\OneDrive\Desktop\project\AutoJobApply\data\debug\self_healing\20261026-085927-832116-15ba2f68132a`;
+  captured 2026-10-26T08:59:27.987350+00:00; commit `(uncommitted)`.
+- **Failure fingerprint:** `15ba2f68132a6373f438`
+- **Occurrences:** 1 (first 2026-10-26T08:59:28+00:00)
+
+### BUG-056 — no resume control on the form step: no resume control found on this form step
+
+- **Symptom:** on the BizCover Easy Apply form (`1/6 pages`, Contact info) the
+  walk ended with `fill: resume was not attached` and only the note
+  `no resume control found on this form step`, although the form had six steps
+  and the resume lives on a later one.
+- **Root cause:** three linked defects in the new SDUI Easy Apply layout
+  (a native `<dialog>`, hashed classes):
+  1. `findApplyRoot()` did not recognise the `<dialog>` and could return either
+     the `Apply to <company>` **heading** (before the controls rendered) or a
+     page-level ancestor carrying an unrelated **Next**. `_task4_on_page` then
+     read zero fields/navigation buttons, treated the empty shell as the terminal
+     step, and returned without advancing or attaching the resume.
+  2. The step identity hashed the modal's whole visible text, including the
+     location typeahead's `[role="status"]` "N suggestions available" and
+     suggestion list. Opening/closing the list changed the hash, so a Next click
+     that did **not** advance looked like a new step; the walk looped on `1/6`
+     until the step cap and ended silently.
+  3. The city/location field is a typeahead (`role="combobox"`,
+     `aria-autocomplete="list"`). Setting only its value left it uncommitted, so
+     LinkedIn kept the form on Contact info (and toggled the suggestion list,
+     producing the alternating hashes).
+- **Fix:** in `FIND_APPLY_ROOT_JS`, return the visible `<dialog>` containing the
+  `Apply to ...` heading directly, add `dialog[open]` to the candidates, and stop
+  the inline ancestor climb before BODY/HTML. In `_task4_on_page`, wait for a
+  just-rendered step to expose fields or a navigation/submit button before
+  treating it as actionable, and name an exhausted step cap instead of ending
+  silently. Add `STEP_IDENTITY_JS`, which hides transient status/listbox/option
+  nodes before hashing the step, so typeahead churn cannot fake an advance. Add
+  `TYPEAHEAD_COMMIT_JS`, which clicks the suggestion matching the filled value
+  (and blurs the field) so Next accepts the city; blur the active control before
+  every Next click. A shell that never renders is now `form_not_ready`
+  (recoverable) instead of `resume_control_missing`.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/browser.py` (`FIND_APPLY_ROOT_JS`),
+  `src/tools/forms.py` (`STEP_IDENTITY_JS`, `TYPEAHEAD_COMMIT_JS`),
+  `src/tools/linkedin_easy_apply_fill/form_queries/scripts.py`,
+  `src/tools/linkedin_easy_apply_fill/field_filling.py`,
+  `src/tools/linkedin_easy_apply_fill/form_walk.py`,
+  `src/tools/self_healing/fingerprint.py`; unit
+  `test_task4_waits_for_a_modal_that_renders_before_its_fields`; live
+  `test_task4_waits_for_a_sdui_dialog_to_render_its_fields` (heading-only
+  `<dialog>` + page-level Next + uncommitted city typeahead) and
+  `test_step_identity_ignores_transient_typeahead_text`; full unit suite; live
+  Task 4 fill suite (13/13) and live self-healing suite (4/4).
+  Live re-run of the same job: the walk advanced `1/6 → 5/6`, selected the listed
+  resume `Shakti_KC_Resume_AgenticAI (1) (1).pdf`, and stopped on the genuinely
+  unanswered required question "Share a spec, skill or multi-agent workflow…"
+  (Task 5/human), not on a structural resume/advance failure. Bundle
+  `C:\Users\shakt\OneDrive\Desktop\project\AutoJobApply\data\debug\self_healing\20261026-091205-718497-63d38a2eb8e7`;
+  captured 2026-10-26T09:12:05.887682+00:00; commit `(uncommitted)`.
+- **Failure fingerprint:** `63d38a2eb8e7a6448b9c`
+- **Occurrences:** 1 (first 2026-10-26T09:12:05+00:00)
+
+### BUG-057 — a required LLM-answered radio lost its marker → "required field was not filled"
+
+- **Symptom:** on the Hays Easy Apply form (`4/4 pages · Review your application`) the
+  required radio **"Have you implemented and integrated AI voice, conversational AI
+  or chatbot platforms into production environments, incl integration with business
+  systems such as CRM, contact centre, ERP or ecommerce?"** was recorded
+  `known=true, filled=false, error="field element not found"` (the LLM had chosen the
+  stored answer **Yes**). The fill node reported `required fields were not filled: …`
+  and the self-healing loop classified it `required_field_not_filled` (recoverable).
+  The review page (`page.txt`/`dom.html`) showed the question already answered **Yes**.
+- **Root cause:** the same stale-marker class as BUG-053/BUG-055, but for an
+  **LLM-answered** radio rather than a human-answered one. When the LLM chose the
+  stored answer, the fill looked up the cached `data-autojob-fill` marker on the
+  option label; the model round-trip gives React time to re-render the marked
+  wrapper away, so `_marker_element` returned `None` and `_apply` recorded
+  `field element not found` even though the group already held (or could still hold)
+  the answer. BUG-055's fix only covered `source == "human"`, so the LLM path
+  (`source == "llm"`) kept failing.
+- **Fix:** Repair command completed and its tests passed; the same job was then reopened and filled.
+  did not come from the human, re-resolve a **radio** group by its stable native
+  `name` — the new `checkbox_groups.remark_radio_by_name` /
+  `REMARK_RADIO_BY_NAME_JS` finds the option whose visible text matches the answer,
+  re-marks it, and the normal click path fills it. A no-match still reports the
+  original `field element not found`, so a genuinely missing control is unchanged.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/linkedin_easy_apply_fill/checkbox_groups.py`
+  (`REMARK_RADIO_BY_NAME_JS`, `remark_radio_by_name`),
+  `src/tools/linkedin_easy_apply_fill/field_filling.py` (`_apply`); unit
+  `test_fill_step_re_resolves_a_stale_radio_marker_by_name` (fails before the fix
+  with `filled == 0`, passes after); live
+  `test_task4_llm_answered_radio_survives_a_stale_marker_live` (real Chromium: the
+  chooser re-renders the marked wrappers away, the fill re-resolves the group by
+  `name`, clicks **Yes**, and reaches the terminal step; fails before the fix with
+  `filled_fields == 0`); full unit suite; live Task 4 fill suite (14/14) and live
+  self-healing suite (4/4); bundle
+  `C:\Users\shakt\OneDrive\Desktop\project\AutoJobApply\data\debug\self_healing\20261026-095039-963174-e8dcc79d516c`;
+  captured 2026-10-26T09:50:40.336477+00:00; commit `(uncommitted)`. The live
+  verification used the exact LinkedIn role-radio markup in a local Chromium fixture
+  (no LinkedIn login/network); the same-job live resume remains a human step.
+- **Failure fingerprint:** `e8dcc79d516ca5e04c9a`
+- **Occurrences:** 1 (first 2026-10-26T09:50:40+00:00)
+- **Recovery evidence:** bundle `C:\Users\shakt\OneDrive\Desktop\project\AutoJobApply\data\debug\self_healing\20261026-095039-963174-e8dcc79d516c`; attempts=1; run=`bbb5df0f410e48738b9db1927a4b92dd`

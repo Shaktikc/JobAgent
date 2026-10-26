@@ -94,7 +94,14 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 
 | BUG-052 | Task 4/11 — required field | SDUI required question read as optional → walk stuck as "form did not advance" | 🟢 Fixed | (uncommitted) |
 
-| BUG-053 | Self-Healing — fill | required field was not filled: no resume control found on this form step; reached the last step (only submit remains) | 🔴 Open | (pending) |
+| BUG-053 | Self-Healing — fill | a human-answered radio lost its marker → "required field was not filled" | 🟢 Fixed | (uncommitted) |
+| BUG-054 | Task 8 — loop | post-apply "resume to profile" promo modal not closed → no next job | 🟢 Fixed | (uncommitted) |
+
+| BUG-055 | Task 4 — fill | a human-answered radio lost its marker → "required field was not filled" | 🟢 Fixed | (uncommitted) |
+
+| BUG-056 | Task 4 — SDUI walk | heading/page root before controls + uncommitted city typeahead → false "advance", no resume attached | 🟢 Fixed | (uncommitted) |
+
+| BUG-057 | Task 4 — fill | an LLM-answered radio lost its marker → "required field was not filled" | 🟢 Fixed | (auto-recorded) |
 
 ## Template for new entries
 

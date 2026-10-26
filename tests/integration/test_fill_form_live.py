@@ -36,6 +36,7 @@ from src.state import Task5Outcome
 from src.tools import browser as browser_tools
 from src.tools.answers import normalize_question
 from src.tools.llm_answers import QuestionDecision
+from src.tools.self_healing.fingerprint import fill_failure_reason
 
 pytest.importorskip("browser_use")
 
@@ -297,8 +298,10 @@ _FORM_HTML_2026 = """<!doctype html>
       <div class="jobs-easy-apply-form-section__grouping">
         <span class="fb-form-element-label">Are you authorised to work in Australia?</span>
         <div class="fb-form-element-wrapper">
-          <div class="fb-dash-form-element" role="radio" aria-checked="false" data-option="Yes"><span>Yes</span></div>
-          <div class="fb-dash-form-element" role="radio" aria-checked="false" data-option="No"><span>No</span></div>
+          <div class="fb-dash-form-element" role="radio" aria-checked="false"
+               data-option="Yes"><span>Yes</span></div>
+          <div class="fb-dash-form-element" role="radio" aria-checked="false"
+               data-option="No"><span>No</span></div>
         </div>
       </div>
       <div class="jobs-easy-apply-form-section__grouping">
@@ -316,7 +319,8 @@ _FORM_HTML_2026 = """<!doctype html>
   </div>
   <footer class="artdeco-modal__actionbar">
     <button aria-label="Continue to next step" id="next-btn">Next</button>
-    <button aria-label="Submit application" id="submit-btn" style="display:none">Submit application</button>
+    <button aria-label="Submit application" id="submit-btn"
+            style="display:none">Submit application</button>
   </footer>
 </div>
 <script>
@@ -662,6 +666,219 @@ async def test_task4_fills_inline_hashed_class_form(tmp_path: Path) -> None:
     assert outcome.resume_attached is True
     assert observed["files"] == 1
     assert outcome.submitted is False
+
+
+# LinkedIn's newer SDUI Easy Apply uses a native <dialog> with hashed classes and
+# no role/artdeco hooks. It renders the "Apply to <company>" heading first and the
+# fields/footer a moment later; the page also carries an unrelated "Next" button,
+# which the old ancestor-climb could mistake for the form (BUG-056).
+_LATE_DIALOG_FORM_HTML = """<!doctype html>
+<html><head><meta charset="utf-8"><title>Apply</title></head>
+<body>
+<button id="wrong-next" type="button">Next</button>
+<dialog open class="l4jlpi l4jlph">
+  <header><h2>Apply to Late Co</h2></header>
+  <div id="dialog-body"></div>
+  <footer id="dialog-footer"></footer>
+</dialog>
+<script>
+  window.__wrong_next = false;
+  window.__submitted = false;
+  window.__step = 0;
+  window.__city_committed = false;
+  document.getElementById('wrong-next').addEventListener('click', function () {
+    window.__wrong_next = true;
+  });
+
+  function renderSuggestions() {
+    if (document.getElementById('city-options')) return;
+    var wrap = document.getElementById('city-wrap');
+    var box = document.createElement('div');
+    box.id = 'city-options';
+    box.setAttribute('role', 'listbox');
+    ['Sydney, New South Wales, Australia',
+     'North Sydney, New South Wales, Australia'].forEach(function (text) {
+      var option = document.createElement('div');
+      option.setAttribute('role', 'option');
+      option.textContent = text;
+      option.addEventListener('click', function () {
+        var input = document.getElementById('city');
+        input.value = text;
+        input.setAttribute('data-committed', '1');
+        window.__city_committed = true;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        box.remove();
+        var status = document.getElementById('city-status');
+        if (status) status.remove();
+      });
+      box.appendChild(option);
+    });
+    wrap.appendChild(box);
+    var status = document.createElement('div');
+    status.id = 'city-status';
+    status.setAttribute('role', 'status');
+    status.textContent = '2 suggestions available, use up and down arrow keys to navigate';
+    wrap.appendChild(status);
+  }
+
+  function toggleSuggestions() {
+    var box = document.getElementById('city-options');
+    if (box) {
+      box.remove();
+      var status = document.getElementById('city-status');
+      if (status) status.remove();
+    } else {
+      renderSuggestions();
+    }
+  }
+
+  // The heading is already in the DOM; the real controls arrive after a pause.
+  setTimeout(function () {
+    document.getElementById('dialog-body').innerHTML =
+      '<div><label for="phone">Mobile phone number*</label>' +
+      '<input id="phone" name="phone" type="text" required></div>' +
+      '<div id="city-wrap"><p>Location (city)*</p>' +
+      '<input id="city" name="city" type="text" role="combobox"' +
+      ' aria-autocomplete="list" aria-owns="city-options"' +
+      ' placeholder="Enter city or location"></div>';
+    document.getElementById('city').addEventListener('input', function () {
+      setTimeout(renderSuggestions, 100);
+    });
+    document.getElementById('dialog-footer').innerHTML =
+      '<button id="next" type="button">Next</button>';
+    window.__step = 1;
+    document.getElementById('next').addEventListener('click', function () {
+      var city = document.getElementById('city');
+      if (city && city.value && city.getAttribute('data-committed') !== '1') {
+        // An uncommitted typeahead keeps the form on this step and toggles the
+        // suggestion list, which used to look like a new step (BUG-056).
+        toggleSuggestions();
+        return;
+      }
+      document.getElementById('dialog-body').innerHTML =
+        '<p>Review your application.</p>';
+      document.getElementById('dialog-footer').innerHTML =
+        '<button id="submit" type="button">Submit application</button>';
+      window.__step = 2;
+      document.getElementById('submit').addEventListener('click', function () {
+        window.__submitted = true;
+      });
+    });
+  }, 800);
+</script>
+</body></html>
+"""
+
+_READ_LATE_DIALOG_JS = """() => JSON.stringify({
+  step: window.__step,
+  wrong_next: window.__wrong_next === true,
+  submitted: window.__submitted === true,
+  city_committed: window.__city_committed === true
+})"""
+
+
+async def test_task4_waits_for_a_sdui_dialog_to_render_its_fields(tmp_path: Path) -> None:
+    """A native <dialog> heading-only shell is found and filled, not page-level.
+
+    The heading renders before the controls, and the page has an unrelated "Next"
+    button. The walk must use the dialog (never the page heading or the page's
+    Next) and wait for the fields rather than treating the shell as terminal.
+    """
+    form_file = tmp_path / "late_dialog_apply.html"
+    form_file.write_text(_LATE_DIALOG_FORM_HTML, encoding="utf-8")
+
+    settings = _settings(tmp_path)
+    browser = browser_tools.build_browser(settings)
+    await browser.start()
+    try:
+        page = await browser.new_page()
+        await page.goto(form_file.as_uri())
+        await browser_tools._wait_for_load(page, 10)
+
+        answers = {
+            "mobile phone number": "+61 400 000 000",
+            "enter city or location": "Sydney, New South Wales, Australia",
+        }
+        outcome = await browser_tools._task4_on_page(
+            page,
+            browser,
+            None,
+            answers,
+            settings,
+            lambda _m: None,
+            chooser=_store_chooser(answers),
+        )
+        observed = json.loads(await page.evaluate(_READ_LATE_DIALOG_JS))
+    finally:
+        await browser.kill()
+
+    assert outcome.form_open is True
+    assert outcome.fields_enumerated >= 2
+    assert outcome.filled_fields >= 2
+    assert outcome.steps_advanced == 1
+    assert outcome.reached_terminal_step is True
+    assert outcome.submitted is False
+    # The page's unrelated Next was never clicked; the dialog's Next advanced it.
+    assert observed["wrong_next"] is False
+    assert observed["step"] == 2
+    # The city combobox's matching suggestion was clicked, so Next accepted it.
+    assert observed["city_committed"] is True
+
+
+# The step identity must not change when a typeahead's suggestion list or its
+# live "N suggestions available" status appears/disappears; otherwise a Next click
+# that did not advance looks like progress and the walk loops on the same step.
+_TRANSIENT_STEP_HTML = """<!doctype html>
+<html><head><meta charset="utf-8"><title>Step</title></head>
+<body>
+<dialog open>
+  <h2>Apply to Transient Co</h2>
+  <p>1/2 pages</p>
+  <label for="city">Location (city)*</label>
+  <input id="city" role="combobox" aria-autocomplete="list" aria-owns="city-options">
+  <div id="city-slot"></div>
+  <footer><button type="button">Next</button></footer>
+</dialog>
+</body></html>
+"""
+
+_TOGGLE_SUGGESTIONS_JS = """() => {
+  const slot = document.getElementById('city-slot');
+  if (slot.childElementCount) {
+    slot.innerHTML = '';
+    return 'closed';
+  }
+  slot.innerHTML =
+    '<div id="city-options" role="listbox">' +
+    '<div role="option">Sydney, New South Wales, Australia</div>' +
+    '<div role="option">North Sydney, New South Wales, Australia</div></div>' +
+    '<div role="status">2 suggestions available, use up and down arrow keys to navigate</div>';
+  return 'open';
+}"""
+
+
+async def test_step_identity_ignores_transient_typeahead_text(tmp_path: Path) -> None:
+    """Opening/closing suggestions must not look like a new Easy Apply step."""
+    form_file = tmp_path / "transient_step.html"
+    form_file.write_text(_TRANSIENT_STEP_HTML, encoding="utf-8")
+
+    settings = _settings(tmp_path)
+    browser = browser_tools.build_browser(settings)
+    await browser.start()
+    try:
+        page = await browser.new_page()
+        await page.goto(form_file.as_uri())
+        await browser_tools._wait_for_load(page, 10)
+
+        _opened, _title, _fields, before = await browser_tools.read_form(page)
+        assert await page.evaluate(_TOGGLE_SUGGESTIONS_JS) == "open"
+        _opened, _title, _fields, opened = await browser_tools.read_form(page)
+        assert await page.evaluate(_TOGGLE_SUGGESTIONS_JS) == "closed"
+        _opened, _title, _fields, closed = await browser_tools.read_form(page)
+    finally:
+        await browser.kill()
+
+    assert before == opened == closed
 
 
 # A one-step form with a single required, unknown question. The agent must pause
@@ -1184,3 +1401,117 @@ async def test_task5_reads_linkedin_role_radio_and_its_inner_input(tmp_path: Pat
         assert stored[key] == "No"
     finally:
         await browser.kill()
+
+
+# The exact LinkedIn role=radio shape (a ``div[role=radio]`` whose aria-label is
+# the question, wrapping a native input with the group ``name`` and the option
+# text in a nested ``<p>``). ``window.__rerenderRadios`` replaces each marked
+# wrapper with a clone that has dropped ``data-autojob-fill``, the way React
+# re-renders the group away while the LLM is choosing an answer (BUG-057).
+_STALE_ROLE_RADIO_HTML = """<!doctype html>
+<html><head><meta charset="utf-8"><title>Task 4 stale radio</title></head>
+<body>
+<div class="artdeco-modal jobs-easy-apply-modal" role="dialog">
+  <div class="artdeco-modal__content">
+    <h3>Apply to Hays</h3>
+    <div class="hcbwrap">
+      <div role="radio" tabindex="0" aria-checked="false" data-option="Yes"
+           aria-label="Have you implemented and integrated AI voice, conversational
+                       AI or chatbot platforms into production environments?">
+        <div><div>
+          <input id="_r_1j_" type="radio" name="radio-group-_r_1g_">
+          <label for="_r_1j_"></label>
+        </div><div><p>Yes</p></div></div>
+      </div>
+      <div role="radio" tabindex="0" aria-checked="false" data-option="No"
+           aria-label="Have you implemented and integrated AI voice, conversational
+                       AI or chatbot platforms into production environments?">
+        <div><div>
+          <input id="_r_1i_" type="radio" name="radio-group-_r_1g_">
+          <label for="_r_1i_"></label>
+        </div><div><p>No</p></div></div>
+      </div>
+    </div>
+  </div>
+  <footer class="artdeco-modal__actionbar">
+    <button type="button" id="submit-btn">Submit application</button>
+  </footer>
+</div>
+<script>
+  document.addEventListener('click', function (e) {
+    const r = e.target.closest && e.target.closest('[role="radio"]');
+    if (!r) return;
+    const group = r.parentElement;
+    group.querySelectorAll('[role="radio"]').forEach(function (x) {
+      x.setAttribute('aria-checked', 'false');
+      const i = x.querySelector('input');
+      if (i) { i.checked = false; i.removeAttribute('checked'); }
+    });
+    r.setAttribute('aria-checked', 'true');
+    const input = r.querySelector('input');
+    if (input) { input.checked = true; input.setAttribute('checked', ''); }
+  });
+  window.__rerenderRadios = function () {
+    document.querySelectorAll('[role="radio"]').forEach(function (r) {
+      const clone = r.cloneNode(true);
+      clone.removeAttribute('data-autojob-fill');
+      r.replaceWith(clone);
+    });
+  };
+</script>
+</body></html>
+"""
+
+
+async def test_task4_llm_answered_radio_survives_a_stale_marker_live(tmp_path: Path) -> None:
+    """BUG-057 live: an LLM-answered radio is still filled after the marker goes stale.
+
+    The chooser re-renders the marked radio wrappers (dropping ``data-autojob-fill``)
+    before returning the stored "Yes", exactly as React can while the model is
+    thinking. The group's native ``name`` survives, so the fill must re-resolve it
+    by name, click "Yes", and not stop as "required fields were not filled".
+    """
+    settings = _settings(tmp_path)
+
+    form_file = tmp_path / "stale_radio.html"
+    form_file.write_text(_STALE_ROLE_RADIO_HTML, encoding="utf-8")
+
+    browser = browser_tools.build_browser(settings)
+    await browser.start()
+    try:
+        page = await browser.new_page()
+        await page.goto(form_file.as_uri())
+        await browser_tools._wait_for_load(page, 10)
+
+        async def chooser(question: str, field_type: str, options: list[str]):
+            # Simulate React re-rendering the marked wrapper away mid-decision.
+            await page.evaluate("() => window.__rerenderRadios()")
+            return QuestionDecision(
+                question=question,
+                category="experience",
+                answer="Yes",
+                matched_key="production ai",
+                rationale="stored production experience",
+            )
+
+        outcome = await browser_tools._task4_on_page(
+            page, browser, None, {}, settings, lambda _m: None, chooser=chooser
+        )
+
+        checked = await page.evaluate(
+            "() => document.querySelector('[role=\"radio\"][data-option=\"Yes\"]')"
+            ".getAttribute('aria-checked')"
+        )
+
+        assert outcome.filled_fields == 1
+        assert outcome.reached_terminal_step is True
+        assert outcome.submitted is False
+        record = outcome.fields[0]
+        assert record.filled is True
+        assert record.error == ""
+        assert record.answered_by == "llm"
+        assert str(checked).lower() == "true"
+        assert "required fields were not filled" not in fill_failure_reason(outcome)
+    finally:
+        await browser.kill()
+

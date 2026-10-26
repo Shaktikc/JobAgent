@@ -15,6 +15,7 @@ from typing import Any
 
 CATEGORY_LABELS = {
     "form_not_found": "Easy Apply form not found",
+    "form_not_ready": "Easy Apply form did not finish rendering",
     "form_did_not_advance": "form did not advance to a new step",
     "navigation_missing": "navigation button disappeared",
     "navigation_disabled": "the only navigation button is disabled",
@@ -35,6 +36,7 @@ CATEGORY_LABELS = {
 _RECOVERABLE = frozenset(
     {
         "form_not_found",
+        "form_not_ready",
         "form_did_not_advance",
         "navigation_missing",
         "navigation_disabled",
@@ -104,6 +106,8 @@ def classify_failure(
     # A stuck or disappearing navigation is the real, actionable stop; the
     # "no resume control" note is only a soft signal (the resume step often comes
     # later), so the advance failures are classified first (BUG-048).
+    if "did not finish rendering" in combined:
+        return "form_not_ready"
     if "form did not advance" in combined or "did not reach the final" in combined:
         return "form_did_not_advance"
     if "navigation button disappeared" in combined:
@@ -221,7 +225,12 @@ def fill_failure_reason(task4: Any) -> str:
         )
 
     notes = _normalize(getattr(task4, "notes", ""))
-    if "form did not advance" in notes:
+    if "did not finish rendering" in notes:
+        return (
+            "fill: the Easy Apply form did not finish rendering its fields or "
+            "navigation buttons"
+        )
+    if "form did not advance" in notes or "did not reach the final" in notes:
         return "fill: form did not advance to a new step"
     if "only navigation button is disabled" in notes:
         return "fill: the only navigation button is disabled"

@@ -187,8 +187,141 @@ async def test_task4_retries_a_swallowed_next_click_once(tmp_path) -> None:
     assert "form did not advance" not in outcome.notes
 
 
+class _LateRenderForm(_FakeForm):
+    """A form whose modal/heading renders before its fields and footer (BUG-056)."""
+
+    def __init__(self, steps, buttons_per_step, *, shell_reads: int) -> None:
+        super().__init__(steps, buttons_per_step)
+        self.shell_reads = shell_reads
+
+    async def evaluate(self, js: str, *args):
+        if self.shell_reads > 0:
+            if "data-autojob-fill" in js:
+                self.shell_reads -= 1
+                return json.dumps(
+                    {"open": True, "title": "", "step": "text:shell", "fields": []}
+                )
+            if "data-autojob-btn" in js:
+                # Only the modal's dismiss control is rendered so far: it must not
+                # be mistaken for a terminal step.
+                return json.dumps(
+                    {"buttons": [{"marker": "x", "text": "Dismiss", "disabled": False}]}
+                )
+            if "data-autojob-resume" in js:
+                return json.dumps({"options": [], "fileInput": False})
+        return await super().evaluate(js, *args)
+
+
+async def test_task4_waits_for_a_modal_that_renders_before_its_fields(tmp_path) -> None:
+    """A heading-only modal shell is not the terminal step (BUG-056).
+
+    LinkedIn's SDUI Easy Apply opens the ``<dialog>`` and its "Apply to ..."
+    heading before the contact fields and footer. The old walk read zero fields
+    and zero navigation buttons, assumed only Submit remained, and returned with
+    no resume attached. It must wait for the step to render instead.
+    """
+    contact = {
+        "marker": "f0",
+        "kind": "input",
+        "type": "text",
+        "name": "phone",
+        "question": "Mobile phone number",
+        "option": "",
+        "required": True,
+        "checked": False,
+        "value": "0400 000 000",
+        "options": [],
+    }
+    form = _LateRenderForm(
+        steps=[
+            {"open": True, "title": "Apply to BizCover", "step": "1/2 pages", "fields": [contact]},
+            {
+                "open": True,
+                "title": "Apply to BizCover",
+                "step": "2/2 pages",
+                "fields": [],
+            },
+        ],
+        buttons_per_step=[
+            [{"marker": "b0", "text": "Next", "disabled": False}],
+            [{"marker": "b1", "text": "Submit application", "disabled": False}],
+        ],
+        shell_reads=2,
+    )
+    form.buttons = {
+        "b0": _FakeButton(form._advance),
+        "b1": _FakeButton(),
+    }
+
+    outcome = await fill_tools._task4_on_page(
+        form,
+        None,
+        None,
+        {},
+        _settings(tmp_path, easy_apply_timeout_seconds=2.0),
+        lambda _m: None,
+    )
+
+    assert outcome.form_open is True
+    assert outcome.steps_advanced == 1
+    assert outcome.reached_terminal_step is True
+    assert outcome.submitted is False
+    assert form.buttons["b0"].clicked is True
+    assert form.buttons["b1"].clicked is False
+    assert "did not finish rendering" not in outcome.notes
+
+
+async def test_task4_human_answered_radio_survives_a_stale_marker(monkeypatch, tmp_path) -> None:
+    """BUG-055: a radio the human answered in Task 5 must not be reported unfilled.
+
+    When the human answers a radio in the real form, React re-renders the marked
+    wrapper away, so the cached ``data-autojob-fill`` marker is gone by the time
+    the fill applies the human's answer. The answer is already on the form, so the
+    walk must record the field as filled (not ``field element not found``) and
+    must not stop as "required fields were not filled".
+    """
+    question = "Are you available for a full-time contract?"
+    fields = [
+        {
+            "marker": marker,
+            "kind": "radio",
+            "type": "radio",
+            "name": "radio-group-_r_6r_",
+            "question": question,
+            "option": option,
+            "required": True,
+            "checked": False,
+        }
+        for marker, option in (("f0", "Yes"), ("f1", "No"))
+    ]
+    form = _make_form(
+        steps=[{"open": True, "title": "Apply to Acme", "step": "1/1 pages", "fields": fields}],
+        buttons_per_step=[[{"marker": "b0", "text": "Submit application", "disabled": False}]],
+    )
+
+    async def fake_ask(page, question_, field_type, hint, settings, notify, task5=None, **kwargs):
+        return "Yes"
+
+    monkeypatch.setattr(fill_tools.form_walk, "ask_human_for_answer", fake_ask)
+
+    outcome = await fill_tools._task4_on_page(
+        form, None, None, {}, _settings(tmp_path, ask_human=True), lambda _m: None
+    )
+
+    assert outcome.known_fields == 1
+    assert outcome.filled_fields == 1
+    assert outcome.reached_terminal_step is True
+    assert outcome.submitted is False
+    record = outcome.fields[0]
+    assert record.filled is True
+    assert record.error == ""
+    assert record.answered_by == "human"
+    assert "required fields were not filled" not in fill_failure_reason(outcome)
+
+
 async def test_task4_waits_for_a_slow_review_step_to_render(tmp_path) -> None:
     """Review is clicked, the next step renders a moment later — do not stop early."""
+
     def step(identity: str) -> dict:
         return {
             "open": True,
@@ -220,6 +353,22 @@ async def test_task4_waits_for_a_slow_review_step_to_render(tmp_path) -> None:
     assert outcome.reached_terminal_step is True
     assert outcome.submitted is False
     assert "form did not advance" not in outcome.notes
+
+
+def test_a_form_that_never_renders_is_classified_as_not_ready() -> None:
+    """An open modal shell that never shows controls is recoverable, not a resume bug."""
+    outcome = Task4Outcome(
+        form_open=True,
+        resume_attached=False,
+        notes=(
+            "the Easy Apply form did not finish rendering its fields or "
+            "navigation buttons"
+        ),
+    )
+
+    assert classify_failure("", outcome) == "form_not_ready"
+    assert is_recoverable("form_not_ready", outcome) is True
+    assert "did not finish rendering" in fill_failure_reason(outcome)
 
 
 def test_a_stuck_step_with_a_required_unknown_question_is_not_retried() -> None:

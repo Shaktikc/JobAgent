@@ -16,7 +16,7 @@ import time
 from src.configuration import Settings
 from src.state import FormField, Task4Outcome, Task5Outcome
 from src.tools.browser import _append_note, _marker_element, _pace, _safe
-from src.tools.forms import looks_like_next, pick_next_button
+from src.tools.forms import looks_like_next, looks_like_submit, pick_next_button
 from src.tools.linkedin_ask_human import ask_human_for_answer
 from src.tools.linkedin_easy_apply_fill.field_filling import _choice_hint, _fill_step
 from src.tools.linkedin_easy_apply_fill.form_queries import read_form, read_form_buttons
@@ -47,6 +47,65 @@ def _form_signature(title: str, fields: list[dict], step: str = "") -> str:
     return "\n".join(parts)
 
 
+def _step_has_controls(fields: list[dict], buttons: list[dict]) -> bool:
+    """True when a read step has rendered something the walk can act on.
+
+    LinkedIn's newer SDUI Easy Apply renders the ``<dialog>`` and its heading
+    before the contact fields and navigation footer. Such an empty shell is *not*
+    a terminal step: it must be re-read until the step renders. A step is ready
+    when it has fillable fields or a navigation/submit button (a dismiss button
+    is not navigation).
+    """
+    if fields:
+        return True
+    return any(
+        looks_like_next(str(button.get("text") or ""))
+        or looks_like_submit(str(button.get("text") or ""))
+        for button in buttons
+    )
+
+
+async def _step_when_ready(
+    page,
+    settings: Settings,
+    opened: bool,
+    title: str,
+    fields: list[dict],
+    step: str,
+) -> tuple[bool, str, list[dict], str, bool, list[dict] | None]:
+    """Wait for a just-opened Easy Apply step to finish rendering (BUG-056).
+
+    The modal's heading can appear well before its fields and footer, and an empty
+    read used to look like the terminal step (no Next) — so the walk stopped with
+    no resume and no fields. Poll for real controls up to the easy-apply timeout
+    and report ``ready=False`` when the form never renders them.
+
+    When the step has no fields the buttons read here are returned so the caller
+    can reuse them after filling (nothing was filled), instead of reading them a
+    second time; a fake/lagging page that advances its button state on every read
+    would otherwise look like the step had changed.
+    """
+    if not opened or fields:
+        return opened, title, fields, step, bool(opened), None
+
+    buttons = await read_form_buttons(page)
+    if _step_has_controls(fields, buttons):
+        return opened, title, fields, step, True, buttons
+
+    deadline = time.monotonic() + settings.session.easy_apply_timeout_seconds
+    while time.monotonic() < deadline:
+        await asyncio.sleep(min(0.5, max(deadline - time.monotonic(), 0)))
+        opened, title, fields, step = await read_form(page)
+        if not opened:
+            return opened, title, fields, step, False, buttons
+        if fields:
+            return opened, title, fields, step, True, None
+        buttons = await read_form_buttons(page)
+        if _step_has_controls(fields, buttons):
+            return opened, title, fields, step, True, buttons
+    return opened, title, fields, step, False, buttons
+
+
 def _blocking_questions(records: list[FormField]) -> list[str]:
     """Required questions on a step that are still unanswered or unfilled.
 
@@ -75,6 +134,19 @@ def _blocked_note(prefix: str, blocking: list[str]) -> str:
             + " - stopping before Submit"
         )
     return f"{prefix}; stopping before Submit"
+
+
+async def _blur_active(page) -> None:
+    """Drop focus (and any open autocomplete list) before clicking Next.
+
+    A focused typeahead can swallow the first navigation click while it closes its
+    suggestion list; blurring first makes the click land on Next (BUG-056).
+    """
+    await _safe(
+        page.evaluate(
+            "() => { const el = document.activeElement; if (el && el.blur) el.blur(); }"
+        )
+    )
 
 
 async def _task4_on_page(
@@ -190,6 +262,7 @@ async def _task4_on_page(
                     )
                     retry_element = await _marker_element(page, "data-autojob-btn", retry["marker"])
                     if retry_element is not None:
+                        await _blur_active(page)
                         await _safe(retry_element.click())
                         if settings.session.post_click_wait_seconds:
                             await asyncio.sleep(settings.session.post_click_wait_seconds)
@@ -216,6 +289,26 @@ async def _task4_on_page(
                 break
             outcome.steps_advanced += 1
             pending_advance = False
+
+        # The next step's heading can render before its controls (SDUI). Re-read
+        # until the step is actionable instead of mistaking an empty shell for the
+        # terminal step (BUG-056).
+        opened, title, fields, step, ready, ready_buttons = await _step_when_ready(
+            page, settings, opened, title, fields, step
+        )
+        if not opened:
+            outcome.notes = _append_note(
+                outcome.notes, "the Easy Apply form closed while its step was rendering"
+            )
+            break
+        if not ready:
+            outcome.notes = _append_note(
+                outcome.notes,
+                "the Easy Apply form did not finish rendering its fields or "
+                "navigation buttons",
+            )
+            break
+        signature = _form_signature(title, fields, step)
         previous = signature
 
         outcome.form_open = True
@@ -238,7 +331,9 @@ async def _task4_on_page(
         if resume_path and not outcome.resume_attached:
             await _attach_resume(page, session, resume_path, settings, outcome, notify)
 
-        buttons = await read_form_buttons(page)
+        buttons = (
+            ready_buttons if ready_buttons is not None else await read_form_buttons(page)
+        )
         button = pick_next_button(buttons)
         if button is None:
             # No enabled Next/Continue on this step. Say *why* we stopped: a
@@ -270,11 +365,19 @@ async def _task4_on_page(
         blocking = _blocking_questions(records)
         notify(f"Task 4: advancing form step via {button.get('text')!r}.")
         emit_step(notify, f"Please wait - moving on via {button.get('text')!r}...")
+        await _blur_active(page)
         await _safe(element.click())
         pending_advance = True
         if settings.session.post_click_wait_seconds:
             await asyncio.sleep(settings.session.post_click_wait_seconds)
         await _pace(settings)
+    else:
+        # The safety cap was reached without a clear advance/terminal stop: name
+        # it instead of ending silently with only "no resume control" (BUG-056).
+        outcome.notes = _append_note(
+            outcome.notes,
+            f"form did not reach the final step within {_MAX_FORM_STEPS} steps",
+        )
 
     outcome.page_url = await _safe(page.get_url(), None)
     return outcome

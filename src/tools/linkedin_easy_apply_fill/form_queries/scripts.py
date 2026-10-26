@@ -13,7 +13,7 @@ The async readers that wrap these scripts live in
 from __future__ import annotations
 
 from src.tools.browser import FIND_APPLY_ROOT_JS
-from src.tools.forms import REQUIRED_MARKER_JS
+from src.tools.forms import REQUIRED_MARKER_JS, STEP_IDENTITY_JS
 from src.tools.linkedin_easy_apply_fill.checkbox_groups import GROUP_QUESTION_JS
 
 # Enumerate the Easy Apply form's controls (Task 4). Each control gets a
@@ -219,24 +219,9 @@ _ENUMERATE_FORM_QUERY = r"""
     });
   });
 
-  // A stable identity for the current step, so two steps that hold no fillable
-  // controls (LinkedIn's review/edit steps, e.g. "Work experience") are still
-  // told apart. The modal's whole visible text is hashed: a step always renders
-  // different content, even when it shares the modal's constant title and holds
-  // no fillable controls. The progress indicator ("3/7 pages") and the headings
-  // are kept alongside the hash so the identity stays readable in logs.
-  const modalText = norm(modal.innerText);
-  const progressMatch = modalText.match(
-    /\b\d+\s*(?:\/|of)\s*\d+\s*(?:pages?|steps?)\b/i
-  );
-  const progress = progressMatch ? progressMatch[0] : '';
-  const headings = Array.from(modal.querySelectorAll('h1, h2, h3, h4'))
-    .map((h) => norm(h.innerText)).filter(Boolean).join(' | ');
-  let textHash = 0;
-  for (let i = 0; i < modalText.length; i++) {
-    textHash = (textHash * 31 + modalText.charCodeAt(i)) | 0;
-  }
-  const step = [progress, headings, 'text:' + (textHash >>> 0)].filter(Boolean).join(' · ');
+  // A stable identity for the current step, so field-less review steps are told
+  // apart while transient typeahead/status text is ignored (see STEP_IDENTITY_JS).
+  const step = stepIdentity(modal);
 
   return JSON.stringify({ open: true, title: title, step: step, fields: fields });
 }
@@ -404,7 +389,10 @@ def _with_apply_root(query: str) -> str:
         "const modal = findApplyRoot();",
         FIND_APPLY_ROOT_JS + "\n  const modal = findApplyRoot();",
     )
-    return query.replace(_GROUP_QUESTION_PLACEHOLDER, GROUP_QUESTION_JS + REQUIRED_MARKER_JS)
+    return query.replace(
+        _GROUP_QUESTION_PLACEHOLDER,
+        GROUP_QUESTION_JS + REQUIRED_MARKER_JS + STEP_IDENTITY_JS,
+    )
 
 
 _GROUP_QUESTION_PLACEHOLDER = "// __AUTOJOB_GROUP_QUESTION__ (injected by _with_apply_root)"
