@@ -13,6 +13,7 @@ The async readers that wrap these scripts live in
 from __future__ import annotations
 
 from src.tools.browser import FIND_APPLY_ROOT_JS
+from src.tools.forms import REQUIRED_MARKER_JS
 from src.tools.linkedin_easy_apply_fill.checkbox_groups import GROUP_QUESTION_JS
 
 # Enumerate the Easy Apply form's controls (Task 4). Each control gets a
@@ -201,15 +202,15 @@ _ENUMERATE_FORM_QUERY = r"""
       const nested = el.querySelector('input[name]');
       if (nested) fieldName = nested.getAttribute('name') || '';
     }
+    const question = isChoice ? (groupLabel(el) || ownLabel(el)) : ownLabel(el);
     fields.push({
       marker: marker,
       kind: kind,
       type: type || tag,
       name: fieldName,
-      question: isChoice ? (groupLabel(el) || ownLabel(el)) : ownLabel(el),
+      question: question,
       option: isChoice ? ownLabel(el) : '',
-      required: !!el.required || el.getAttribute('aria-required') === 'true'
-        || !!(el.querySelector && el.querySelector('[required],[aria-required="true"]')),
+      required: requiredOf(el, isChoice, question),
       checked: !!el.checked || el.getAttribute('aria-checked') === 'true'
         || !!(el.querySelector && el.querySelector('input:checked,[aria-checked="true"]')),
       value: norm(el.value || ''),
@@ -394,16 +395,16 @@ def _with_apply_root(query: str) -> str:
 
     The three form queries are self-contained IIFEs, so the shared root finder
     (:data:`FIND_APPLY_ROOT_JS`) is injected where they resolve the form, and the
-    choice-group question helper (:data:`GROUP_QUESTION_JS` from
-    :mod:`~src.tools.linkedin_easy_apply_fill.checkbox_groups`) is injected where
-    the query declares the placeholder. This keeps the classic-modal and inline
-    layouts on one code path.
+    choice-group question and required-marker helpers (``GROUP_QUESTION_JS`` and
+    ``REQUIRED_MARKER_JS`` from checkbox_groups) are injected where the query
+    declares the placeholder. This keeps the classic-modal and inline layouts on
+    one code path.
     """
     query = query.replace(
         "const modal = findApplyRoot();",
         FIND_APPLY_ROOT_JS + "\n  const modal = findApplyRoot();",
     )
-    return query.replace(_GROUP_QUESTION_PLACEHOLDER, GROUP_QUESTION_JS)
+    return query.replace(_GROUP_QUESTION_PLACEHOLDER, GROUP_QUESTION_JS + REQUIRED_MARKER_JS)
 
 
 _GROUP_QUESTION_PLACEHOLDER = "// __AUTOJOB_GROUP_QUESTION__ (injected by _with_apply_root)"

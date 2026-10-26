@@ -24,7 +24,7 @@ from typing import Any
 
 from src.configuration import PROJECT_ROOT, Settings, load_settings
 from src.state import JobDescription, Task2Outcome, Task4Outcome, Task5Outcome
-from src.tools.self_healing.buglog import record_failure, update_bug
+from src.tools.self_healing.buglog import mark_exhausted, mark_fixed, record_failure
 from src.tools.self_healing.capture import capture_failure, install_console_capture
 from src.tools.self_healing.fingerprint import (
     classify_failure,
@@ -74,6 +74,23 @@ class HealResult:
     log: list[str] = field(default_factory=list)
 
 
+def _target_with_live_url(target: JobTarget | None, page_url: str) -> JobTarget:
+    """Point the reopen at the exact page the failed run was on.
+
+    The browser's address bar holds the main URL, for example
+    ``https://www.linkedin.com/jobs/search-results/?currentJobId=...``. Navigating
+    straight back to it reopens the same job's details pane and Easy Apply button,
+    which is more reliable than a reconstructed ``/jobs/view/<id>`` URL or searching
+    again. Non-LinkedIn-jobs URLs (a login or interstitial) fall back to the recorded
+    target URL so recovery never wanders off.
+    """
+    resolved = target.model_copy() if target is not None else JobTarget()
+    live = (page_url or "").strip()
+    if live.startswith(("http://", "https://")) and "linkedin.com/jobs" in live.lower():
+        resolved.url = live
+    return resolved
+
+
 def _merge_task5(first: Task5Outcome, second: Task5Outcome) -> Task5Outcome:
     """Combine Task 5 counts when the same fill is retried."""
     answered = list(first.answered_questions)
@@ -112,52 +129,6 @@ async def _default_fill(
     from src.tools.browser import fill_application
 
     return await fill_application(run_id, resume_path, settings=settings, progress=progress)
-
-
-def _fix_text(settings: Settings) -> str:
-    if (settings.self_healing.repair_command or "").strip():
-        return (
-            "Repair command completed and its tests passed; the same job was then "
-            "reopened and filled."
-        )
-    return (
-        "Automatic runtime recovery: the failed browser session was closed, the "
-        "same job was reopened, and the fill succeeded without a source change."
-    )
-
-
-def _mark_fixed(
-    failures: list[FailureRecord],
-    settings: Settings,
-    *,
-    root: Path,
-    evidence: str,
-) -> None:
-    for record in failures:
-        if not record.bug_id:
-            continue
-        with contextlib.suppress(Exception):
-            update_bug(
-                record.bug_id,
-                status="🟢 Fixed",
-                fix=_fix_text(settings),
-                evidence=evidence,
-                root=root,
-            )
-
-
-def _mark_exhausted(failures: list[FailureRecord], root: Path, attempts: int) -> None:
-    for record in failures:
-        if not record.bug_id:
-            continue
-        with contextlib.suppress(Exception):
-            update_bug(
-                record.bug_id,
-                status="🔴 Open",
-                fix="Self-healing attempts exhausted; evidence preserved for repair.",
-                note=f"Stopped after {attempts} recovery attempt(s).",
-                root=root,
-            )
 
 
 async def heal_fill_failure(
@@ -236,6 +207,12 @@ async def heal_fill_failure(
             log.append(f"self-heal: evidence capture failed: {exc}")
             break
 
+        # Reopen the exact address-bar URL captured at the crash (for example the
+        # search-results page with ``currentJobId``), not a reconstructed job URL.
+        target = _target_with_live_url(target, captured.evidence.page_url)
+        if target.url:
+            notify(f"self-heal: will reopen {target.url}")
+
         try:
             record = record_fn(captured)
         except Exception as exc:  # noqa: BLE001 - logging must not block recovery
@@ -307,9 +284,8 @@ async def heal_fill_failure(
                 )
             )
             if reload_failures:
-                outcome.stop_reason = (
-                    "repaired code could not be reloaded safely: "
-                    + "; ".join(reload_failures)
+                outcome.stop_reason = "repaired code could not be reloaded safely: " + "; ".join(
+                    reload_failures
                 )
                 errors.append(f"self-heal: {outcome.stop_reason}")
                 break
@@ -335,11 +311,10 @@ async def heal_fill_failure(
         current_description = reopened.description or current_description
         with contextlib.suppress(Exception):
             from src.tools.browser import get_reporter
+
             notify = get_reporter(current_run_id) or notify
         await install_console_capture(current_run_id)
-        log.append(
-            f"self-heal: reopened the same job (run={current_run_id}); retrying fill..."
-        )
+        log.append(f"self-heal: reopened the same job (run={current_run_id}); retrying fill...")
         notify("self-heal: reopened the same job; retrying the fill...")
 
         try:
@@ -369,11 +344,8 @@ async def heal_fill_failure(
         if not reason:
             outcome.recovered = True
             outcome.stop_reason = ""
-            evidence = (
-                f"bundle `{outcome.last_bundle}`; attempts={attempt}; "
-                f"run=`{current_run_id}`"
-            )
-            _mark_fixed(outcome.failures, settings, root=root, evidence=evidence)
+            evidence = f"bundle `{outcome.last_bundle}`; attempts={attempt}; run=`{current_run_id}`"
+            mark_fixed(outcome.failures, settings, root=root, evidence=evidence)
             log.append(f"self-heal: recovered and re-filled the same job in {attempt} attempt(s).")
             notify("self-heal: recovered - the same job is filled again.")
             return HealResult(
@@ -395,7 +367,7 @@ async def heal_fill_failure(
             f"still failing after {outcome.attempts} recovery attempt(s)"
         )
         if outcome.exhausted:
-            _mark_exhausted(outcome.failures, root, outcome.attempts)
+            mark_exhausted(outcome.failures, root, outcome.attempts)
         errors.append(f"self-heal: {outcome.stop_reason}")
         log.append(f"self-heal: stopping - {outcome.stop_reason}")
         notify(f"self-heal: stopping - {outcome.stop_reason}. Evidence preserved.")

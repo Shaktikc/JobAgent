@@ -153,7 +153,7 @@ async def _open_target(
     task2 = Task2Outcome(job_title=target.title)
     url = (target.url or "").strip()
     if url.startswith(("http://", "https://", "file:")):
-        notify("self-heal: reopening the same job URL...")
+        notify("self-heal: reopening the recorded page URL...")
         await page.goto(url)
         await _wait_for_load(page, settings.session.easy_apply_timeout_seconds)
         pane_title = await read_details_pane_job(page)
@@ -173,9 +173,7 @@ async def _open_target(
     if cards is None:
         query = quote_plus(target.search_query or title)
         notify("self-heal: the job was not on the current list; searching again...")
-        await page.goto(
-            f"https://www.linkedin.com/jobs/search/?keywords={query}&f_AL=true"
-        )
+        await page.goto(f"https://www.linkedin.com/jobs/search/?keywords={query}&f_AL=true")
         await _wait_for_load(page, settings.session.easy_apply_timeout_seconds)
         deadline = time.monotonic() + settings.session.easy_apply_timeout_seconds
         while time.monotonic() < deadline:
@@ -259,8 +257,13 @@ async def _run_command(
     cwd: Path,
     env: dict[str, str],
     timeout: float,
+    on_line: Callable[[str], None] | None = None,
 ) -> tuple[int, str]:
-    """Run a configured shell command and return ``(returncode, combined output)``."""
+    """Run a configured shell command and return ``(returncode, combined output)``.
+
+    Output streams to ``on_line`` as it arrives (a long agentic repair must not be a
+    silent black box) and is returned whole for the repair/test log.
+    """
     process = await asyncio.create_subprocess_shell(
         command,
         cwd=str(cwd),
@@ -268,15 +271,31 @@ async def _run_command(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
+    collected: list[str] = []
+
+    async def pump() -> None:
+        assert process.stdout is not None
+        async for raw in process.stdout:
+            line = raw.decode("utf-8", errors="replace")
+            collected.append(line)
+            if on_line is not None:
+                with contextlib.suppress(Exception):
+                    on_line(line.rstrip("\r\n"))
+
     try:
-        output, _ = await asyncio.wait_for(process.communicate(), timeout=timeout)
+        await asyncio.wait_for(asyncio.gather(pump(), process.wait()), timeout=timeout)
     except TimeoutError:
         with contextlib.suppress(Exception):
             process.kill()
         with contextlib.suppress(Exception):
             await process.communicate()
         return -1, f"command timed out after {timeout:.0f}s: {command}"
-    return process.returncode or 0, output.decode("utf-8", errors="replace")
+    return process.returncode or 0, "".join(collected)
+
+
+def _print_repair_line(line: str) -> None:
+    """Echo one repair/test output line to the run console as it arrives."""
+    print(f"self-heal: {line}", flush=True)
 
 
 # Modules that a repair command may have changed and that the fresh browser must
@@ -325,6 +344,19 @@ def reload_runtime_modules() -> list[str]:
     return failures
 
 
+async def _run_configured(
+    command_fn: CommandFn,
+    command: str,
+    cwd: Path,
+    env: dict[str, str],
+    timeout: float,
+) -> tuple[int, str]:
+    """Stream the built-in runner; injected test fakes keep their small signature."""
+    if command_fn is _run_command:
+        return await _run_command(command, cwd, env, timeout, on_line=_print_repair_line)
+    return await command_fn(command, cwd, env, timeout)
+
+
 async def run_repair_and_test(
     settings: Settings,
     captured: CapturedFailure,
@@ -355,14 +387,15 @@ async def run_repair_and_test(
     timeout = settings.self_healing.command_timeout_seconds
 
     notify(f"self-heal: running the repair command for {record.bug_id or 'the failure'}...")
-    code, repair_output = await command_fn(command, PROJECT_ROOT, env, timeout)
+    notify("self-heal: streaming the repair agent's output below...")
+    code, repair_output = await _run_configured(command_fn, command, PROJECT_ROOT, env, timeout)
     (bundle / "repair.log").write_text(repair_output, encoding="utf-8")
     if code != 0:
         return False, f"repair command failed with exit code {code}"
 
     test_command = (settings.self_healing.test_command or "uv run pytest -q").strip()
     notify(f"self-heal: running tests before reopening: {test_command}")
-    code, test_output = await command_fn(test_command, PROJECT_ROOT, env, timeout)
+    code, test_output = await _run_configured(command_fn, test_command, PROJECT_ROOT, env, timeout)
     (bundle / "tests.log").write_text(test_output, encoding="utf-8")
     if code != 0:
         return False, f"tests failed with exit code {code} after the repair"

@@ -22,6 +22,8 @@ same index covers runtime crashes and the recovery machinery itself.
 | BUG-048 | status overlay swallowed the Easy Apply Next click | 🟢 Fixed | (uncommitted) |
 | BUG-049 | failure screenshot captured the active tab, not the failing page | 🟢 Fixed | (uncommitted) |
 | BUG-050 | stuck walk with a listed resume never triggered self-healing | 🟢 Fixed | (uncommitted) |
+| BUG-051 | form did not advance on a contact step (modal closed mid-walk) | 🔴 Open | (pending) |
+| BUG-052 | SDUI required question read as optional → walk stopped as "form did not advance" | 🟢 Fixed | (uncommitted) |
 
 ---
 
@@ -158,3 +160,53 @@ same index covers runtime crashes and the recovery machinery itself.
 - **Evidence:** bundle `C:\Users\shakt\OneDrive\Desktop\project\AutoJobApply\data\debug\self_healing\20261026-075609-194086-db6a12a862ca`; captured 2026-10-26T07:56:09.355521+00:00
 - **Failure fingerprint:** `db6a12a862ca6b3775dc`
 - **Occurrences:** 1 (first 2026-10-26T07:56:09+00:00)
+
+### BUG-052 — a required SDUI question was read as optional, so the walk stopped as "form did not advance"
+
+- **Symptom:** on the resume step (`2/4 pages`) of a Workable Easy Apply form the
+  walk stopped with `fill: no resume control found on this form step; form did not
+  advance to a new step; stopping before Submit`. The resume was already listed and
+  selected; the real blocker was the required screening question **"Are you eligible
+  to work in this country?*"** left unanswered. The loop still classified it as a
+  recoverable `form_did_not_advance` and would retry the same job in a fresh browser.
+- **Root cause:** `_ENUMERATE_FORM_QUERY` detected `required` only from a
+  `required`/`aria-required` attribute. LinkedIn's newer SDUI Easy Apply carries
+  neither: it marks a required question with a trailing `*` in the label
+  (`<p>Are you eligible to work in this country?*</p>`) and an `error-message-<id>`
+  described-by id on the question's `fieldset` (an optional control points at an
+  `<id>-info` id instead). The eligibility radio group — and the required resume
+  radio group — were therefore read as `required=false`, so the walk could not name
+  the blocker and `classify_failure`/`fill_failure_reason` fell back to the generic
+  "form did not advance" (recoverable) instead of `required_question_unanswered`.
+- **Fix:** read the SDUI required marker in the enumeration query via a new injected
+  helper `REQUIRED_MARKER_JS` (in `checkbox_groups.py`): a control/group whose
+  described-by id starts with `error-message-`, and/or a trailing `*` in the group's
+  own question label (one hop up from the fieldset, choices only, so an unrelated
+  `*` in a shared ancestor is never picked up). Also make a required, unanswerable
+  question outrank the soft walk note in `classify_failure` and
+  `fill_failure_reason`, so the run names the question and the loop does **not**
+  waste its attempts reopening a form it cannot answer (it flows to Task 5/the human).
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/linkedin_easy_apply_fill/checkbox_groups.py`
+  (`REQUIRED_MARKER_JS`, injected by `_with_apply_root`),
+  `src/tools/linkedin_easy_apply_fill/form_queries/scripts.py` (uses `requiredOf`),
+  `src/tools/self_healing/fingerprint.py` (`classify_failure`,
+  `fill_failure_reason`); unit
+  `test_a_stuck_step_with_a_required_unknown_question_is_not_retried`; live
+  `test_task4_reads_the_sdru_required_marker` (real Chromium: the SDUI group reads
+  `required=True`, the optional textarea stays optional) plus a live walk probe that
+  stopped with `required questions are unanswered: Eligible to work?` and classified
+  `required_question_unanswered` (not recoverable); full unit suite + live Task 4
+  fill suite (11/11) + live self-healing suite (4/4); commit `(uncommitted)`.
+- **Failure fingerprint:** `bd4ac7ea2b35e7fa8437`
+- **Occurrences:** 1 (first 2026-10-26T08:02:18+00:00)
+
+### BUG-053 — required field was not filled: no resume control found on this form step; reached the last step (only submit remains)
+
+- **Symptom:** fill: required fields were not filled: Experience on Agile & Scrum ?
+- **Root cause:** Auto-classified as `required_field_not_filled` during `fill`; see the bundle for the failing step/DOM. A source-level root cause is still pending.
+- **Fix:** Pending. Recorded before any repair attempt.
+- **Status:** 🔴 Open
+- **Evidence:** bundle `C:\Users\shakt\OneDrive\Desktop\project\AutoJobApply\data\debug\self_healing\20261026-083840-711732-e6e2e833d523`; captured 2026-10-26T08:38:40.889239+00:00
+- **Failure fingerprint:** `e6e2e833d523024d8224`
+- **Occurrences:** 1 (first 2026-10-26T08:38:40+00:00)

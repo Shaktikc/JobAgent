@@ -13,6 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from scripts.self_heal_repair import (
+    SKILL_FILE,
     build_prompt,
     main,
     resolve_model,
@@ -55,6 +56,9 @@ def test_build_prompt_names_the_evidence_and_the_rules() -> None:
     assert "failure.json" in prompt
     assert "AGENTS.md" in prompt
     assert "bug_log.md" in prompt
+    # The repair agent must always apply the incremental-implementation skill.
+    assert "incremental-implementation" in prompt
+    assert str(SKILL_FILE) in prompt
     # The repair agent must obey the same hard rules as the live agent.
     assert "Submit application" in prompt
     assert "commit" in prompt
@@ -146,6 +150,8 @@ def test_main_builds_the_opencode_argv(monkeypatch, bundle: Path) -> None:
     assert argv[argv.index("--model") + 1] == "provider/model"
     assert argv[argv.index("--agent") + 1] == "build"
     assert argv[argv.index("--file") + 1] == str(report)
+    # The incremental-implementation skill is attached alongside the report.
+    assert str(SKILL_FILE) in argv
     # The prompt is positional and mentions the bug the bundle recorded.
     assert "BUG-099" in argv[-1]
     # The wrapper passes argv to the OS; it must never route the prompt through a shell.

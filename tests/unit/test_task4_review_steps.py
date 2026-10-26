@@ -20,7 +20,13 @@ import json
 import re
 
 from src.configuration import SessionSettings, Settings
+from src.state import FormField, Task4Outcome
 from src.tools import linkedin_easy_apply_fill as fill_tools
+from src.tools.self_healing.fingerprint import (
+    classify_failure,
+    fill_failure_reason,
+    is_recoverable,
+)
 
 
 class _FakeButton:
@@ -214,3 +220,34 @@ async def test_task4_waits_for_a_slow_review_step_to_render(tmp_path) -> None:
     assert outcome.reached_terminal_step is True
     assert outcome.submitted is False
     assert "form did not advance" not in outcome.notes
+
+
+def test_a_stuck_step_with_a_required_unknown_question_is_not_retried() -> None:
+    """BUG-052: an unanswered required question outranks the walk's generic note.
+
+    LinkedIn's newer SDUI form marks a required screening question only with a
+    trailing ``*`` in its label (there is no ``required``/``aria-required``
+    attribute to read), so the walk stopped with "form did not advance" while a
+    required question was left unanswered. Reopening the form cannot answer it, so
+    the stop must be classified ``required_question_unanswered`` (not recoverable)
+    and the question must be named instead of the soft walk note.
+    """
+    outcome = Task4Outcome(
+        form_open=True,
+        resume_attached=True,
+        notes="no resume control found on this form step; form did not advance to a new step",
+        fields=[
+            FormField(
+                question="Are you eligible to work in this country?",
+                required=True,
+                known=False,
+            )
+        ],
+    )
+
+    assert classify_failure("", outcome) == "required_question_unanswered"
+    assert is_recoverable("required_question_unanswered", outcome) is False
+
+    reason = fill_failure_reason(outcome)
+    assert "required questions are unanswered" in reason
+    assert "Are you eligible to work in this country?" in reason

@@ -8,13 +8,14 @@ always has evidence on disk even if the process is killed.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
-from src.configuration import PROJECT_ROOT
+from src.configuration import PROJECT_ROOT, Settings
 from src.tools.self_healing.models import CapturedFailure, FailureRecord
 
 _LOCK = threading.Lock()
@@ -107,9 +108,7 @@ def _occurrences(body: str) -> int:
 def _touch_occurrence(body: str, captured: CapturedFailure) -> str:
     stamp = datetime.now(UTC).isoformat(timespec="seconds")
     count = _occurrences(body) + 1
-    line = (
-        f"- **Occurrences:** {count} (last {stamp}; bundle `{captured.bundle_dir}`)"
-    )
+    line = f"- **Occurrences:** {count} (last {stamp}; bundle `{captured.bundle_dir}`)"
     if re.search(r"\*\*Occurrences:\*\* [^\n]*", body):
         body = re.sub(
             r"\*\*Occurrences:\*\* [^\n]*",
@@ -245,4 +244,52 @@ def update_bug(
     return True
 
 
-__all__ = ["record_failure", "update_bug"]
+def _fix_text(settings: Settings) -> str:
+    if (settings.self_healing.repair_command or "").strip():
+        return (
+            "Repair command completed and its tests passed; the same job was then "
+            "reopened and filled."
+        )
+    return (
+        "Automatic runtime recovery: the failed browser session was closed, the "
+        "same job was reopened, and the fill succeeded without a source change."
+    )
+
+
+def mark_fixed(
+    failures: list[FailureRecord],
+    settings: Settings,
+    *,
+    root: Path,
+    evidence: str,
+) -> None:
+    """Mark every recorded bug for a recovered fill as Fixed."""
+    for record in failures:
+        if not record.bug_id:
+            continue
+        with contextlib.suppress(Exception):
+            update_bug(
+                record.bug_id,
+                status="🟢 Fixed",
+                fix=_fix_text(settings),
+                evidence=evidence,
+                root=root,
+            )
+
+
+def mark_exhausted(failures: list[FailureRecord], root: Path, attempts: int) -> None:
+    """Leave every recorded bug Open when the recovery attempts are exhausted."""
+    for record in failures:
+        if not record.bug_id:
+            continue
+        with contextlib.suppress(Exception):
+            update_bug(
+                record.bug_id,
+                status="🔴 Open",
+                fix="Self-healing attempts exhausted; evidence preserved for repair.",
+                note=f"Stopped after {attempts} recovery attempt(s).",
+                root=root,
+            )
+
+
+__all__ = ["mark_exhausted", "mark_fixed", "record_failure", "update_bug"]

@@ -92,6 +92,10 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 
 | BUG-051 | Self-Healing — fill | form did not advance to a new step: no resume control found on this form step; form did not advance to a new step; stopp | 🔴 Open | (pending) |
 
+| BUG-052 | Task 4/11 — required field | SDUI required question read as optional → walk stuck as "form did not advance" | 🟢 Fixed | (uncommitted) |
+
+| BUG-053 | Self-Healing — fill | required field was not filled: no resume control found on this form step; reached the last step (only submit remains) | 🔴 Open | (pending) |
+
 ## Template for new entries
 
 Add the entry to the file for its task (or `general_bugs.md`), and add a row to

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 from pathlib import Path
 
 from src.configuration import SelfHealingSettings, Settings
@@ -24,7 +25,7 @@ from src.tools.self_healing.models import (
     JobTarget,
     SelfHealingOutcome,
 )
-from src.tools.self_healing.recovery import ReopenResult, close_run_force
+from src.tools.self_healing.recovery import ReopenResult, _run_command, close_run_force
 
 
 async def _value(value):
@@ -63,7 +64,10 @@ def _captured(tmp_path: Path) -> CapturedFailure:
         category="resume_control_missing",
         symptom="no resume control",
         bundle_dir=str(tmp_path / "bundle"),
-        evidence=FailureEvidence(error="no resume control found"),
+        evidence=FailureEvidence(
+            error="no resume control found",
+            page_url="https://www.linkedin.com/jobs/search-results/?currentJobId=4476293169",
+        ),
     )
 
 
@@ -119,9 +123,6 @@ def test_a_stuck_step_outranks_the_missing_resume_note() -> None:
         notes=("no resume control found on this form step; form did not advance to a new step"),
     )
     assert classify_failure("", outcome) == "form_did_not_advance"
-
-    # BUG-050: an already-listed resume must not turn a stuck walk into a success,
-    # or the fill node never starts self-healing.
     attached = outcome.model_copy(update={"resume_attached": True})
     errors = importlib.import_module("src.nodes.fill")._fill_errors(attached)
     assert errors and "form did not advance" in errors[0]
@@ -193,7 +194,6 @@ async def test_capture_writes_the_bundle(tmp_path: Path) -> None:
         )
     finally:
         browser_tools._ACTIVE_RUNS.pop(run_id, None)
-
     bundle = Path(captured.bundle_dir)
     assert captured.category == "resume_control_missing"
     for name in ("failure.json", "report.md", "dom.html", "page.txt", "console.log"):
@@ -261,11 +261,22 @@ async def test_close_run_force_kills_the_given_run(tmp_path, monkeypatch) -> Non
     assert "closed" in detail
 
 
+async def test_run_command_streams_output_lines(tmp_path: Path) -> None:
+    lines: list[str] = []
+    code, output = await _run_command(
+        "echo one && echo two", tmp_path, os.environ.copy(), 30, on_line=lines.append
+    )
+    assert code == 0
+    assert "one" in output and "two" in output
+    assert any("one" in line for line in lines)
+
+
 async def test_loop_recovers_by_reopening_the_same_job(tmp_path: Path) -> None:
     calls: list[str] = []
 
     async def fake_reopen(target, settings, notify):
         calls.append("reopen")
+        assert target.url.startswith("https://www.linkedin.com/jobs/search-results/")
         return _reopened()
 
     async def fake_fill(run_id, resume_path, settings=None, progress=None):

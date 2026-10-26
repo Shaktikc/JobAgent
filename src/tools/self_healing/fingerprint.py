@@ -83,6 +83,24 @@ def classify_failure(
         return "submit_clicked"
     if task4 is not None and not bool(getattr(task4, "form_open", False)):
         return "form_not_found"
+
+    # A required question the agent cannot answer is the actionable root cause and
+    # is *not* browser-recoverable: a walk that stopped with "form did not advance"
+    # because a required question was left unanswered would only stop again in a
+    # fresh browser, so it is named before the soft navigation notes (BUG-052).
+    fields = _fields_of(task4)
+    if any(
+        bool(_field_value(f, "required")) and not bool(_field_value(f, "known")) for f in fields
+    ):
+        return "required_question_unanswered"
+    if any(
+        bool(_field_value(f, "required"))
+        and bool(_field_value(f, "known"))
+        and not bool(_field_value(f, "filled"))
+        for f in fields
+    ):
+        return "required_field_not_filled"
+
     # A stuck or disappearing navigation is the real, actionable stop; the
     # "no resume control" note is only a soft signal (the resume step often comes
     # later), so the advance failures are classified first (BUG-048).
@@ -97,18 +115,6 @@ def classify_failure(
     if "resume upload failed" in combined:
         return "resume_upload_failed"
 
-    fields = _fields_of(task4)
-    if any(
-        bool(_field_value(f, "required")) and not bool(_field_value(f, "known")) for f in fields
-    ):
-        return "required_question_unanswered"
-    if any(
-        bool(_field_value(f, "required"))
-        and bool(_field_value(f, "known"))
-        and not bool(_field_value(f, "filled"))
-        for f in fields
-    ):
-        return "required_field_not_filled"
     if task4 is not None and not bool(getattr(task4, "resume_attached", False)):
         # The walk can finish a step without a resume control (it may appear on a
         # later step), but the overall fill is still incomplete.
@@ -191,23 +197,9 @@ def fill_failure_reason(task4: Any) -> str:
     if not bool(getattr(task4, "form_open", False)):
         return "fill: Easy Apply form was not found"
 
-    notes = _normalize(getattr(task4, "notes", ""))
-    if "form did not advance" in notes:
-        return "fill: form did not advance to a new step"
-    if "only navigation button is disabled" in notes:
-        return "fill: the only navigation button is disabled"
-    if "navigation button disappeared" in notes:
-        return "fill: navigation button disappeared before it could be clicked"
-    if "resume upload failed" in notes:
-        return "fill: resume upload failed"
-    if "fill raised" in notes:
-        return f"fill: {getattr(task4, 'notes', '')}"
-
-    if not bool(getattr(task4, "resume_attached", False)):
-        # "no resume control" on an early step is expected (the control usually
-        # appears later); the failure is that no step ever attached the resume.
-        return "fill: resume was not attached"
-
+    # Name a required question the agent could not answer before the generic walk
+    # notes: it is the actionable reason the step did not advance, and it is not
+    # recoverable by reopening the form (BUG-052).
     fields = _fields_of(task4)
     required_unknown = [
         f for f in fields if _field_value(f, "required") and not _field_value(f, "known")
@@ -227,6 +219,24 @@ def fill_failure_reason(task4: Any) -> str:
         return "fill: required fields were not filled: " + "; ".join(
             str(_field_value(f, "question") or _field_value(f, "name")) for f in required_unfilled
         )
+
+    notes = _normalize(getattr(task4, "notes", ""))
+    if "form did not advance" in notes:
+        return "fill: form did not advance to a new step"
+    if "only navigation button is disabled" in notes:
+        return "fill: the only navigation button is disabled"
+    if "navigation button disappeared" in notes:
+        return "fill: navigation button disappeared before it could be clicked"
+    if "resume upload failed" in notes:
+        return "fill: resume upload failed"
+    if "fill raised" in notes:
+        return f"fill: {getattr(task4, 'notes', '')}"
+
+    if not bool(getattr(task4, "resume_attached", False)):
+        # "no resume control" on an early step is expected (the control usually
+        # appears later); the failure is that no step ever attached the resume.
+        return "fill: resume was not attached"
+
     if not bool(getattr(task4, "reached_terminal_step", False)):
         return "fill: the form did not reach the final review step"
     return ""

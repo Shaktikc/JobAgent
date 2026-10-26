@@ -172,7 +172,9 @@ controls, and the exception. The bundle is written under
 `data/debug/self_healing/<timestamp>-<fingerprint>/`; `known Bugs/self_healing_bugs.md`
 gets a deduplicated `BUG-NNN` entry and `known Bugs/bug_log.md` is updated. The
 failed browser is then closed with `session.kill()` (not just detached), and the
-loop reopens the **same job URL** in a fresh Chromium session before re-filling.
+loop reopens the **exact page URL captured from the address bar** in a fresh
+Chromium session (for example the `jobs/search-results/?currentJobId=…` page), then
+clicks **Easy Apply** and re-fills the same job.
 It never clicks **Submit application**.
 
 `AUTOJOB_SELF_HEAL_REPAIR_COMMAND` is optional and opt-in. It runs after the
@@ -192,12 +194,17 @@ AUTOJOB_SELF_HEAL_TEST_COMMAND=uv run pytest -q
 ```
 
 `scripts/self_heal_repair.py` reads the bundle, builds a prompt from the AGENTS.md
-self-healing loop, and runs `opencode run --auto --file <report> "<prompt>"` in the
-project root, so the agent diagnoses the root cause, fixes the code, adds a
-regression test, and updates the bug log before the loop reopens the job. The
-repair session reuses `AUTOJOB_LLM_MODEL` by default (mapped to OpenCode's
-`openrouter/...` id); set `AUTOJOB_SELF_HEAL_REPAIR_MODEL` / `..._AGENT` to override
-the model/agent, or `AUTOJOB_SELF_HEAL_OPENCODE` when the CLI is not on `PATH`.
+self-healing loop **and the `incremental-implementation` skill** (whose `SKILL.md` is
+attached to the session), and runs `opencode run --auto --file <report> "<prompt>"` in
+the project root, so the agent diagnoses the root cause, lands the fix in thin
+testable slices, adds a regression test, and updates the bug log before the loop
+reopens the job. Its output
+**streams live** to the run console (prefixed `self-heal:`) and is also saved to the
+bundle's `repair.log`/`tests.log`; the session is titled `self-heal <BUG-ID>` so it can
+be watched in the OpenCode TUI. The repair session reuses `AUTOJOB_LLM_MODEL` by
+default (mapped to OpenCode's `openrouter/...` id); set
+`AUTOJOB_SELF_HEAL_REPAIR_MODEL` / `..._AGENT` to override the model/agent, or
+`AUTOJOB_SELF_HEAL_OPENCODE` when the CLI is not on `PATH`.
 
 ## Requirements
 

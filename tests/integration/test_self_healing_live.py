@@ -375,3 +375,41 @@ async def test_status_panel_does_not_swallow_the_next_click(tmp_path: Path) -> N
     assert outcome.reached_terminal_step is True
     assert outcome.submitted is False
     assert observed["step"] == 2
+
+
+# BUG-052: LinkedIn's newer SDUI form marks a required question only with a
+# trailing '*' in its label plus an ``error-message-*`` described-by id on the
+# fieldset (there is no required/aria-required attribute to read).
+_SDUI_REQUIRED_HTML = """<!doctype html><html><head><title>Apply</title></head><body>
+<div class="artdeco-modal jobs-easy-apply-modal" role="dialog"><div class="artdeco-modal__content">
+<div class="fb-form-element-wrapper"><p>Eligible to work?*</p>
+<fieldset aria-describedby="error-message-r2" role="radiogroup">
+<div role="radio" aria-label="Eligible to work?"><p>Yes</p></div>
+<div role="radio" aria-label="Eligible to work?"><p>No</p></div>
+</fieldset></div>
+<textarea id="cover" aria-describedby="cover-info">n/a</textarea>
+</div><footer class="artdeco-modal__actionbar"><button type="button">Next</button>
+<button type="button" style="display:none">Submit application</button></footer></div></body></html>
+"""
+
+
+async def test_task4_reads_the_sdru_required_marker(tmp_path: Path) -> None:
+    """BUG-052 regression (live DOM): the SDUI '*' marker is read as required."""
+    settings = _settings(tmp_path)
+    form_file = tmp_path / "sdru_required.html"
+    form_file.write_text(_SDUI_REQUIRED_HTML, encoding="utf-8")
+    browser = browser_tools.build_browser(settings)
+    await browser.start()
+    try:
+        page = await browser.new_page()
+        await page.goto(form_file.as_uri())
+        await browser_tools._wait_for_load(page, 10)
+        opened, fields = await browser_tools.enumerate_form_fields(page)
+    finally:
+        await browser.kill()
+
+    assert opened is True
+    eligible = [f for f in fields if (f.get("question") or "").startswith("Eligible")]
+    assert eligible and all(f["required"] for f in eligible)
+    cover = [f for f in fields if f.get("kind") == "textarea"]
+    assert cover and not cover[0]["required"]

@@ -1,8 +1,13 @@
-"""Pure helpers for Easy Apply form handling (no I/O, no browser).
+"""Pure helpers for Easy Apply form handling, plus one injected DOM-query fragment.
 
 These cover resume-name matching (so a resume already listed on the form is
 selected instead of uploaded again) and button classification (so the agent can
 advance a multi-step form but never click **Submit application**).
+
+``REQUIRED_MARKER_JS`` is the one piece of browser-side code here: it is injected
+into the enumeration query (see ``form_queries.scripts``). It lives in this module
+because the self-healing loop reloads ``src.tools.forms`` before
+``form_queries.scripts``, so the injected helper is always the reloaded one.
 """
 
 from __future__ import annotations
@@ -156,3 +161,38 @@ def pick_next_button(buttons: list[dict]) -> dict | None:
         if looks_like_next(text) and not button.get("disabled"):
             return button
     return None
+
+
+# Injected into the form-enumeration query (``_with_apply_root``) to read whether a
+# control is required even when LinkedIn's newer SDUI layout carries no
+# ``required``/``aria-required`` attribute. There the marker lives as a trailing
+# ``*`` in the question label and/or an ``error-message-*`` described-by id on the
+# group's fieldset (an optional control points at a ``-info`` id instead). It needs
+# ``norm`` from the query's own scope, so it is injected rather than imported.
+REQUIRED_MARKER_JS = r"""const requiredOf = (el, isChoice, questionText) => {
+    if (el.required || el.getAttribute('aria-required') === 'true') return true;
+    if (el.querySelector && el.querySelector('[required],[aria-required="true"]')) return true;
+    const group = el.closest('[role="radiogroup"], [role="group"], fieldset');
+    if (group) {
+      if (group.getAttribute('aria-required') === 'true') return true;
+      if (group.querySelector('[required],[aria-required="true"]')) return true;
+      if (/(^|\s)error-message-/.test(group.getAttribute('aria-describedby') || '')) return true;
+    }
+    if (/(^|\s)error-message-/.test(el.getAttribute('aria-describedby') || '')) return true;
+    const texts = [];
+    if (questionText) texts.push(questionText);
+    if (isChoice && group) {
+      const legend = group.querySelector('legend');
+      if (legend) texts.push(legend.innerText);
+    }
+    if (el.labels) Array.from(el.labels).forEach((label) => texts.push(label.innerText));
+    const wrap = el.closest('label');
+    if (wrap) texts.push(wrap.innerText);
+    // A choice group's question label is the fieldset's own container (SDUI puts
+    // it in a ``<p>`` just above the options). Only one hop, and only for a group,
+    // so an unrelated '*' in a larger shared ancestor is never picked up.
+    const scope = isChoice ? (group || el).parentElement : null;
+    const near = scope ? scope.querySelector('legend, label, p') : null;
+    if (near) texts.push(near.innerText);
+    return texts.some((text) => /\*\s*$/.test(norm(text || '')));
+  };"""
