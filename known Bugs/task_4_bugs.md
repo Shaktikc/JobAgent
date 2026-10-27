@@ -17,6 +17,7 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 | BUG-034 | "Experience on AI?" reported unknown despite the store covering it | 🟢 Fixed | (uncommitted) |
 | BUG-035 | checkbox group: the human's tick was never saved (one question per option) | 🟢 Fixed | (uncommitted) |
 | BUG-042 | stopped at **Review** (next step not rendered yet); optional unfilled field failed the run | 🟢 Fixed | `e5a21a2` |
+| BUG-058 | optional (no `*`) questions were asked/filled, blocking the run on diversity questions | 🟢 Fixed | (uncommitted) |
 
 ---
 
@@ -219,3 +220,88 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   `tests/integration/test_fill_form_live.py`
   (`test_task4_waits_for_an_async_review_step`). Live browser fill suite: 11/11.
   Commit `e5a21a2`.
+
+### BUG-058 — optional (`*`-less) questions were asked/filled and paused the run
+
+- **Symptom:** on NCS's Easy Apply diversity step the agent paused on the optional
+  questions **"I identify my ethnicity as:"**, **"I Identify my gender as:"**, and
+  **"I am a Veteran and have served previously?"** and showed the Task 5 banner,
+  even though none carries LinkedIn's required `*` marker and the page says the
+  information is voluntary. The run could not move on until the human skipped or
+  answered each one.
+- **Root cause:** `_fill_step` treated every unanswered control as an unknown
+  question: it asked the LLM for an answer and then Task 5 for the human, without
+  checking whether the control was required. Optional questions therefore paused
+  the run (or were filled from the store) even though they cannot block Submit.
+- **Fix:** new `required_only` module filters the enumerated fields before filling.
+  A question is kept only when its label ends with `*` (or the control carries an
+  explicit `required`/`aria-required` signal), and requiredness is resolved per
+  choice group so every option of a required radio/checkbox question stays. An
+  optional question is dropped whole — never asked, never filled, never reported
+  as unknown.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/linkedin_easy_apply_fill/required_only.py`
+  (`has_required_marker`, `is_required_field`, `only_required_fields`),
+  `src/tools/linkedin_easy_apply_fill/field_filling.py` (`_fill_step` filters
+  first), `src/tools/linkedin_easy_apply_fill/__init__.py` (re-exports);
+  `tests/unit/test_required_only_questions.py` (8 tests, including a stored-answer
+  optional question that stays untouched), updated required fixtures in
+  `tests/unit/test_browser_tools.py`, `tests/unit/test_llm_answer_reasoning.py`,
+  and `tests/integration/test_fill_form_live.py`. Live browser: the 14-test Task 4
+  fill suite passed, plus a real Chromium check of a `*` text question + a `*`
+  radio group next to optional ethnicity/gender/veteran controls: the two required
+  answers were filled (`known=filled=2`) and all three optional controls stayed
+  empty/unchecked even though the store held answers for them (uncommitted).
+
+### BUG-059 — an SDUI checkbox group was one question per option and the human's ticks were not saved
+
+- **Symptom:** on Propeller Aero's **"Before you applied, where did you first
+  encounter Propeller Aero?*"** (14 checkboxes), the Task 5 banner asked about the
+  first *option* — "LinkedIn Job Ad", with the hint "One of: LinkedIn Job Ad" — and
+  ticking the boxes never registered: the banner kept saying it did not know the
+  answer and `data/answers.json` was not updated (live run 2026-10-27 09:18).
+- **Root cause:** two independent defects in LinkedIn's current SDUI markup
+  (captured from the live page):
+  1. The group is a bare `<fieldset>` with **no legend and no aria-label**; the
+     question is a `<p>` rendered just above it. `GROUP_QUESTION_JS` only looked
+     for a legend/aria-label or for text before the *option list*, so it fell back
+     to the option's own text. Every option became its own one-option question, so
+     the banner asked an option, the hint listed one option, and a stored answer
+     could never answer the real question.
+  2. Ticking a box makes React replace the `div[role="checkbox"]` wrapper (dropping
+     `data-autojob-fill`), and these options carry **no `name`**. The reader's
+     marker lookup and its name fallback both found nothing. The watcher also
+     resolved a click on the inner input/empty `label[for]` to the native input,
+     whose option text is unreadable (the text lives in a sibling `<p>` and the
+     input's value is `"on"`), so no click value was recorded either.
+- **Fix:**
+  - `GROUP_QUESTION_JS` now reads the question from the field's own wrapper
+    (`legend`/`<p>` outside the group) or from the fieldset's preceding text
+    sibling, so all options share one question and are answered once.
+  - Both answer scripts (`_WATCH_FORM_ANSWER_JS`, `_READ_FORM_ANSWER_JS`) resolve a
+    click on an inner input/`label` to its `[role="radio"]/[role="checkbox"]`
+    wrapper, which owns `aria-checked` and the visible option text.
+  - `_READ_FORM_ANSWER_JS` accepts the question and its option labels and, when the
+    marker/name are gone, locates the live group by that question text and joins
+    every checked option. `ask_human_for_answer` receives the labels from the fill
+    and a multi-select answer now waits for the selection to settle (1.5 s) before
+    closing the banner, so later ticks are not missed.
+  - A human-answered group whose markers went stale is treated as filled instead of
+    being re-clicked (clicking would toggle the human's ticks off).
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/linkedin_easy_apply_fill/checkbox_groups.py`
+  (`GROUP_QUESTION_JS`, `fill_checkbox_group`),
+  `src/tools/linkedin_ask_human/answer_js.py` (`resolveControl`, the
+  question/option fallback), `src/tools/linkedin_ask_human/flow.py`
+  (`options`, `_MULTI_SELECT_SETTLE_SECONDS`),
+  `src/tools/linkedin_easy_apply_fill/form_walk.py` (forwards the group's option
+  labels); `tests/unit/test_task5_form_answers.py`
+  (`test_task5_reader_receives_the_question_and_its_options`) and
+  `tests/integration/test_checkbox_group_live.py` (live SDUI-group regression:
+  the human-ticks case and the stored-answer auto-tick case), plus the full unit
+  suite. Live browser checks in real Chromium with the captured markup: the real
+  Propeller job enumerated all 14 options under the one group question; an unknown
+  group was asked **once** with all 14 options, three ticks were saved as
+  `LinkedIn Job Ad, LinkedIn Social Post, Google Search` (record `filled=True`); a
+  stored answer ticked `LinkedIn Job Ad` + `Google Search` with no banner. Node
+  parsed every injected script (`node --check`). Uncommitted.

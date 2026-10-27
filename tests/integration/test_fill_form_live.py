@@ -91,11 +91,11 @@ _FORM_HTML = """<!doctype html>
         <input id="phone" name="phone" type="text" required>
       </div>
       <div class="fb-dash-form-element">
-        <label for="city">City</label>
+        <label for="city">City*</label>
         <input id="city" name="city" type="text">
       </div>
       <fieldset class="jobs-easy-apply-form-element">
-        <legend>Are you authorised to work in Australia?</legend>
+        <legend>Are you authorised to work in Australia?*</legend>
         <label for="auth-yes">Yes</label>
         <input id="auth-yes" name="work_auth" type="radio" value="Yes">
         <label for="auth-no">No</label>
@@ -110,7 +110,7 @@ _FORM_HTML = """<!doctype html>
     </section>
     <section data-step="2" style="display:none">
       <div class="fb-dash-form-element">
-        <label for="experience">Years of experience</label>
+        <label for="experience">Years of experience*</label>
         <select id="experience" name="experience">
           <option value="">Choose</option>
           <option value="3">3</option>
@@ -296,7 +296,7 @@ _FORM_HTML_2026 = """<!doctype html>
         </div>
       </div>
       <div class="jobs-easy-apply-form-section__grouping">
-        <span class="fb-form-element-label">Are you authorised to work in Australia?</span>
+        <span class="fb-form-element-label">Are you authorised to work in Australia?*</span>
         <div class="fb-form-element-wrapper">
           <div class="fb-dash-form-element" role="radio" aria-checked="false"
                data-option="Yes"><span>Yes</span></div>
@@ -475,7 +475,7 @@ async def test_task4_fills_form_and_prefers_listed_resume(tmp_path: Path) -> Non
     # Every known field was filled; the unknown "City" was left for Task 5.
     assert outcome.known_fields >= 3
     assert outcome.filled_fields == outcome.known_fields
-    assert "City" in outcome.unknown_fields
+    assert "City*" in outcome.unknown_fields
     assert observed["phone_value"] == "+61 400 000 000"
     assert observed["auth_checked"] is True
     assert observed["experience_value"] == "5"
@@ -739,7 +739,7 @@ _LATE_DIALOG_FORM_HTML = """<!doctype html>
       '<input id="phone" name="phone" type="text" required></div>' +
       '<div id="city-wrap"><p>Location (city)*</p>' +
       '<input id="city" name="city" type="text" role="combobox"' +
-      ' aria-autocomplete="list" aria-owns="city-options"' +
+      ' aria-autocomplete="list" aria-owns="city-options" required' +
       ' placeholder="Enter city or location"></div>';
     document.getElementById('city').addEventListener('input', function () {
       setTimeout(renderSuggestions, 100);
@@ -1029,7 +1029,7 @@ _TASK5_RADIO_FORM_HTML = """<!doctype html>
     <div class="jobs-easy-apply-form-section__grouping">
       <span class="fb-form-element-label">
         Have you previously mentored, reviewed the work of, or provided technical
-        direction to more junior engineers?
+        direction to more junior engineers?*
       </span>
       <div class="fb-form-element-wrapper">
         <div class="fb-dash-form-element" role="radio" aria-checked="false"
@@ -1212,7 +1212,7 @@ _NATIVE_RADIO_HTML = """<!doctype html>
   <div class="artdeco-modal__content">
     <div class="jobs-easy-apply-form-section__grouping">
       <span class="fb-form-element-label">Will you now or in the future require
-        sponsorship for employment visa status?</span>
+        sponsorship for employment visa status?*</span>
       <div class="fb-form-element-wrapper">
         <div class="fb-dash-form-element">
           <input type="radio" name="sponsor" value=""><span>Yes</span>
@@ -1302,7 +1302,7 @@ _LINKEDIN_ROLE_RADIO_HTML = """<!doctype html>
     <div class="hcbwrap">
       <div role="radio" tabindex="0" aria-checked="false" data-option="Yes"
            aria-label="Do you have full, unrestricted working rights in Australia
-                       with no expiration date?">
+                       with no expiration date?*">
         <div><div>
           <input id="_r_1j_" type="radio" name="radio-group-_r_1g_">
           <label for="_r_1j_"></label>
@@ -1310,7 +1310,7 @@ _LINKEDIN_ROLE_RADIO_HTML = """<!doctype html>
       </div>
       <div role="radio" tabindex="0" aria-checked="false" data-option="No"
            aria-label="Do you have full, unrestricted working rights in Australia
-                       with no expiration date?">
+                       with no expiration date?*">
         <div><div>
           <input id="_r_1i_" type="radio" name="radio-group-_r_1g_">
           <label for="_r_1i_"></label>
@@ -1417,7 +1417,7 @@ _STALE_ROLE_RADIO_HTML = """<!doctype html>
     <div class="hcbwrap">
       <div role="radio" tabindex="0" aria-checked="false" data-option="Yes"
            aria-label="Have you implemented and integrated AI voice, conversational
-                       AI or chatbot platforms into production environments?">
+                       AI or chatbot platforms into production environments?*">
         <div><div>
           <input id="_r_1j_" type="radio" name="radio-group-_r_1g_">
           <label for="_r_1j_"></label>
@@ -1425,7 +1425,7 @@ _STALE_ROLE_RADIO_HTML = """<!doctype html>
       </div>
       <div role="radio" tabindex="0" aria-checked="false" data-option="No"
            aria-label="Have you implemented and integrated AI voice, conversational
-                       AI or chatbot platforms into production environments?">
+                       AI or chatbot platforms into production environments?*">
         <div><div>
           <input id="_r_1i_" type="radio" name="radio-group-_r_1g_">
           <label for="_r_1i_"></label>

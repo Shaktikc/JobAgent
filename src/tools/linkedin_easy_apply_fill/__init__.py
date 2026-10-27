@@ -19,10 +19,12 @@ discovered at runtime rather than assumed. Task 5's ask-the-human code lives in
 :mod:`src.tools.linkedin_ask_human` and is called from here when the LLM cannot
 answer a question.
 
-The flow is split across five submodules by concern:
+The flow is split across six submodules by concern:
 
 - :mod:`~src.tools.linkedin_easy_apply_fill.form_queries` — the injected DOM
   queries and the readers that wrap them.
+- :mod:`~src.tools.linkedin_easy_apply_fill.required_only` — answer only the
+  required (``*``) questions; optional ones are dropped untouched.
 - :mod:`~src.tools.linkedin_easy_apply_fill.field_filling` — fill one step's
   known fields.
 - :mod:`~src.tools.linkedin_easy_apply_fill.checkbox_groups` — answer a checkbox
@@ -73,6 +75,11 @@ from src.tools.linkedin_easy_apply_fill.form_walk import (
     _task4_ok,
     _task4_on_page,
 )
+from src.tools.linkedin_easy_apply_fill.required_only import (
+    has_required_marker,
+    is_required_field,
+    only_required_fields,
+)
 from src.tools.linkedin_easy_apply_fill.resume_attachment import (
     _attach_resume,
     _resume_file_selector,
@@ -104,6 +111,9 @@ __all__ = [
     "_task4_on_page",
     "_with_apply_root",
     "enumerate_form_fields",
+    "has_required_marker",
+    "is_required_field",
+    "only_required_fields",
     "read_form",
     "read_form_buttons",
     "read_resume_info",

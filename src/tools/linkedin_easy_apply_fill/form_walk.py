@@ -206,6 +206,14 @@ async def _task4_on_page(
                 human,
                 markers=markers,
                 name=field.get("name"),
+                # Only a choice group's option *labels* help identify its controls
+                # by question when React drops the marker; a select's options are
+                # value/text pairs and play no part in reading the answer.
+                options=(
+                    field.get("options")
+                    if field.get("type") in {"checkbox", "radio"}
+                    else None
+                ),
             )
 
         asker = _ask_question

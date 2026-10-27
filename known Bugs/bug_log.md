@@ -103,6 +103,9 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 
 | BUG-057 | Task 4 — fill | an LLM-answered radio lost its marker → "required field was not filled" | 🟢 Fixed | (auto-recorded) |
 
+| BUG-058 | Task 4 — required-only | optional (no `*`) diversity questions were asked/filled and paused the run | 🟢 Fixed | (uncommitted) |
+| BUG-059 | Task 4/5 — SDUI checkbox group | group question read as each option's text, and the human's ticks were never saved | 🟢 Fixed | (uncommitted) |
+
 ## Template for new entries
 
 Add the entry to the file for its task (or `general_bugs.md`), and add a row to

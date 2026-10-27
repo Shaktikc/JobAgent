@@ -350,8 +350,8 @@ async def test_fill_step_records_the_derived_answer_and_its_source(tmp_path) -> 
     store = dict(_STORE)
 
     def _radio(option: str, marker: str) -> dict:
-        return {"kind": "radio", "name": "ai", "question": "Experience on AI?",
-                "option": option, "marker": marker}
+        return {"kind": "radio", "name": "ai", "question": "Experience on AI?*",
+                "option": option, "marker": marker, "required": True}
 
     fields = [_radio("Yes", "m1"), _radio("No", "m2")]
     page = _FakePage({"m1": _FakeElement("Yes"), "m2": _FakeElement("No")})

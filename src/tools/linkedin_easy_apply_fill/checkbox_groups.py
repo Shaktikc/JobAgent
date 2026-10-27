@@ -61,6 +61,21 @@ GROUP_QUESTION_JS = r"""const firstTextWithoutControls = (node) => {
         }).filter(Boolean);
         if (parts.length) return parts.join(' ');
       }
+      // LinkedIn's SDUI checkbox group is a bare <fieldset> (no legend, no
+      // aria-label) with the question in a <p> just above it — inside the field's
+      // own wrapper, or directly in the modal's scroller. Without this the option's
+      // own text became the question, so every option was a separate question
+      // (BUG-059).
+      const host = group.parentElement;
+      if (host && host !== modal) {
+        const near = Array.from(host.querySelectorAll('legend, p'))
+          .find((node) => !group.contains(node));
+        if (near && norm(near.innerText)) return norm(near.innerText);
+      }
+      const prev = group.previousElementSibling;
+      if (prev && norm(prev.innerText) && !prev.querySelector(
+        '[role="radio"],[role="checkbox"],input,select,textarea'
+      )) return norm(prev.innerText);
     }
     // Walk up to the ancestor that holds the whole option list, then read the
     // text that precedes the options: the question is rendered just above them.
@@ -340,6 +355,13 @@ async def fill_checkbox_group(
             _remember_answer(settings, answers, human, question, value)
             answer, record.answered_by, record.rationale = value, "human", ""
             selected = selected_options(value, options)
+            if not ticked:
+                # The reader reports only ticks that are live on the form; when it
+                # cannot see them it is because React re-rendered the marked wrapper
+                # away, not because they are missing. Trust the human's ticks and
+                # never re-click (that would toggle them off) (BUG-059).
+                record.value, record.known, record.filled = value, True, True
+                return record, True, True, False
 
     if selected and tick is not None:
         markers = [g.get("marker") for g in group if g.get("marker")]

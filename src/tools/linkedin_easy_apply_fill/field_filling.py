@@ -1,12 +1,12 @@
 """Task 4: fill the fields of one Easy Apply form step.
 
 This module owns the per-field filling logic, split out of
-:mod:`src.tools.linkedin_easy_apply_fill`: it keeps a value the form already
-holds, asks the LLM (Task 4.1/10) to answer from the store for the rest (copying a
-stored answer or deriving one the stored entries entail), falls
-back to Task 5's ask-the-human callable when the LLM cannot, and applies the
-chosen answer to the real control (text input, ``<select>``, checkbox, or radio)
-with React-friendly events.
+:mod:`src.tools.linkedin_easy_apply_fill`. It keeps a value the form already
+holds, asks the LLM (Task 4.1/10) to answer the rest from the store, falls back
+to Task 5's ask-the-human callable when the LLM cannot, and applies the chosen
+answer to the real control (text, ``<select>``, checkbox, or radio). Optional
+questions are dropped before filling (see
+:mod:`~src.tools.linkedin_easy_apply_fill.required_only`).
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from src.tools.forms import (
 )
 from src.tools.linkedin_ask_human import _remember_answer
 from src.tools.linkedin_easy_apply_fill import checkbox_groups
+from src.tools.linkedin_easy_apply_fill.required_only import only_required_fields
 from src.tools.linkedin_status_overlay import emit_llm
 from src.tools.llm_answers import AnswerChooser, QuestionDecision
 
@@ -55,10 +56,9 @@ _FILL_SELECT_JS = r"""
 def _control_already_answered(field: dict) -> bool:
     """True when a form control already holds a real (non-placeholder) value.
 
-    LinkedIn pre-fills controls from the profile (e.g. the "Email address" and
-    "Phone country code" ``<select>``s). Those are already answered, so the agent
-    must not ask the human about them or overwrite them with a guess. A
-    ``<select>`` still showing its prompt ("Select an option") is *not* answered.
+    LinkedIn pre-fills controls from the profile (e.g. the email and phone country
+    code selects); those are answered already, so they must not be asked about or
+    overwritten. A select still showing its prompt is *not* answered.
     """
     kind = field.get("kind")
     if kind in {"radio", "checkbox"}:
@@ -94,7 +94,6 @@ def _select_value_for(answer: str, options: list[dict]) -> str | None:
         if answers_match(text, answer) or answers_match(value, answer):
             return value or text
     return None
-
 
 
 async def _fill_field(element, field: dict, answer: str) -> tuple[bool, str]:
@@ -134,11 +133,10 @@ async def _decide(
 ) -> QuestionDecision:
     """Ask the LLM to answer ``question`` from the store (Task 4.1/10).
 
-    With no chooser (no model configured) the question is treated as unknown,
-    which hands it to Task 5. ``status`` is Task 9's optional status object: it
-    announces exactly what the LLM is doing before the call and what it decided
-    after — including the stored source when a Task 10 answer was matched or
-    derived.
+    With no chooser the question is unknown, which hands it to Task 5. ``status``
+    is Task 9's optional status object: it announces what the LLM is doing before
+    the call and what it decided after, including the stored source when a Task
+    10 answer was matched or derived.
     """
     if chooser is None:
         return QuestionDecision(question=question)
@@ -173,16 +171,17 @@ async def _fill_step(
     chooser: AnswerChooser | None = None,
     status=None,
 ) -> tuple[int, int, list[str], list[FormField]]:
-    """Fill the known fields of one form step; leave the rest unknown.
+    """Fill the required fields of one form step; leave optional ones untouched.
 
-    Every question is first classified by the LLM (Task 4.1/10), which answers it
-    from the store (copying a stored answer or deriving one the stored entries
-    entail). ``ask`` is Task 5's optional async
+    Optional questions (no ``*`` marker) are dropped before any work
+    (:func:`~src.tools.linkedin_easy_apply_fill.required_only.only_required_fields`).
+    Every remaining question is classified by the LLM (Task 4.1/10), which answers
+    it from the store. ``ask`` is Task 5's optional async
     ``(question, field) -> answer | None`` callable, used when the LLM cannot
-    choose a stored answer (or a chosen radio answer matches none of the step's
-    options); a returned answer is filled, remembered in the store, and reused
-    for later occurrences.
+    choose an answer; a returned answer is filled, remembered in the store, and
+    reused for later occurrences.
     """
+    fields = only_required_fields(fields)
     known = filled = 0
     unknown: list[str] = []
     records: list[FormField] = []

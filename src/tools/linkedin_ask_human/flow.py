@@ -34,6 +34,10 @@ from src.tools.linkedin_status_overlay import emit_step
 # means the label could not be read from the markup.
 _UNLABELED_QUESTION_RE = re.compile(r"radio-group[-_]|(?:^|[-_])r_[0-9a-z]+_", re.IGNORECASE)
 
+# How long a multi-select answer must stay unchanged before the banner closes: the
+# human ticks one box at a time, so an immediate close would miss later ticks.
+_MULTI_SELECT_SETTLE_SECONDS = 1.5
+
 
 def _looks_unlabeled(question: str) -> bool:
     """True when ``question`` is a raw form id rather than human-readable text."""
@@ -83,6 +87,7 @@ async def ask_human_for_answer(
     human: Task5Outcome | None = None,
     markers: list[str] | None = None,
     name: str | None = None,
+    options: list[str] | None = None,
 ) -> str | None:
     """Task 5: show a browser banner and read the human's answer from the form.
 
@@ -126,10 +131,16 @@ async def ask_human_for_answer(
     )
     markers_arg = list(markers or [])
     name_arg = str(name or "")
+    options_arg = list(options or [])
     # The human often fills several fields at once. If the field for this question
     # already holds an answer, take it now instead of waiting for a fresh edit.
     pre = _loads(
-        await _safe(page.evaluate(_READ_FORM_ANSWER_JS, markers_arg, name_arg), "")
+        await _safe(
+            page.evaluate(
+                _READ_FORM_ANSWER_JS, markers_arg, name_arg, question, options_arg
+            ),
+            "",
+        )
     )
     pre_answer = str(pre.get("value") or "").strip()
     if pre_answer:
@@ -143,6 +154,11 @@ async def ask_human_for_answer(
 
     deadline = time.monotonic() + settings.session.ask_timeout_seconds
     last_saved = ""
+    # A "select all that apply" question is usually answered one box at a time, so
+    # a tick alone does not mean the human is finished. Wait for the selection to
+    # settle before closing the banner, or the later ticks are missed (BUG-059).
+    multi = len(options_arg) > 1
+    settle_until = 0.0
     while time.monotonic() < deadline:
         payload = _loads(await _safe(page.evaluate(_READ_UNKNOWN_JS), ""))
         if str(payload.get("state") or "") == "skipped":
@@ -151,7 +167,12 @@ async def ask_human_for_answer(
             notify(f"Task 5: you skipped {question!r}; leaving it unknown.")
             return None
         answer_payload = _loads(
-            await _safe(page.evaluate(_READ_FORM_ANSWER_JS, markers_arg, name_arg), "")
+            await _safe(
+                page.evaluate(
+                    _READ_FORM_ANSWER_JS, markers_arg, name_arg, question, options_arg
+                ),
+                "",
+            )
         )
         answer = str(answer_payload.get("value") or "").strip()
         if answer and answer != last_saved:
@@ -159,9 +180,14 @@ async def ask_human_for_answer(
             # never lost to a timeout, a skip, or a manual submit.
             _store_answer(settings, question, answer, human)
             last_saved = answer
+            if multi:
+                settle_until = time.monotonic() + _MULTI_SELECT_SETTLE_SECONDS
             # Confirm in the banner that the answer has been saved.
             await _safe(page.evaluate(_MARK_SAVED_JS, answer))
         if answer and answer_payload.get("done"):
+            if multi and time.monotonic() < settle_until:
+                await asyncio.sleep(settings.session.ask_poll_seconds)
+                continue
             await _finish_question(page, answer)
             human.answered += 1
             if question not in human.answered_questions:

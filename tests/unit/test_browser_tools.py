@@ -1743,7 +1743,7 @@ def _text_field(marker: str, name: str, question: str, *, required: bool = False
 async def test_task4_fills_form_and_selects_listed_resume(tmp_path) -> None:
     fields = [
         _text_field("f0", "phone", "Phone number", required=True),
-        _text_field("f1", "city", "City"),
+        _text_field("f1", "city", "City", required=True),
         {
             "marker": "f2",
             "kind": "radio",
@@ -1775,7 +1775,7 @@ async def test_task4_fills_form_and_selects_listed_resume(tmp_path) -> None:
             "name": "experience",
             "question": "Years of experience",
             "option": "",
-            "required": False,
+            "required": True,
             "checked": False,
             "value": "",
             "options": [{"value": "5", "text": "5"}],
@@ -1892,8 +1892,8 @@ async def test_task4_uploads_resume_when_not_listed(
 async def test_task4_advances_steps_but_never_submits(tmp_path) -> None:
     page = FakePage(
         form_enumerations=[
-            {"open": True, "fields": [_text_field("f0", "phone", "Phone number")]},
-            {"open": True, "fields": [_text_field("f1", "city", "City")]},
+            {"open": True, "fields": [_text_field("f0", "phone", "Phone number", required=True)]},
+            {"open": True, "fields": [_text_field("f1", "city", "City", required=True)]},
         ],
         form_buttons_queue=[
             [{"marker": "b0", "text": "Next", "disabled": False}],
@@ -2247,8 +2247,10 @@ async def test_task5_asks_human_and_remembers_the_answer(
     """An unknown question is asked once, filled, stored, and reused from the store."""
     page = FakePage(
         form_enumerations=[
-            {"open": True, "title": "Step 1", "fields": [_text_field("f0", "city", "City")]},
-            {"open": True, "title": "Step 2", "fields": [_text_field("f1", "city", "City")]},
+            {"open": True, "title": "Step 1",
+             "fields": [_text_field("f0", "city", "City", required=True)]},
+            {"open": True, "title": "Step 2",
+             "fields": [_text_field("f1", "city", "City", required=True)]},
         ],
         form_buttons_queue=[
             [{"marker": "b0", "text": "Next", "disabled": False}],
@@ -2301,7 +2303,9 @@ async def test_task5_human_skip_leaves_the_question_unknown(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     page = FakePage(
-        form_enumerations=[{"open": True, "fields": [_text_field("f0", "city", "City")]}],
+        form_enumerations=[
+            {"open": True, "fields": [_text_field("f0", "city", "City", required=True)]}
+        ],
         form_buttons_queue=[[{"marker": "b0", "text": "Submit application", "disabled": False}]],
         resume_options={"options": [], "fileInput": False},
     )
@@ -2326,7 +2330,9 @@ async def test_task5_human_skip_leaves_the_question_unknown(
 
 async def test_task5_is_off_when_disabled(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     page = FakePage(
-        form_enumerations=[{"open": True, "fields": [_text_field("f0", "city", "City")]}],
+        form_enumerations=[
+            {"open": True, "fields": [_text_field("f0", "city", "City", required=True)]}
+        ],
         form_buttons_queue=[[{"marker": "b0", "text": "Submit application", "disabled": False}]],
         resume_options={"options": [], "fileInput": False},
     )
@@ -2576,10 +2582,10 @@ async def test_task5_asks_questions_in_form_order(
 ) -> None:
     """A choice is asked at its place in the form, not before every text box."""
     fields = [
-        _text_field("f0", "years", "Years of experience"),
+        _text_field("f0", "years", "Years of experience", required=True),
         _radio_field("f1", "rights", "Working rights?", "Yes", required=True),
         _radio_field("f2", "rights", "Working rights?", "No", required=True),
-        _text_field("f3", "notice", "Notice period"),
+        _text_field("f3", "notice", "Notice period", required=True),
     ]
     page = FakePage(
         form_enumerations=[{"open": True, "fields": fields}],
@@ -2877,7 +2883,9 @@ async def test_run_full_agent_end_to_end_offline(monkeypatch: pytest.MonkeyPatch
     page = FakePage(
         results_count=25,
         details_apply_labels={0: "Easy Apply to Backend Engineer at Acme"},
-        form_enumerations=[{"open": True, "fields": [_text_field("f0", "phone", "Phone number")]}],
+        form_enumerations=[
+            {"open": True, "fields": [_text_field("f0", "phone", "Phone number", required=True)]}
+        ],
         form_buttons_queue=[[{"marker": "b0", "text": "Submit application", "disabled": False}]],
         resume_options={
             "options": [

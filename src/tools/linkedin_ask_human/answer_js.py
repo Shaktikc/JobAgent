@@ -67,6 +67,12 @@ _WATCH_FORM_ANSWER_JS = r"""
 
   const resolveControl = (node) => {
     if (!node || !node.closest) return null;
+    // A styled choice's wrapper owns the state (``aria-checked``) and the visible
+    // option text; a click lands on its inner input/label, which carries neither
+    // (LinkedIn's label is empty and the option text is a sibling ``<p>``). Resolve
+    // to the wrapper first, or the click would read an empty value (BUG-059).
+    const choice = node.closest('[role="radio"], [role="checkbox"]');
+    if (choice) return choice;
     const label = node.closest('label');
     if (label) {
       if (label.control) return label.control;
@@ -75,7 +81,7 @@ _WATCH_FORM_ANSWER_JS = r"""
         if (forEl) return forEl;
       }
     }
-    return node.closest('input, textarea, select, [role="radio"], [role="checkbox"]');
+    return node.closest('input, textarea, select');
   };
 
   const optionText = (el) => {
@@ -159,11 +165,13 @@ _WATCH_FORM_ANSWER_JS = r"""
 # field the human filled before (or without) a fresh edit event is still captured.
 # ``done`` is true once an edit finished or a choice/select already holds a value.
 _READ_FORM_ANSWER_JS = r"""
-(markers, name) => {
+(markers, name, question, options) => {
   const list = (markers || []).map(String).filter(Boolean);
   const groupName = name ? String(name) : '';
+  const wanted = (options || []).map((option) => String(option)).filter(Boolean);
   const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
   const esc = (s) => (window.CSS && CSS.escape) ? CSS.escape(s) : s;
+  const bare = (s) => norm(s).toLowerCase().replace(/\s*\*\s*$/, '');
 
   // A <select>'s prompt option ("Select an option") is not an answer (BUG-037).
   // Mirrors the watcher's helper: value="" + disabled, or prompt-looking text.
@@ -179,6 +187,10 @@ _READ_FORM_ANSWER_JS = r"""
 
   const resolveControl = (host) => {
     if (!host) return null;
+    // Prefer the styled choice wrapper: it owns the state and the visible option
+    // text, while its inner input/label carry neither (BUG-059).
+    const choice = host.closest && host.closest('[role="radio"], [role="checkbox"]');
+    if (choice) return choice;
     const tag = (host.tagName || '').toLowerCase();
     if (tag === 'label') {
       if (host.control) return host.control;
@@ -301,6 +313,39 @@ _READ_FORM_ANSWER_JS = r"""
       const value = consider(wrapper) || consider(resolveControl(el));
       if (value) { live = value; atomic = true; }
     });
+  }
+  // 3) Fall back to the group's *question* (or its option labels): a checkbox
+  //    group has no name on LinkedIn's SDUI layout, and React re-renders the group
+  //    on every tick, dropping the marker. The question text and option labels are
+  //    owned by the renderer, so they still identify the live ticks (BUG-059).
+  if (!live && wanted.length) {
+    const choiceSel = '[role="checkbox"],[role="radio"],'
+      + 'input[type="checkbox"],input[type="radio"]';
+    const want = bare(question || '');
+    const wantedBare = wanted.map(bare);
+    let box = null;
+    if (want) {
+      for (const node of document.querySelectorAll(
+        'legend, p, label, h1, h2, h3, h4, h5, h6'
+      )) {
+        if (bare(node.innerText) !== want) continue;
+        let up = node.parentElement;
+        for (let i = 0; i < 4 && up && up !== document.body; i++) {
+          if (up.querySelectorAll(choiceSel).length > 1) { box = up; break; }
+          up = up.parentElement;
+        }
+        if (box) break;
+      }
+    }
+    if (box) {
+      const picked = [];
+      box.querySelectorAll(choiceSel).forEach((el) => {
+        const value = readControl(resolveControl(el)).value;
+        if (!value || wantedBare.indexOf(bare(value)) === -1) return;
+        if (picked.indexOf(value) === -1) picked.push(value);
+      });
+      if (picked.length) { live = picked.join(', '); atomic = true; }
+    }
   }
 
   const state = window.__autojobFormAnswer || {};

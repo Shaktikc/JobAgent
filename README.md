@@ -71,7 +71,10 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
      If you skip and nothing is available, the run stops instead of applying with
      an unmatching resume.
 4. **fill** — **Task 4:** enumerates the still-open Easy Apply form and answers
-   each question. **Task 4.1** classifies every question with an LLM
+   each **required** question (its label ends with `*`). Optional questions — e.g.
+   the voluntary diversity questions (ethnicity, gender, veteran status) — are
+   dropped untouched: never asked, never filled, and never reported as unknown.
+   **Task 4.1** classifies every remaining question with an LLM
    (`OPENROUTER_API_KEY` + `AUTOJOB_LLM_MODEL`) and answers it from the store
    (`data/answers.json`) **by meaning**, and **Task 10** lets it **match or
    derive**: it may copy a stored answer, or produce a short answer the stored
@@ -97,9 +100,9 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
      (`AUTOJOB_SELF_HEAL_MAX_ATTEMPTS`, default `3`); on exhaustion the evidence is
      preserved and the run stops. With no repair command configured it performs
      runtime recovery only.
-   - **Task 5 (inside fill):** when the LLM cannot choose a grounded answer, the
-     agent shows a banner in the browser window saying it does not know the
-     answer,
+   - **Task 5 (inside fill):** when the LLM cannot choose a grounded answer for a
+     required (`*`) question, the agent shows a banner in the browser window
+     saying it does not know the answer,
      **pauses for you to type it into the form field on the page** (the banner has
      no input of its own), reads the value you enter, fills the field, and saves
      the question → answer mapping. Task 4.1 reuses that answer next run — and, as
@@ -336,7 +339,8 @@ src/
         __init__.py                re-exports the query scripts and readers
         scripts.py                 injected JS query scripts + findApplyRoot injection
         readers.py                 async readers over the scripts (read_form, read_resume_info, ...)
-      field_filling.py             Fill one step's known fields (LLM / Task 5 answers)
+      required_only.py             Drop optional (no `*`) questions before filling
+      field_filling.py             Fill one step's required fields (LLM / Task 5 answers)
       checkbox_groups.py           Answer a checkbox (multi-select) question as one group
       resume_attachment.py         Attach the Task 3 resume (listed option or CDP upload)
       form_walk.py                 Walk the form step by step, stopping before Submit

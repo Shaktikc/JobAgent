@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 
-from src.configuration import Settings
+from src.configuration import SessionSettings, Settings
 from src.state import Task5Outcome
 from src.tools.answers import load_answers
 from src.tools.forms import is_prompt_answer, select_is_answered
@@ -27,6 +27,7 @@ from src.tools.linkedin_ask_human import (
     _looks_unlabeled,
     _remember_answer,
     _store_answer,
+    ask_human_for_answer,
 )
 from src.tools.linkedin_easy_apply_fill.field_filling import _control_already_answered
 
@@ -134,6 +135,58 @@ def test_remember_answer_never_persists_a_prompt(tmp_path) -> None:
     assert answers == {"what are your salary expectations (base salary)": "50,000-60,000"}
     assert json.loads(settings.answers_file.read_text(encoding="utf-8")) == answers
     assert "remembered" in (human.notes or "")
+
+
+class _RecordingAnswerPage:
+    """A page that records the arguments the answer reader is called with."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple] = []
+
+    async def evaluate(self, js: str, *args):
+        if "autojob-unknown" in js:
+            if "getAttribute" in js:
+                return json.dumps({"present": True, "state": "skipped"})
+            return True
+        if "__autojobFormAnswer" in js and "addEventListener" in js:
+            return True
+        if "__autojobFormAnswer" in js:
+            if len(args) == 4:  # the question's answer reader, not the banner poll
+                self.calls.append(args)
+            return json.dumps({"value": "", "done": False})
+        return ""
+
+
+async def test_task5_reader_receives_the_question_and_its_options(tmp_path) -> None:
+    """A checkbox group has no form name; the reader needs question + options.
+
+    BUG-059: LinkedIn's SDUI checkbox options carry no ``name`` and React drops the
+    marker on a tick, so the reader must be able to locate the live group by its
+    question text and option labels.
+    """
+    question = "Before you applied, where did you first encounter Propeller Aero?*"
+    options = ["LinkedIn Job Ad", "LinkedIn Social Post", "Glassdoor"]
+    page = _RecordingAnswerPage()
+    settings = Settings(
+        session=SessionSettings(ask_human=True, ask_timeout_seconds=5.0, ask_poll_seconds=0.01),
+        data_dir=tmp_path / "data",
+    )
+
+    answer = await ask_human_for_answer(
+        page,
+        question,
+        "checkbox",
+        "One of: " + ", ".join(options),
+        settings,
+        lambda _m: None,
+        Task5Outcome(),
+        markers=["f1", "f2", "f3"],
+        name="question:" + question,
+        options=options,
+    )
+
+    assert answer is None
+    assert page.calls == [(["f1", "f2", "f3"], "question:" + question, question, options)]
 
 
 # --- The split kept the module's API ----------------------------------------
