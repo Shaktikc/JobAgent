@@ -24,9 +24,14 @@
 - **Bug log (important — never skip):** whenever you find and fix a bug, always
   record it in the bug log under `known Bugs/`. A fix with no log entry is **not
   complete**. See [Bug log](#bug-log-required) below.
+- **Important update — no approval needed for file names, bug logs, or code
+  splitting:** do **not** wait for human approval before choosing a file/folder
+  name, creating a new file (including a new bug log file under `known Bugs/`),
+  or splitting a file into a package folder. Pick a clear, descriptive name that
+  follows the existing structure, create the file, and proceed.
 - When implementing a new feature, create an entirely new file for it rather
-  than adding it to an existing file. Before creating the file, ask the human
-  for feedback on the file name and wait for their approval.
+  than adding it to an existing file. Choose a clear, descriptive file name
+  yourself — no approval is required.
 - **File-size limit (important — never skip):** when any code file you write or
   edit crosses **415 lines**, split it into a package folder with one module per
   concern — do not let a file keep growing past the limit. This applies to all
@@ -89,6 +94,9 @@ silently.
 - **Where:** bugs live under `known Bugs/`. Put each bug in the file for its
   task (`task_1_bugs.md` … `task_6_bugs.md`) or, when no single task owns the
   root cause, in `general_bugs.md`. `known Bugs/bug_log.md` is the master index.
+- **No approval needed to create a bug log file.** If a matching bug file does
+  not exist yet, create it (and its index row) yourself with a clear, descriptive
+  name and log the bug — do not wait for the human.
 - **Every entry must record** the `Symptom` (what was observed), `Root cause`,
   `Fix`, `Status`, and `Evidence` (source files, tests, and the commit hash).
 - **Always keep the status up to date**, using the shared markers:
@@ -103,8 +111,6 @@ silently.
   `known Bugs/bug_log.md` in the same change as the fix.
 - **A bug fix is only complete when** the code is fixed, the relevant test or
   live-browser check passes, and the bug log entry plus its status are updated.
-- Ask the human for feedback on a new bug file's name before creating it (same
-  rule as any new file).
 
 
 ## File-size limit (required)
@@ -129,8 +135,8 @@ split — a package folder with a thin `__init__.py` plus one module per concern
   existing file that is **already over the limit and that you are currently
   working on**: split it as part of that work. Existing files you are **not**
   working on are left as-is unless the human explicitly asks you to split them.
-- Before creating the folder and its file names, ask the human for feedback and
-  wait for approval (same rule as any new file).
+- Create the package folder and its file names yourself with clear, descriptive
+  names — no approval is required (same rule as any new file).
 
 
 ## Browser automation
