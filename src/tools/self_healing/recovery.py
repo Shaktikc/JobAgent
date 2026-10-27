@@ -173,7 +173,8 @@ async def _open_target(
     if cards is None:
         query = quote_plus(target.search_query or title)
         notify("self-heal: the job was not on the current list; searching again...")
-        await page.goto(f"https://www.linkedin.com/jobs/search/?keywords={query}&f_AL=true")
+        u = f"https://www.linkedin.com/jobs/search/?keywords={query}&f_AL=true&f_TPR=r86400"
+        await page.goto(u)
         await _wait_for_load(page, settings.session.easy_apply_timeout_seconds)
         deadline = time.monotonic() + settings.session.easy_apply_timeout_seconds
         while time.monotonic() < deadline:

@@ -18,6 +18,7 @@ def _task1_succeeded(state: ApplyState) -> bool:
         and outcome.logged_in
         and outcome.results_found
         and outcome.easy_apply_filter_selected
+        and outcome.date_posted_filter_selected
     )
 
 
@@ -99,9 +100,9 @@ def verify(state: ApplyState) -> ApplyState:
         and _task8_succeeded(state)
     ):
         log = [
-            "verify: logged in, search returned results, Easy Apply filter selected, "
-            "job Easy Apply form opened, best-matching resume selected, "
-            "form filled and resume attached (not submitted)"
+            "verify: logged in, search returned results, Easy Apply + Past 24 hours "
+            "filters selected, job Easy Apply form opened, best-matching resume "
+            "selected, form filled and resume attached (not submitted)"
         ]
         task8 = state.get("task8")
         if task8 is not None:

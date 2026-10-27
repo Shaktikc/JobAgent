@@ -6,8 +6,8 @@ LinkedIn, searches for jobs, selects the **Easy Apply** filter, opens a job's
 filling the form — all through a real browser (via
 [browser-use](https://github.com/browser-use/browser-use)).
 
-> Status: **Tasks 1-11** — log in, search `"software engineer"`, select the Easy
-> Apply filter, open a job's Easy Apply form, read the job description, select the
+> Status: **Tasks 1-11 and 13** — log in, search `"software engineer"`, select the Easy
+> Apply filter and **Date posted → Past 24 hours**, open a job's Easy Apply form, read the job description, select the
 > best-matching resume, fill known fields + attach the resume, and ask you in the
 > browser about any question it cannot answer, remembering your answer for next
 > time. For each form question an **LLM (Task 4.1/10)** classifies the question and
@@ -38,7 +38,13 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
      runs LinkedIn's **AI job search** — clicking the **"Try AI job search"**
      control and typing the query (default `"software engineer"`) into the AI
      prompt ("Describe the job you want") — then selects the **Easy Apply** filter
-     on the results page. The classic jobs search bar is not used.
+     and **Date posted → Past 24 hours** on the results page. Applying the date
+     filter reloads the results, so the agent re-checks/re-applies Easy Apply
+     before Task 2 opens a job — through the URL (`f_AL=true`) so the date range
+     is preserved. The applied range is verified from `f_TPR=r86400` in the
+     results URL (a checked popover option alone is not enough); if the layout
+     hides the dropdown, the agent adds that parameter to the current results URL
+     while preserving the other filters. The classic jobs search bar is not used.
    - **Task 2:** reads the job list from those results, opens the first job that
      offers Easy Apply (skipping external-apply jobs), clicks its **Easy Apply**
      button, and confirms the application form opened. Before judging that
@@ -314,7 +320,14 @@ src/
                      run_agent / run_full_agent, the Task 3.1 / Task 5 banners, and
                      the Task 9 status reporter/panel
     linkedin.py      Pure LinkedIn URL/text helpers
-    linkedin_search.py             Task 1: log in, search jobs, select Easy Apply filter
+    linkedin_search/              Task 1: log in, search jobs, apply the filters
+      __init__.py                 public API (re-exports the submodules below)
+      common.py                   one-control-at-a-time click settle
+      search_box.py               login gate, jobs search bar, results wait
+      easy_apply_filter.py        find/select/verify the Easy Apply filter
+      ai_search.py                optional "Try AI job search" detour
+      orchestrator.py             Task 1 step sequence (filters + failure outcome)
+    linkedin_date_posted.py       Task 13: Date posted -> "Past 24 hours"
     linkedin_job_selection.py      Task 2: select a job, open its Easy Apply form
     linkedin_job_apply_button.py   Task 2: the details pane's job, apply button, modal
     linkedin_skip_applied.py       Task 6: skip cards already marked "Applied"

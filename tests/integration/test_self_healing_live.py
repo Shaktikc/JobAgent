@@ -190,7 +190,13 @@ async def test_reopen_same_job_opens_the_recorded_url(tmp_path: Path, monkeypatc
         browser_tools._ACTIVE_RUNS[run_id] = browser_tools._Run(session=browser, page=page)
         sessions.append(browser)
         return AgentOutcome(
-            task1=Task1Outcome(logged_in=True, results_found=True, easy_apply_filter_selected=True),
+            task1=Task1Outcome(
+                logged_in=True,
+                results_found=True,
+                easy_apply_filter_selected=True,
+                date_posted_filter_selected=True,
+                date_posted_filter_value="past_24_hours",
+            ),
             task2=Task2Outcome(),
         ), run_id
 

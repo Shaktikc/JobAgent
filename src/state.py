@@ -47,6 +47,10 @@ class Task1Outcome(BaseModel):
     ai_job_search_clicks: int = 0
     ai_job_search_candidates: list[str] = Field(default_factory=list)
     easy_apply_filter_selected: bool = False
+    # Task 13: the results are limited to the last 24 hours. ``value`` is the
+    # normalized selection (``"past_24_hours"``) so the CLI/verify/log can report it.
+    date_posted_filter_selected: bool = False
+    date_posted_filter_value: str = ""
     screenshot_path: str | None = None
     notes: str = ""
 

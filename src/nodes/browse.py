@@ -40,7 +40,9 @@ async def browse(state: ApplyState) -> ApplyState:
         f"results_count={task1.results_count} "
         f"ai_job_search={task1.ai_job_search_clicked} "
         f"ai_job_search_clicks={task1.ai_job_search_clicks} "
-        f"easy_apply_filter={task1.easy_apply_filter_selected}",
+        f"easy_apply_filter={task1.easy_apply_filter_selected} "
+        f"date_posted_filter={task1.date_posted_filter_selected} "
+        f"date_posted_value={task1.date_posted_filter_value or '(none)'}",
         "browse: task2 "
         f"jobs_seen={task2.jobs_seen} "
         f"job_index={task2.job_index} "
@@ -79,6 +81,11 @@ async def browse(state: ApplyState) -> ApplyState:
         )
     elif not task1.easy_apply_filter_selected:
         errors.append(f"browse: Easy Apply filter not selected (url={task1.page_url})")
+    elif not task1.date_posted_filter_selected:
+        errors.append(
+            "browse: Date posted filter 'Past 24 hours' not selected "
+            f"(url={task1.page_url})"
+        )
     elif not task2.easy_apply_clicked:
         errors.append(f"browse: no job Easy Apply button was clicked (url={task2.page_url})")
     elif not task2.application_form_opened:

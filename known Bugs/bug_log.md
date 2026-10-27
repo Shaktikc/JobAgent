@@ -28,6 +28,7 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | [`task_4_bugs.md`](task_4_bugs.md) | Fill the Easy Apply form, attach the resume, advance steps |
 | [`task_5_bugs.md`](task_5_bugs.md) | Ask the human for unknown answers, remember them |
 | [`task_6_bugs.md`](task_6_bugs.md) | Skip jobs already marked "Applied" |
+| [`task_13_bugs.md`](task_13_bugs.md) | Date posted → "Past 24 hours" filter |
 | [`self_healing_bugs.md`](self_healing_bugs.md) | Self-healing loop: auto-captured Easy Apply crashes, recovery, same-job resume |
 | [`general_bugs.md`](general_bugs.md) | Browser session, profile/CDP, CLI, cleanup, build, security, tests |
 
@@ -120,6 +121,7 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 
 | BUG-069 | Self-Healing — next job/pagination | retry still stopped on pagination; self-healing classifier/capture/buglog were not reloaded after repair | 🟡 Fixed (superseded) | (uncommitted) |
 | BUG-070 | Self-Healing — repair agent | autonomous repair asked a file-split approval question, exited 1, and stopped the loop | 🟢 Fixed | (uncommitted) |
+| BUG-071 | Task 13 — Date posted | a checked "Past 24 hours" radio was accepted though the results URL was not filtered | 🟢 Fixed | (uncommitted) |
 
 ## Template for new entries
 

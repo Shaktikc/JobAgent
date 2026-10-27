@@ -44,7 +44,11 @@ def _browse_success() -> dict:
     return {
         "status": "applied",
         "task1": Task1Outcome(
-            logged_in=True, results_found=True, easy_apply_filter_selected=True
+            logged_in=True,
+            results_found=True,
+            easy_apply_filter_selected=True,
+            date_posted_filter_selected=True,
+            date_posted_filter_value="past_24_hours",
         ),
         "task2": Task2Outcome(easy_apply_clicked=True, application_form_opened=True),
         "job_description": JobDescription(title="Backend Engineer", body="Python"),
@@ -57,6 +61,14 @@ def test_task_failure_reason_reads_browse_outcomes() -> None:
         "browse: job search returned no results"
     )
     assert task_heal.task_failure_reason("browse", _browse_success()) == ""
+
+
+def test_task_failure_reason_requires_date_posted_filter() -> None:
+    update = _browse_success()
+    update["task1"].date_posted_filter_selected = False
+    reason = task_heal.task_failure_reason("browse", update)
+    assert "Date posted filter" in reason
+    assert task_heal.task_failure_is_recoverable("browse", reason, update) is True
 
 
 def test_task_failure_reason_reads_match_outcomes() -> None:

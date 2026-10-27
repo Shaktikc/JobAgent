@@ -88,6 +88,8 @@ def _summary(state: ApplyState) -> str:
             f"ai search   : present={task1.ai_job_search_present} "
             f"clicked={task1.ai_job_search_clicked} clicks={task1.ai_job_search_clicks}",
             f"easy apply  : selected={task1.easy_apply_filter_selected}",
+            f"date posted : selected={task1.date_posted_filter_selected} "
+            f"value={task1.date_posted_filter_value or '(none)'}",
             f"page url    : {task1.page_url or 'unknown'}",
         ]
         if task1.screenshot_path:

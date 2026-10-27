@@ -47,6 +47,8 @@ def _task1_ok() -> Task1Outcome:
         results_found=True,
         results_count=25,
         easy_apply_filter_selected=True,
+        date_posted_filter_selected=True,
+        date_posted_filter_value="past_24_hours",
     )
 
 
@@ -161,9 +163,9 @@ def test_verify_passes_when_all_criteria_are_met() -> None:
     assert verify(state) == {
         "status": "done",
         "log": [
-            "verify: logged in, search returned results, Easy Apply filter selected, "
-            "job Easy Apply form opened, best-matching resume selected, "
-            "form filled and resume attached (not submitted)"
+            "verify: logged in, search returned results, Easy Apply + Past 24 hours "
+            "filters selected, job Easy Apply form opened, best-matching resume "
+            "selected, form filled and resume attached (not submitted)"
         ],
     }
 

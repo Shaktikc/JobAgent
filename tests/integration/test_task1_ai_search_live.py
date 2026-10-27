@@ -68,6 +68,7 @@ _PAGE_HTML = """<!doctype html>
 <button id="easy-apply-filter" type="button" aria-label="Easy Apply filter.">
   Easy Apply filter.
 </button>
+<!--DATE_FILTER-->
 <ul class="jobs-search__results-list">
   <li class="jobs-search-results__list-item">Backend Engineer</li>
   <li class="jobs-search-results__list-item">Data Engineer</li>
@@ -87,6 +88,7 @@ _PAGE_HTML = """<!doctype html>
   document.getElementById('easy-apply-filter').addEventListener('click', function () {
     this.setAttribute('aria-pressed', 'true');
   });
+  //DATE_FILTER_JS
 </script>
 </body></html>
 """
@@ -130,9 +132,60 @@ def _settings(tmp_path: Path) -> Settings:
     )
 
 
+# Task 13: a LinkedIn-shaped "Date posted" filter. The popover uses native radio
+# inputs and a **Show results** button; applying it updates the URL in place
+# (history.replaceState) so the rest of the fixture's counters survive. The
+# agent discovers and clicks these controls at runtime.
+_DATE_FILTER_HTML = """
+<div id="date-posted-wrap">
+  <button id="date-posted-filter" type="button" role="radio" aria-checked="false"
+          aria-label="Date posted filter.">Date posted</button>
+  <div id="date-posted-popover" style="display:none">
+    <label for="tp-month">Past month</label>
+    <input type="radio" id="tp-month" name="timePostedRange" value="r2592000">
+    <label for="tp-week">Past week</label>
+    <input type="radio" id="tp-week" name="timePostedRange" value="r604800">
+    <label for="tp-24h">Past 24 hours</label>
+    <input type="radio" id="tp-24h" name="timePostedRange" value="r86400">
+    <button id="date-posted-show" type="button">Show results</button>
+  </div>
+</div>
+"""
+
+_DATE_FILTER_SCRIPT = """
+  // Task 13: event delegation survives the AI page's body replacement.
+  document.addEventListener('click', function (event) {
+    var target = event.target;
+    if (!target || !target.closest) { return; }
+    if (target.closest('#date-posted-filter')) {
+      var pop = document.getElementById('date-posted-popover');
+      if (pop) { pop.style.display = pop.style.display === 'none' ? 'block' : 'none'; }
+    } else if (target.closest('#date-posted-show')) {
+      var checked = document.querySelector('input[name="timePostedRange"]:checked');
+      if (checked) {
+        var next = new URL(window.location.href);
+        next.searchParams.set('f_TPR', checked.value);
+        window.history.replaceState({}, '', next.toString());
+        document.getElementById('date-posted-filter').setAttribute('aria-checked', 'true');
+      }
+      var pop = document.getElementById('date-posted-popover');
+      if (pop) { pop.style.display = 'none'; }
+    }
+  });
+"""
+
+
+def _render(html: str) -> str:
+    """Inject the shared Task 13 Date posted fixture into a page template."""
+    return html.replace("<!--DATE_FILTER-->", _DATE_FILTER_HTML).replace(
+        "//DATE_FILTER_JS", _DATE_FILTER_SCRIPT
+    )
+
+
+
 async def test_task1_clicks_ai_job_search_repeatedly(tmp_path: Path) -> None:
     page_file = tmp_path / "task1.html"
-    page_file.write_text(_PAGE_HTML, encoding="utf-8")
+    page_file.write_text(_render(_PAGE_HTML), encoding="utf-8")
     server, url = _serve(tmp_path, "task1.html")
 
     browser = browser_tools.build_browser(_settings(tmp_path))
@@ -182,6 +235,7 @@ _AI_PAGE_HTML = """<!doctype html>
   <button class="jobs-search-box__submit-button" type="button">Search</button>
 </div>
 <button id="ai-search" type="button" aria-label="Try AI job search">Try AI job search</button>
+<!--DATE_FILTER-->
 <ul class="jobs-search__results-list">
   <li class="jobs-search-results__list-item">Backend Engineer</li>
   <li class="jobs-search-results__list-item">Data Engineer</li>
@@ -196,6 +250,7 @@ _AI_PAGE_HTML = """<!doctype html>
   });
   document.getElementById('ai-search').addEventListener('click', function () {
     window.__aiClicks += 1;
+    var dateFilter = document.getElementById('date-posted-wrap').outerHTML;
     // The AI entry point swaps in the AI search page (as in the real screenshot).
     document.body.innerHTML = ''
       + '<nav class="global-nav"></nav>'
@@ -203,7 +258,8 @@ _AI_PAGE_HTML = """<!doctype html>
       + 'placeholder="Describe the job you want">'
       + '<ul class="jobs-search__results-list" id="ai-results" style="display:none"></ul>'
       + '<button id="easy-apply-filter" type="button" aria-label="Easy Apply filter.">'
-      + 'Easy Apply filter.</button>';
+      + 'Easy Apply filter.</button>'
+      + dateFilter;
     var prompt = document.getElementById('ai-prompt');
     prompt.addEventListener('keydown', function (event) {
       if (event.key !== 'Enter') { return; }
@@ -218,6 +274,7 @@ _AI_PAGE_HTML = """<!doctype html>
       this.setAttribute('aria-pressed', 'true');
     });
   });
+  //DATE_FILTER_JS
 </script>
 </body></html>
 """
@@ -236,7 +293,7 @@ _READ_AI_PAGE_JS = """() => JSON.stringify({
 
 async def test_task1_searches_via_the_ai_prompt_after_the_ai_click(tmp_path: Path) -> None:
     page_file = tmp_path / "ai_page.html"
-    page_file.write_text(_AI_PAGE_HTML, encoding="utf-8")
+    page_file.write_text(_render(_AI_PAGE_HTML), encoding="utf-8")
     server, url = _serve(tmp_path, "ai_page.html")
 
     browser = browser_tools.build_browser(_settings(tmp_path))
@@ -311,9 +368,9 @@ async def test_task1_stays_in_ai_mode_when_the_detour_is_empty(
     def _fail_on_classic(_query: str) -> str:
         raise AssertionError("fell back to the classic jobs search URL")
 
-    monkeypatch.setattr(linkedin_tools, "build_jobs_search_url", _fail_on_classic)
+    monkeypatch.setattr(linkedin_tools.search_box, "build_jobs_search_url", _fail_on_classic)
     # Keep the "wait for results" polls short so the test stays fast.
-    monkeypatch.setattr(linkedin_tools, "_RESULTS_WAIT_SECONDS", 0.5)
+    monkeypatch.setattr(linkedin_tools.search_box, "_RESULTS_WAIT_SECONDS", 0.5)
 
     browser = browser_tools.build_browser(_settings(tmp_path))
     try:
@@ -356,6 +413,7 @@ _PAGE_FILTER_PILL_HTML = """<!doctype html>
 <button id="jobs-apply-button-id" type="button" aria-label="Easy Apply to Backend Engineer at Acme"
         class="jobs-apply-button artdeco-button artdeco-button--primary ember-view"
         data-live-test-job-apply-button="">Easy Apply</button>
+<!--DATE_FILTER-->
 <ul class="jobs-search__results-list">
   <li class="jobs-search-results__list-item">Backend Engineer</li>
   <li class="jobs-search-results__list-item">Data Engineer</li>
@@ -370,6 +428,7 @@ _PAGE_FILTER_PILL_HTML = """<!doctype html>
   document.getElementById('jobs-apply-button-id').addEventListener('click', function () {
     window.__blueClicks += 1;
   });
+  //DATE_FILTER_JS
 </script>
 </body></html>
 """
@@ -387,7 +446,7 @@ async def test_task1_clicks_the_easy_apply_filter_pill_not_the_apply_button(
     tmp_path: Path,
 ) -> None:
     page_file = tmp_path / "filter_pill.html"
-    page_file.write_text(_PAGE_FILTER_PILL_HTML, encoding="utf-8")
+    page_file.write_text(_render(_PAGE_FILTER_PILL_HTML), encoding="utf-8")
     server, url = _serve(tmp_path, "filter_pill.html")
 
     browser = browser_tools.build_browser(_settings(tmp_path))
@@ -428,6 +487,7 @@ _PAGE_AI_DIV_CARDS_HTML = """<!doctype html>
 <button id="ai-search" type="button" aria-label="Try AI job search">Try AI job search</button>
 <button id="searchFilter_applyWithLinkedin" type="button" role="radio"
         aria-checked="false" aria-label="Easy Apply filter.">Easy Apply</button>
+<!--DATE_FILTER-->
 <ul class="jobs-search__results-list">
   <li class="jobs-search-results__list-item">Backend Engineer</li>
   <li class="jobs-search-results__list-item">Data Engineer</li>
@@ -438,6 +498,7 @@ _PAGE_AI_DIV_CARDS_HTML = """<!doctype html>
   window.__pillClicks = 0;
   document.getElementById('ai-search').addEventListener('click', function () {
     window.__aiClicks += 1;
+    var dateFilter = document.getElementById('date-posted-wrap').outerHTML;
     // LinkedIn's AI search mode: the classic cards are gone, and the new cards
     // are div[role="button"], not <li> items.
     document.body.innerHTML = ''
@@ -450,7 +511,8 @@ _PAGE_AI_DIV_CARDS_HTML = """<!doctype html>
       + 'Sydney, NSW (On-site) Actively reviewing applicants Viewed Posted '
       + '3 weeks ago</div>'
       + '<div role="button" class="jobcard">Full Stack Engineer MoreGoodDays '
-      + 'Australia (Remote) Actively reviewing applicants Posted 1 week ago</div>';
+      + 'Australia (Remote) Actively reviewing applicants Posted 1 week ago</div>'
+      + dateFilter;
     var prompt = document.getElementById('ai-prompt');
     prompt.addEventListener('keydown', function (e) {
       if (e.key !== 'Enter') { return; }
@@ -462,6 +524,7 @@ _PAGE_AI_DIV_CARDS_HTML = """<!doctype html>
         this.setAttribute('aria-checked', 'true');
       });
   });
+  //DATE_FILTER_JS
 </script>
 </body></html>
 """
@@ -478,7 +541,7 @@ _READ_AI_DIV_JS = """() => JSON.stringify({
 
 async def test_task1_detects_ai_div_job_cards_and_selects_filter(tmp_path: Path) -> None:
     page_file = tmp_path / "ai_div_cards.html"
-    page_file.write_text(_PAGE_AI_DIV_CARDS_HTML, encoding="utf-8")
+    page_file.write_text(_render(_PAGE_AI_DIV_CARDS_HTML), encoding="utf-8")
     server, url = _serve(tmp_path, "ai_div_cards.html")
 
     browser = browser_tools.build_browser(_settings(tmp_path))

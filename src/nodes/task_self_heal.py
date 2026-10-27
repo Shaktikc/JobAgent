@@ -74,6 +74,8 @@ def _browse_reason(update: ApplyState) -> str:
             return "browse: job search returned no results"
         if not bool(getattr(task1, "easy_apply_filter_selected", False)):
             return "browse: Easy Apply filter not selected"
+        if not bool(getattr(task1, "date_posted_filter_selected", False)):
+            return "browse: Date posted filter not selected"
     if task2 is not None:
         if not bool(getattr(task2, "easy_apply_clicked", False)):
             return "browse: no Easy Apply job was opened"

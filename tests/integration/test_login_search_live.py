@@ -38,6 +38,10 @@ async def test_agent_runs_tasks_1_to_4_without_submitting() -> None:
     assert result.task1.logged_in, "login was not completed"
     assert result.task1.results_found, f"no search results (url={result.task1.page_url})"
     assert result.task1.easy_apply_filter_selected, "Easy Apply filter was not selected"
+    assert result.task1.date_posted_filter_selected, (
+        f"Date posted filter 'Past 24 hours' was not selected (url={result.task1.page_url})"
+    )
+    assert result.task1.date_posted_filter_value == "past_24_hours"
 
     assert result.task2.easy_apply_clicked, (
         f"no Easy Apply button was clicked (url={result.task2.page_url})"
