@@ -105,6 +105,21 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 
 | BUG-058 | Task 4 — required-only | optional (no `*`) diversity questions were asked/filled and paused the run | 🟢 Fixed | `2d26b71` |
 | BUG-059 | Task 4/5 — SDUI checkbox group | group question read as each option's text, and the human's ticks were never saved | 🟢 Fixed | `2d26b71` |
+| BUG-060 | Task 8 — submit detection | real submission not detected (SDUI dialog + wrong card) → stuck on "waiting for you to submit" | 🟢 Fixed | (uncommitted) |
+| BUG-061 | Task 8 — submit wait | closing the browser during the wait left the run hung forever | 🟢 Fixed | (uncommitted) |
+
+| BUG-062 | Self-Healing — fill | form did not advance to a new step: no resume control found on this form step; form did not advance to a new step; stopp | 🔴 Open | (pending) |
+| BUG-063 | Task 8 — pagination | stopped on page 1 when the remaining unapplied cards had no Easy Apply instead of advancing | 🟢 Fixed | (uncommitted) |
+| BUG-064 | Task 11 — crash guard | a crash outside `fill` (e.g. `next_job`) ended the run and self-healing never ran | 🟢 Fixed | (uncommitted) |
+
+| BUG-065 | Self-Healing — browse/search | returned Task 1/2 failure could not close the failed browse browser, and was mis-filed as a fill exception | 🟢 Fixed | (uncommitted) |
+| BUG-066 | Task 7/8 — pagination | new hashed-class pagination controls were missed, then the run stopped without task-level self-healing | 🟢 Fixed | (uncommitted) |
+| BUG-067 | Task 9/11 — input lock | human mouse/keyboard could change the page while the agent was working | 🟢 Fixed | (uncommitted) |
+
+| BUG-068 | Self-Healing — next job/pagination | results pagination could not advance: CDP click swallowed; now falls back to a DOM click, then a direct `start=25` URL navigation | 🟢 Fixed | (uncommitted) |
+
+| BUG-069 | Self-Healing — next job/pagination | retry still stopped on pagination; self-healing classifier/capture/buglog were not reloaded after repair | 🟡 Fixed (superseded) | (uncommitted) |
+| BUG-070 | Self-Healing — repair agent | autonomous repair asked a file-split approval question, exited 1, and stopped the loop | 🟢 Fixed | (uncommitted) |
 
 ## Template for new entries
 

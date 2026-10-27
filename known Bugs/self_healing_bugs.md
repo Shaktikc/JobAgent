@@ -362,3 +362,161 @@ same index covers runtime crashes and the recovery machinery itself.
 - **Failure fingerprint:** `e8dcc79d516ca5e04c9a`
 - **Occurrences:** 1 (first 2026-10-26T09:50:40+00:00)
 - **Recovery evidence:** bundle `C:\Users\shakt\OneDrive\Desktop\project\AutoJobApply\data\debug\self_healing\20261026-095039-963174-e8dcc79d516c`; attempts=1; run=`bbb5df0f410e48738b9db1927a4b92dd`
+
+### BUG-062 — form did not advance to a new step: no resume control found on this form step; form did not advance to a new step; stopping before submit
+
+- **Symptom:** fill: form did not advance to a new step
+- **Root cause:** Auto-classified as `form_did_not_advance` during `fill`; see the bundle for the failing step/DOM. A source-level root cause is still pending.
+- **Fix:** Pending. Recorded before any repair attempt.
+- **Status:** 🔴 Open
+- **Evidence:** bundle `C:\Users\shakt\OneDrive\Desktop\project\AutoJobApply\data\debug\self_healing\20261027-060628-966030-99ae64bd9186`; captured 2026-10-27T06:06:29.344388+00:00
+- **Failure fingerprint:** `99ae64bd91860b0b160f`
+- **Occurrences:** 1 (first 2026-10-27T06:06:29+00:00)
+
+### BUG-064 � a crash outside `fill` ended the run without self-healing
+
+- **Symptom:** a live Task 8 run could crash/stop while opening the next job
+  (or during the submit wait / browse / match) and no self-healing entry,
+  browser close, repair, or resume happened. Only Task 4 fill failures entered
+  the self-healing loop.
+- **Root cause:** `heal_fill_failure` was wired into `src/nodes/fill.py` only.
+  Every other node caught its own exception and returned `status="failed"`, so
+  the uncaught-exception path that triggers capture/repair/reopen was never
+  reached.
+- **Fix:** new `src/nodes/self_heal_guard.py` wraps every graph node (except
+  `cleanup`, which must never relaunch a browser). An uncaught crash now:
+  captures evidence, records/updates a BUG entry, force-closes the failed run,
+  runs the optional repair/test command, reopens the same job form or results
+  page, and retries the **same node** up to `AUTOJOB_SELF_HEAL_MAX_ATTEMPTS`
+  (default 3). `next_job`, `await_submit`, and `browse` no longer swallow their
+  crashes, and the retried update carries the recovered `browser_run_id`,
+  `task2`, and self-healing outcome back into graph state.
+- **Status:** ?? Fixed
+- **Evidence:** `src/nodes/self_heal_guard.py`, `src/graph.py`,
+  `src/nodes/apply_loop.py`, `src/nodes/browse.py`;
+  `tests/unit/test_self_heal_guard.py` (recovered retry, attempt cap, guard
+  wrapping, and crash propagation). Full unit suite passes. Live Chromium check
+  over a local HTTP page: capture → BUG-001 recorded → browser force-closed →
+  fresh browser reopened the same page → `next_job` retried → recovered in one
+  attempt. Uncommitted.
+
+### BUG-065 — Task 1/2 self-healing could not close the failed browse browser
+
+- **Symptom:** a returned Task 1–2 failure (`browse: job search returned no results`,
+  no Easy Apply job, or form not opened) entered the new task guard, but the retry
+  could not launch a fresh Chromium: the profile was still locked by the failed
+  `browse` browser. The failure was also mis-filed as "unexpected exception while
+  filling the form" even though no form was involved.
+- **Root cause:** `browse` launches its own session via `start_tasks`, which only
+  registers a run when Tasks 1–2 succeed; on failure it detaches and leaves the
+  window open. With no `browser_run_id`, the guard's default close was a no-op, so
+  the retry hit the profile lock. Separately, `classify_failure` had no browse-stage
+  categories and fell through to the fill categories.
+- **Fix:** `src/nodes/task_self_heal.py` adds the task-level guard and a
+  `close_self_launched_browser` close hook (profile-wide close only when no run is
+  registered, scoped `close_run_force` otherwise). `classify_failure` now takes a
+  `stage` and emits `login_not_completed` / `search_no_results` /
+  `search_filter_not_selected` / `easy_apply_job_missing`; the bug-log index scope
+  follows the stage instead of always saying "fill".
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/nodes/task_self_heal.py`,
+  `src/tools/self_healing/fingerprint.py`, `src/tools/self_healing/buglog.py`,
+  `src/tools/self_healing/capture.py`; `tests/unit/test_task_self_heal.py`
+  (browse retry, login gate not retried, self-launched close, stage
+  classification, browse-scoped bug index); full unit suite passes. Live Chromium
+  check: a returned `search_no_results` stop was captured as
+  `search_no_results`, the failed browse browser was force-closed (profile lock
+  cleared), the task retried, and `browse` recovered on attempt 1. A separate live
+  probe confirmed the profile-wide close lets the retry launch a fresh browser.
+  Uncommitted.
+
+### BUG-068 — results pagination could not advance: the results did not change after clicking next
+
+- **Symptom:** after the human submitted `.Net Fullstack Engineer`, the Task 8
+  loop returned to the results list, found every card on page 1 already Applied
+  (`skipped 21 applied job(s)`), and stopped with
+  `next_job: results pagination could not advance: the results did not change
+  after clicking next; no unapplied Easy Apply job was opened`. The next-page
+  control was present and correct (`Page 1/Page 2/Page 3/Next`), yet clicking it
+  never moved the list, so the run recorded the stop as `unknown_exception`
+  ("unexpected exception while filling the form") and retried by reopening page 1.
+- **Root cause:** two defects:
+  1. The current LinkedIn results page hashes its class names and renders the
+     next-page control as a plain `<button>` (no `aria-label`) at the bottom of the
+     page. `go_to_next_page` clicked it with a coordinate-based CDP mouse click
+     (`Element.click()`); on the real page that click was swallowed (an overlapping
+     sticky bar/ad or stale geometry), so the results list never changed even
+     though the control was correct.
+  2. The returned `next_job` pagination stop was classified by `classify_failure`
+     with the fill rules, so it became `unknown_exception` ("unexpected exception
+     while filling the form") and its bug-log row was filed under
+     "Self-Healing — fill" — misleading, since no form was involved (the same
+     class of defect BUG-065 fixed for the browse stage).
+- **Fix:** in `src/tools/linkedin_pagination.py`, tolerate a click that starts a
+  navigation and, when the CDP click does not move the list, retry with the
+  control's own DOM `click()` (`_click_control_dom`), which invokes LinkedIn's
+  handler directly and bypasses hit-testing. If that also fails, load the next
+  results page directly from its `start=25` URL (`next_page_url` /
+  `_navigate_to_next_page`), which is deterministic even when every click is
+  swallowed. In `src/tools/self_healing/fingerprint.py`, classify a `next_job`
+  pagination stop as the new recoverable category `pagination_failed` (symptom
+  "the results pagination could not advance"), and in
+  `src/tools/self_healing/buglog.py` file `next_job` failures under
+  "Self-Healing — next job/pagination". `reload_runtime_modules` now reloads
+  fingerprint/capture/buglog as well, so the retry uses the repaired classifier.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/linkedin_pagination.py` (`_click_control_cdp`,
+  `_click_control_dom`, `go_to_next_page`), `src/tools/self_healing/fingerprint.py`
+  (`pagination_failed`, `classify_failure`, `symptom_for`),
+  `src/tools/self_healing/buglog.py` (`_SCOPE_BY_STAGE`); unit
+  `test_go_to_next_page_falls_back_to_a_dom_click`,
+  `test_go_to_next_page_reports_no_change_when_neither_click_moves_it`,
+  `test_next_job_pagination_stop_is_not_a_form_fill_exception`; live Chrome
+  (headless, `AUTOJOB_TASK2_LIVE=1`)
+  `test_go_to_next_page_survives_a_swallowed_cdp_click` proves a coordinate CDP
+  click on the control is swallowed (the list stays on page 1) while the DOM-click
+  fallback advances to page 2; live real-LinkedIn check: loading the computed
+  `start=25` URL advanced from page 1 to page 2 and changed the signature; live
+  next-job self-heal check: a returned `pagination_failed` stop was captured,
+  closed, reopened on the results page, and recovered on attempt 1 with
+  `category=pagination_failed`; full unit suite + live Task 2 suite (5/5) + live
+  self-healing suite (4/4); bundle `20261027-071134-799022-71afff4f6d5e`;
+  commit `(uncommitted)`.
+- **Failure fingerprint:** `71afff4f6d5ee9c4ddc1`
+- **Occurrences:** 1 (first 2026-10-27T07:11:35+00:00)
+
+### BUG-069 — retry still stopped on pagination and was mis-filed as a fill exception
+
+- **Symptom:** after the first BUG-068 repair, the self-heal retry hit the same
+  pagination stop (`the results did not change after clicking next; skipped 20
+  applied job(s)`). The second capture was still labelled `unknown_exception`
+  ("unexpected exception while filling the form") and filed under
+  "Self-Healing — fill", even though the repair had added the `pagination_failed`
+  category.
+- **Root cause:** two gaps:
+  1. The first fix retried the control with a DOM `click()`, but a slow/navigating
+     first click could detach the marker, so the DOM retry had no element to
+     click. There was no deterministic final fallback.
+  2. `reload_runtime_modules` reloaded the browser/fill stack but **not**
+     `src.tools.self_healing.fingerprint`, `capture`, or `buglog`. The retry
+     therefore kept using the pre-repair classifier, producing the wrong
+     `unknown_exception` category/scope.
+- **Fix:** `go_to_next_page` now falls back to loading the next results page via
+  its `start=25` URL when both clicks fail; the repair reload list now includes
+  the fingerprint/capture/buglog modules so classification and filing use the
+  repaired code on the very next retry.
+- **Status:** 🟡 Fixed (superseded)
+  - Superseded by the final BUG-068 fix (DOM click + URL navigation) and the
+    self-healing module reload; this entry stays as the evidence for the failed
+    retry.
+- **Evidence:** `src/tools/linkedin_pagination.py` (`_click_control_dom`,
+  `_navigate_to_next_page`, `next_page_url`),
+  `src/tools/self_healing/recovery.py` (`_RUNTIME_MODULES`);
+  `tests/unit/test_linkedin_pagination.py`
+  (`test_go_to_next_page_falls_back_to_url_navigation`),
+  `tests/unit/test_task_self_heal.py`
+  (`test_repair_reloads_the_self_healing_classifier`); live Chromium check:
+  navigating the real results URL to `start=25` loaded page 2 and changed the
+  signature. Uncommitted.
+- **Failure fingerprint:** `a545c3497393b71a125b`
+- **Occurrences:** 1 (first 2026-10-27T07:25:24+00:00)

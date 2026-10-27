@@ -35,6 +35,7 @@ full reporter or a plain ``notify`` callable, so existing test fakes keep workin
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 # The status panel. It renders in the browser's top layer (``popover="manual"``)
 # at the bottom-left so LinkedIn's modal and the bottom-right Task 5 / Task 3.1
@@ -135,6 +136,181 @@ def _format_llm(action: str, detail: str = "") -> str:
     return text
 
 
+# CDP input commands browser-use uses to click/type/scroll. The interaction lock
+# wraps these so its own automation still works while physical user input is
+# ignored (BUG-066).
+_INPUT_METHODS = (
+    "dispatchMouseEvent",
+    "dispatchKeyEvent",
+    "dispatchTouchEvent",
+    "insertText",
+    "imeSetComposition",
+    "synthesizeScrollGesture",
+    "synthesizeTapGesture",
+)
+
+# One lock per live page; keyed by ``id(page)``, removed on release.
+_INTERACTION_LOCKS: dict[int, InteractionLock] = {}
+
+
+class InteractionLock:
+    """Block physical input while the agent works (CDP automation still runs)."""
+
+    def __init__(self, page) -> None:
+        self.page = page
+        self._client = getattr(page, "_client", None)
+        self._session_id = ""
+        self._locked = False
+        self._human_depth = 0
+        self._in_input = 0
+        self._originals: dict[str, object] = {}
+        self._task: asyncio.Task | None = None
+        self._released = False
+
+    async def install(self) -> None:
+        if self._task is not None or self._released:
+            return
+        session_id = getattr(self.page, "session_id", "")
+        if hasattr(session_id, "__await__"):
+            session_id = await session_id
+        self._session_id = str(session_id or "")
+        self._wrap_input()
+        self._task = asyncio.create_task(self._watch())
+        await self._apply(True)
+
+    def _input_client(self):
+        return getattr(getattr(self._client, "send", None), "Input", None)
+    def _wrap_input(self) -> None:
+        input_client = self._input_client()
+        if input_client is None:
+            return
+        for name in _INPUT_METHODS:
+            original = getattr(input_client, name, None)
+            if not callable(original):
+                continue
+            self._originals[name] = original
+
+            async def wrapper(*args, _orig=original, **kwargs):
+                if not self._locked or self._human_depth:
+                    return await _orig(*args, **kwargs)
+                session_id = kwargs.get("session_id") or self._session_id
+                self._in_input += 1
+                try:
+                    await self._set_ignore(False, session_id)
+                    return await _orig(*args, **kwargs)
+                finally:
+                    await self._set_ignore(True, session_id)
+                    self._in_input -= 1
+
+            setattr(input_client, name, wrapper)
+
+    async def _set_ignore(self, ignore: bool, session_id: str | None = None) -> None:
+        input_client = self._input_client()
+        if input_client is None:
+            return
+        with contextlib.suppress(Exception):
+            await input_client.setIgnoreInputEvents(
+                {"ignore": bool(ignore)}, session_id=session_id or self._session_id or None
+            )
+
+    async def _apply(self, locked: bool) -> None:
+        if not self._released:
+            self._locked = locked
+            await self._set_ignore(locked)
+    async def set_human(self, human: bool) -> None:
+        """Open/close a human-turn section (nested calls are balanced)."""
+        if not self._released:
+            self._human_depth = max(0, self._human_depth + (1 if human else -1))
+            await self._apply(self._human_depth == 0)
+
+    async def _watch(self) -> None:
+        while not self._released:
+            try:
+                await asyncio.sleep(0.6)
+                if not self._in_input and not self._human_depth:
+                    await self._apply(not await self._on_login_page())
+            except asyncio.CancelledError:
+                return
+            except Exception:  # noqa: BLE001 - the lock must never crash the run
+                continue
+    async def _on_login_page(self) -> bool:
+        try:
+            url = str(await self.page.get_url() or "").lower()
+        except Exception:  # noqa: BLE001 - a dead page is not a login page
+            url = ""
+        if any(part in url for part in ("/login", "/checkpoint", "/authwall", "/uas/")):
+            return True
+        try:
+            result = await self.page.evaluate(
+                "() => !!(document.querySelector('input[type=password], "
+                "input[name=\"session_key\"], form.login__form'))"
+            )
+            return str(result).strip().lower() in ("true", "1")
+        except Exception:  # noqa: BLE001 - evaluation is best effort
+            return False
+
+    async def release(self) -> None:
+        if self._released:
+            return
+        self._released = True
+        self._human_depth = 0
+        if self._task is not None:
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self._task
+            self._task = None
+        await self._set_ignore(False)
+        input_client = self._input_client()
+        if input_client is not None:
+            for name, original in self._originals.items():
+                setattr(input_client, name, original)
+        self._originals.clear()
+
+
+async def ensure_interaction_lock(page) -> InteractionLock | None:
+    key = id(page)
+    existing = _INTERACTION_LOCKS.get(key)
+    if existing is not None:
+        return existing
+    if getattr(page, "_client", None) is None:
+        return None
+    lock = InteractionLock(page)
+    _INTERACTION_LOCKS[key] = lock
+    try:
+        await lock.install()
+    except Exception:  # noqa: BLE001 - the lock is best effort, never blocking
+        _INTERACTION_LOCKS.pop(key, None)
+        with contextlib.suppress(Exception):
+            await lock.release()
+        return None
+    return lock
+
+
+async def begin_human_turn(page) -> None:
+    lock = _INTERACTION_LOCKS.get(id(page)) or await ensure_interaction_lock(page)
+    if lock is not None:
+        await lock.set_human(True)
+
+
+async def end_human_turn(page) -> None:
+    lock = _INTERACTION_LOCKS.get(id(page))
+    if lock is not None:
+        await lock.set_human(False)
+
+
+async def release_interaction_lock(page) -> None:
+    lock = _INTERACTION_LOCKS.pop(id(page), None)
+    if lock is not None:
+        await lock.release()
+
+
+async def release_all_interaction_locks() -> None:
+    for lock in list(_INTERACTION_LOCKS.values()):
+        with contextlib.suppress(Exception):
+            await lock.release()
+    _INTERACTION_LOCKS.clear()
+
+
 class StatusReporter:
     """Pushes agent/LLM status to the CLI and the on-page panel (Task 9).
 
@@ -149,8 +325,13 @@ class StatusReporter:
         self._page = page
 
     def bind_page(self, page) -> None:
-        """Attach the live page the panel should render into."""
+        """Attach the live page and install the automation interaction lock."""
         self._page = page
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return  # CLI-only reporter; no page task to schedule
+        loop.create_task(ensure_interaction_lock(page))
 
     def __call__(self, message: str) -> None:
         """Technical notify line: CLI only (matches the old ``notify`` callback)."""
@@ -195,6 +376,8 @@ class StatusReporter:
             await page.evaluate(_CLEAR_STATUS_JS)
         except Exception:  # noqa: BLE001 - nothing to clean up if the page is gone
             pass
+        finally:
+            await release_interaction_lock(page)
 
 
 def emit_step(status, message: str) -> None:
@@ -220,7 +403,13 @@ def emit_llm(status, action: str, detail: str = "") -> None:
 
 
 __all__ = [
+    "InteractionLock",
     "StatusReporter",
+    "begin_human_turn",
     "emit_llm",
     "emit_step",
+    "end_human_turn",
+    "ensure_interaction_lock",
+    "release_all_interaction_locks",
+    "release_interaction_lock",
 ]

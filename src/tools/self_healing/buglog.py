@@ -76,7 +76,15 @@ def _entry_by_id(text: str, bug_id: str) -> str | None:
     return match.group(0) if match else None
 
 
-def _update_index(root: Path, bug_id: str, symptom: str, status: str, fix: str) -> None:
+def _update_index(
+    root: Path,
+    bug_id: str,
+    symptom: str,
+    status: str,
+    fix: str,
+    *,
+    scope: str = "Self-Healing — fill",
+) -> None:
     path = _index_file(root)
     text = _read(path)
     if not text:
@@ -90,7 +98,6 @@ def _update_index(root: Path, bug_id: str, symptom: str, status: str, fix: str) 
             cells[5] = f" {fix} "
             text = text[: existing.start()] + "|".join(cells) + text[existing.end() :]
     else:
-        scope = "Self-Healing — fill"
         row = f"| {bug_id} | {scope} | {symptom[:120]} | {status} | {fix} |"
         marker = "\n## Template for new entries"
         if marker in text:
@@ -98,6 +105,20 @@ def _update_index(root: Path, bug_id: str, symptom: str, status: str, fix: str) 
         else:
             text = text.rstrip() + "\n" + row + "\n"
     _write_atomic(path, text)
+
+
+# The stage a failure came from decides which area owns its index row, so a
+# browse-stage stop is not filed under "fill" (BUG-065) and a ``next_job``
+# pagination stop is not filed under "fill" either (BUG-068).
+_SCOPE_BY_STAGE = {
+    "browse": "Self-Healing — browse/search",
+    "match": "Self-Healing — match/resume",
+    "next_job": "Self-Healing — next job/pagination",
+}
+
+
+def _scope_for(stage: str) -> str:
+    return _SCOPE_BY_STAGE.get((stage or "").strip().lower(), "Self-Healing — fill")
 
 
 def _occurrences(body: str) -> int:
@@ -165,7 +186,14 @@ def record_failure(
             entry = _open_reoccurrence(entry)
             text = text.replace(existing[1], entry, 1)
             _write_atomic(path, text)
-            _update_index(root, bug_id, symptom, "🔴 Open", "(pending)")
+            _update_index(
+                root,
+                bug_id,
+                symptom,
+                "🔴 Open",
+                "(pending)",
+                scope=_scope_for(captured.evidence.stage),
+            )
             return FailureRecord(
                 fingerprint=captured.fingerprint,
                 category=captured.category,
@@ -195,7 +223,14 @@ def record_failure(
         )
         text = text.rstrip() + "\n\n" + entry
         _write_atomic(path, text)
-        _update_index(root, bug_id, symptom, "🔴 Open", "(pending)")
+        _update_index(
+            root,
+            bug_id,
+            symptom,
+            "🔴 Open",
+            "(pending)",
+            scope=_scope_for(captured.evidence.stage),
+        )
         return FailureRecord(
             fingerprint=captured.fingerprint,
             category=captured.category,

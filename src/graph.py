@@ -20,6 +20,11 @@ re-runs ``match``/``fill`` for it — repeating until the jobs-per-run cap is
 reached, no unapplied job remains, the human closes the browser, or a step fails.
 ``cleanup`` then closes the session once. Failure paths skip straight to
 ``cleanup`` (or ``verify`` for a dry run) so the session is always released.
+
+Every node is also wrapped by the self-healing guards: uncaught crashes in any
+node are recorded/repaired/retried, and returned Task 1-3 hard stops (login gate
+excluded) are retried through the task-level guard. Clean Task 8 stops (cap,
+timeout, human closed, nothing left) are never treated as crashes.
 """
 
 from __future__ import annotations
@@ -27,6 +32,8 @@ from __future__ import annotations
 from langgraph.graph import END, START, StateGraph
 
 from src.nodes import await_submit, browse, cleanup, fill, ingest, match, next_job, verify
+from src.nodes.self_heal_guard import guard_node
+from src.nodes.task_self_heal import guard_task_node
 from src.state import ApplyState
 
 
@@ -82,14 +89,22 @@ def build_graph():
     """Construct and compile the agent graph."""
     builder = StateGraph(ApplyState)
 
-    builder.add_node("ingest", ingest)
-    builder.add_node("browse", browse)
-    builder.add_node("match", match)
-    builder.add_node("fill", fill)
-    builder.add_node("await_submit", await_submit)
-    builder.add_node("next_job", next_job)
+    # Every node that can raise is guarded: an uncaught crash is recorded,
+    # repaired/tested, and the same node is retried in a fresh browser instead of
+    # silently ending the run (Task 11). ``cleanup`` stays unguarded so a release
+    # failure can never relaunch the browser.
+    builder.add_node("ingest", guard_node("ingest", ingest, reopen=None))
+    # Tasks 1-3 return their failures as outcomes rather than raising, so these
+    # two nodes also use the task-level guard (BUG-065).
+    builder.add_node("browse", guard_task_node("browse", browse, reopen=None))
+    builder.add_node("match", guard_task_node("match", match, reopen="job"))
+    builder.add_node("fill", guard_node("fill", fill, reopen="job"))
+    builder.add_node("await_submit", guard_node("await_submit", await_submit, reopen="job"))
+    builder.add_node(
+        "next_job", guard_task_node("next_job", next_job, reopen="results")
+    )
     builder.add_node("cleanup", cleanup)
-    builder.add_node("verify", verify)
+    builder.add_node("verify", guard_node("verify", verify, reopen=None))
 
     builder.add_edge(START, "ingest")
     builder.add_conditional_edges("ingest", _route_after_ingest, {"browse": "browse", "end": END})

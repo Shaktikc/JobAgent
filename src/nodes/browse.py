@@ -23,18 +23,13 @@ async def browse(state: ApplyState) -> ApplyState:
 
     from src.tools.browser import start_tasks  # lazy: needs the `browser` extra
 
-    try:
-        result, run_id = await start_tasks(
-            state["url"],
-            state.get("search_query") or "",
-            progress=print,
-        )
-    except Exception as exc:  # noqa: BLE001 - surface any setup/launch failure
-        return {
-            "status": "failed",
-            "errors": [f"browse: {exc}"],
-            "log": ["browse: browser run failed"],
-        }
+    # Let a launch/setup crash propagate to the graph's self-heal guard, which
+    # records it, repairs/tests, and retries this node with a fresh browser.
+    result, run_id = await start_tasks(
+        state["url"],
+        state.get("search_query") or "",
+        progress=print,
+    )
 
     task1, task2 = result.task1, result.task2
     description = result.job_description
@@ -91,4 +86,13 @@ async def browse(state: ApplyState) -> ApplyState:
 
     if errors:
         update["errors"] = errors
+        if not run_id:
+            # ``start_tasks`` leaves a failed browser open for inspection after
+            # detaching its CDP handle; drop the input lock so the human can use
+            # that window again.
+            from src.tools.linkedin_status_overlay import (
+                release_all_interaction_locks,
+            )
+
+            await release_all_interaction_locks()
     return update

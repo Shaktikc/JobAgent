@@ -63,6 +63,9 @@ def test_build_prompt_names_the_evidence_and_the_rules() -> None:
     assert "Submit application" in prompt
     assert "commit" in prompt
     assert "415 lines" in prompt
+    # Non-interactive: a repair must never block on an approval question.
+    assert "never ask the user a question" in prompt
+    assert "do not edit files under `task/`" in prompt
 
 
 def test_resolve_opencode_honors_the_override(monkeypatch) -> None:

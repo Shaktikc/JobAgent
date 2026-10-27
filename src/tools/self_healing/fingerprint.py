@@ -27,7 +27,34 @@ CATEGORY_LABELS = {
     "browser_error": "browser/CDP error",
     "unknown_exception": "unexpected exception while filling the form",
     "unknown": "unclassified Easy Apply failure",
+    # Task 1/2 (browse) hard stops. They are returned as outcomes rather than
+    # raised, so a form-fill category is wrong for them (BUG-065).
+    "login_not_completed": "the human did not log in",
+    "search_no_results": "the job search returned no results",
+    "search_filter_not_selected": "the Easy Apply filter was not selected",
+    "easy_apply_job_missing": "no Easy Apply job could be opened",
+    # Task 7/8: a returned results-pagination stop from the ``next_job`` node. Like
+    # the browse stops, it is not a form-fill exception, so it must not be labelled
+    # "unexpected exception while filling the form" (BUG-068).
+    "pagination_failed": "the results pagination could not advance",
 }
+
+# Browse-stage (Tasks 1-2) hard stops, matched against the returned reason. These
+# run before the fill markers so a search/login stop is never labelled "unexpected
+# exception while filling the form" (BUG-065).
+_BROWSE_MARKERS = (
+    ("login not completed", "login_not_completed"),
+    ("job search returned no results", "search_no_results"),
+    ("easy apply filter not selected", "search_filter_not_selected"),
+    ("no easy apply job", "easy_apply_job_missing"),
+    ("no job easy apply button", "easy_apply_job_missing"),
+    ("easy apply form did not open", "easy_apply_job_missing"),
+)
+_BROWSE_CATEGORIES = frozenset(category for _marker, category in _BROWSE_MARKERS)
+
+# Categories whose symptom is already named by their label, so ``symptom_for``
+# must not append the (redundant) raw reason after them.
+_STANDALONE_SYMPTOM_CATEGORIES = _BROWSE_CATEGORIES | {"pagination_failed"}
 
 # Categories that are worth reopening the browser for. A required question that
 # the agent genuinely cannot answer is left to Task 5 / the human; restarting the
@@ -45,6 +72,14 @@ _RECOVERABLE = frozenset(
         "browser_error",
         "unknown_exception",
         "unknown",
+        # A search/filter/job-selection stop can clear by re-running Task 1 in a
+        # fresh browser; a missed login gate cannot (the human must do it).
+        "search_no_results",
+        "search_filter_not_selected",
+        "easy_apply_job_missing",
+        # A results-pagination click that did not move the list can clear by
+        # reopening the results page and clicking the control again (BUG-068).
+        "pagination_failed",
     }
 )
 
@@ -76,10 +111,30 @@ def classify_failure(
     error: str = "",
     task4: Any = None,
     notes: str = "",
+    *,
+    stage: str = "fill",
 ) -> str:
-    """Return the failure category for an exception and/or a Task 4 outcome."""
+    """Return the failure category for an exception and/or a Task 4 outcome.
+
+    ``stage`` names the graph node the failure came from. A browse-stage
+    (``browse``) stop is a returned search/login/job-selection outcome, so it is
+    classified from those markers first and never falls through to the fill
+    categories — where it used to become ``unknown_exception`` ("unexpected
+    exception while filling the form") even though no form was involved (BUG-065).
+    """
     text = _notes_of(task4, notes)
     combined = _normalize(f"{text} {error or ''}")
+
+    if (stage or "fill").strip().lower() != "fill":
+        for marker, category in _BROWSE_MARKERS:
+            if marker in combined:
+                return category
+        # Task 7/8: a returned results-pagination stop is a ``next_job`` outcome,
+        # not a form-fill exception (BUG-068).
+        if "results pagination could not advance" in combined:
+            return "pagination_failed"
+        # An unrecognised non-fill stop is still not a form-fill exception.
+        return "unknown_exception" if error else "unknown"
 
     if bool(getattr(task4, "submitted", False)):
         return "submit_clicked"
@@ -177,6 +232,10 @@ def category_label(category: str) -> str:
 def symptom_for(category: str, task4: Any = None, error: str = "") -> str:
     """A short, specific symptom for the bug log."""
     label = category_label(category)
+    if category in _STANDALONE_SYMPTOM_CATEGORIES:
+        # The label already names the stop; appending the reason would only
+        # duplicate it ("the job search returned no results: browse: job search...").
+        return label
     notes = _normalize(getattr(task4, "notes", "") if task4 is not None else "")
     if notes:
         return f"{label}: {notes[:240]}"

@@ -144,6 +144,7 @@ async def test_read_submission_state_reads_the_probe() -> None:
         "form_open": False,
         "confirmation": "Application sent",
         "card_applied": True,
+        "status_submitted": False,
         "done_marker": "d0",
     }
 

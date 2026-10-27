@@ -82,9 +82,11 @@ def build_prompt(
         f"5. Run the focused test after each slice, then the relevant suite at the "
         f"end. If a live-browser check is required, run it headlessly.\n\n"
         f"Constraints: never click **Submit application**; do not commit or push; "
-        f"keep every source file under 415 lines and split it when it grows past "
-        f"that; do not edit files under `task/` without explicit approval. If you "
-        f"cannot find the root cause, leave the bug entry Open and explain why "
+        f"keep every source file under 415 lines. You are running "
+        f"non-interactively: never ask the user a question. If a file would exceed "
+        f"415 lines, first remove redundant comments/docstrings; do not create new "
+        f"files, packages, or test files, and do not edit files under `task/`. If "
+        f"you cannot find the root cause, leave the bug entry Open and explain why "
         f"instead of guessing. Reply with a short summary when you are done."
     )
 

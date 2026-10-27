@@ -19,13 +19,14 @@ Task 8 loop:
 
 The graph nodes that drive the loop live in :mod:`src.nodes.apply_loop`; the
 per-job human-submit timeout/poll settings are reused
-(``AUTOJOB_SESSION_KEEP_OPEN_TIMEOUT_SECONDS`` / ``..._POLL_SECONDS``).
+(``AUTOJOB_SESSION_KEEP_OPEN_TIMEOUT_SECONDS`` / ``..._POLL_SECONDS``). The
+submission probe and its pure rules live in
+:mod:`src.tools.linkedin_submission` and are re-exported here.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import re
 import time
 from dataclasses import dataclass, field
@@ -33,9 +34,7 @@ from dataclasses import dataclass, field
 from src.configuration import Settings, load_settings
 from src.state import JobDescription, Task2Outcome
 from src.tools.browser import (
-    FIND_APPLY_ROOT_JS,
     _first_element,
-    _loads,
     _safe,
     close_run,
     forget_run,
@@ -43,170 +42,17 @@ from src.tools.browser import (
     run_is_connected,
 )
 from src.tools.linkedin_job_selection import _job_key, _task2_on_page
-from src.tools.linkedin_status_overlay import emit_step
-
-# Phrases that confirm the human's application was sent. LinkedIn's confirmation
-# copy varies, so match any of these in a visible dialog.
-_SUBMISSION_HINTS = (
-    "application sent",
-    "application was sent",
-    "application submitted",
-    "application has been submitted",
-    "application received",
-    "you've applied",
-    "you have applied",
-    "successfully applied",
-    "you applied",
+from src.tools.linkedin_status_overlay import begin_human_turn, emit_step, end_human_turn
+from src.tools.linkedin_submission import (
+    is_dismiss_label,
+    looks_like_submission,
+    read_submission_state,
+    submission_detected,
 )
-
-# Exact button labels that only close a dialog — safe to click (never Submit, and
-# never the promo's "Update profile"). "Not now" is the decline button on
-# LinkedIn's newer post-apply dialog ("Your application was sent to X!" / "Turn
-# your resume into a profile that recruiters notice"); the older confirmation
-# offers "Done"/the X. Keep in sync with the regex in ``_SUBMISSION_QUERY_TEMPLATE``.
-_DISMISS_HINTS = (
-    "done",
-    "dismiss",
-    "close",
-    "got it",
-    "not now",
-    "no thanks",
-    "maybe later",
-    "skip",
-)
-
-_DISMISS_RE = re.compile(r"^(?:" + "|".join(map(re.escape, _DISMISS_HINTS)) + r")$")
 
 
 def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").strip().lower())
-
-
-def is_dismiss_label(label: str) -> bool:
-    """True for a control that only closes a dialog (never submits or applies).
-
-    The post-apply promo ("Turn your resume into a profile that recruiters
-    notice") offers **Not now** and **Update profile**; only the former matches,
-    so the agent can never click the profile-editing call to action.
-    """
-    return bool(_DISMISS_RE.match(_normalize(label)))
-
-
-def looks_like_submission(text: str) -> bool:
-    """True when ``text`` is a post-submit confirmation (not a dismissed modal)."""
-    normalized = _normalize(text)
-    return any(hint in normalized for hint in _SUBMISSION_HINTS)
-
-
-def submission_detected(
-    *,
-    confirmation: str,
-    form_open: bool,
-    card_applied: bool,
-    card_was_applied: bool = False,
-) -> bool:
-    """Decide whether the human's submission is confirmed.
-
-    The confirmation dialog is the strong signal. As a fallback (for a human who
-    dismisses the confirmation before the next poll), the Easy Apply form being
-    closed **and** the open job's card now reading **"Applied"** also counts — a
-    card only flips to Applied after a real submit, so an X-dismissed form does
-    not trigger it. ``card_was_applied`` guards the stale case: a card that
-    already read Applied before the wait is not evidence of a submission now.
-    """
-    if looks_like_submission(confirmation):
-        return True
-    if card_was_applied:
-        return False
-    return card_applied and not form_open
-
-
-# Probe the page for a submission confirmation. ``__JOB_TITLE__`` is replaced with
-# a JSON string literal of the open job's title, so the card fallback can match
-# the job's own results card rather than any card on the page.
-_SUBMISSION_QUERY_TEMPLATE = (
-    "() => {\n"
-    + FIND_APPLY_ROOT_JS
-    + "\n"
-    + r"""
-  const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
-  const visible = (el) => !!el && el.getClientRects().length > 0;
-  const form = findApplyRoot();
-
-  const confirmRe = new RegExp(
-    "application sent|application was sent|application submitted|"
-    + "application has been submitted|application received|"
-    + "you(?:'ve| have) applied|successfully applied|you applied", "i"
-  );
-  let confirmation = '';
-  let doneMarker = '';
-  let i = 0;
-  // Keep in sync with _DISMISS_HINTS in this module. Never add "Update profile":
-  // the post-apply promo offers that alongside "Not now", and clicking it would
-  // edit the human's profile.
-  const dismissRe = /^(done|dismiss|close|got it|not now|no thanks|maybe later|skip)$/i;
-  const preferRe = /^(not now|no thanks|maybe later|skip)$/i;
-  const dialogs = Array.from(document.querySelectorAll(
-    'div[role="dialog"], .artdeco-modal, div[data-test-modal-container], '
-    + '.artdeco-modal--layer-default'
-  )).filter(visible);
-  dialogs.forEach((dialog) => {
-    const text = norm(dialog.innerText);
-    if (!confirmRe.test(text)) return;
-    if (!confirmation) confirmation = text.slice(0, 500);
-    if (doneMarker) return;
-    // Prefer an explicit "Not now" style decline over the X/Done; match labels
-    // exactly so the promo's "Update profile" is never picked.
-    const buttons = Array.from(dialog.querySelectorAll('button, [role="button"]'));
-    const labels = buttons.map(
-      (b) => norm(b.innerText) || norm(b.getAttribute('aria-label'))
-    );
-    let pick = labels.findIndex((label) => preferRe.test(label));
-    if (pick < 0) pick = labels.findIndex((label) => dismissRe.test(label));
-    if (pick < 0) return;
-    const marker = 'd' + (i++);
-    buttons[pick].setAttribute('data-autojob-done', marker);
-    doneMarker = marker;
-  });
-
-  // Fallback: the open job's own results card now reads "Applied".
-  const wanted = norm(__JOB_TITLE__).toLowerCase();
-  let cardApplied = false;
-  if (wanted) {
-    const cards = Array.from(document.querySelectorAll(
-      'li.jobs-search-results__list-item, li.scaffold-layout__list-item, '
-      + 'div.job-card-container, div.jobs-search-results-list__list-item, '
-      + 'ul.jobs-search__results-list > li, [data-autojob-card]'
-    ));
-    const card = cards.find((c) => norm(c.innerText).toLowerCase().includes(wanted));
-    if (card) cardApplied = /(^|\s)applied(\s|·|$)/i.test(norm(card.innerText));
-  }
-
-  return JSON.stringify({
-    form_open: !!form,
-    confirmation: confirmation,
-    card_applied: cardApplied,
-    done_marker: doneMarker
-  });
-}
-"""
-)
-
-
-def _submission_query(title: str) -> str:
-    """Build the submission probe with the open job's title embedded safely."""
-    return _SUBMISSION_QUERY_TEMPLATE.replace("__JOB_TITLE__", json.dumps(title or ""))
-
-
-async def read_submission_state(page, title: str = "") -> dict:
-    """Return the page's submission signals for the open job (see the probe)."""
-    payload = _loads(await _safe(page.evaluate(_submission_query(title)), ""))
-    return {
-        "form_open": bool(payload.get("form_open")),
-        "confirmation": str(payload.get("confirmation") or ""),
-        "card_applied": bool(payload.get("card_applied")),
-        "done_marker": str(payload.get("done_marker") or ""),
-    }
 
 
 # How many dismiss clicks to attempt (a second dialog, e.g. the promo, can appear
@@ -233,7 +79,7 @@ async def _dismiss_confirmation(page, state: dict, title: str = "") -> None:
             return
         await _safe(element.click())
         await asyncio.sleep(0.5)
-        state = await read_submission_state(page, title)
+        state = await _read_state(page, title) or {}
 
 
 async def dismiss_post_apply_modals(page, title: str = "") -> None:
@@ -245,23 +91,42 @@ async def dismiss_post_apply_modals(page, title: str = "") -> None:
     Only dialog-closing controls are clicked (never **Update profile**); see
     :func:`is_dismiss_label`.
     """
-    try:
-        state = await read_submission_state(page, title)
-    except Exception:  # noqa: BLE001 - best-effort cleanup of a stale dialog
+    state = await _read_state(page, title)
+    if state is None:
         return
     await _dismiss_confirmation(page, state, title)
 
 
-async def await_human_submit(
+# A live CDP link can die while a ``page.evaluate`` is in flight (the human closed
+# the window); browser-use's call then never returns, so the wait hung instead of
+# ending. Bound every read, and give up after a few in a row (BUG-061).
+_READ_TIMEOUT_SECONDS = 15.0
+_MAX_UNRESPONSIVE_READS = 3
+
+
+async def _read_state(page, title: str, company: str = "") -> dict | None:
+    """Read the submission state, or ``None`` when the page stops answering."""
+    try:
+        return await asyncio.wait_for(
+            read_submission_state(page, title, company), _READ_TIMEOUT_SECONDS
+        )
+    except Exception:  # noqa: BLE001 - a dead CDP link must never hang the wait
+        return None
+
+
+async def _await_human_submit(
     run_id: str | None,
     settings: Settings | None = None,
     progress=None,
     title: str = "",
+    company: str = "",
 ) -> str:
     """Wait for the human to submit the open application (the agent never does).
 
-    Returns ``"submitted"`` once a submission is confirmed, ``"closed"`` when the
-    human closes the browser, or ``"timeout"`` when the wait
+    ``title``/``company`` identify the open job's results card, so the card
+    fallback only trusts that job flipping to **Applied**. Returns
+    ``"submitted"`` once a submission is confirmed, ``"closed"`` when the human
+    closes the browser, or ``"timeout"`` when the wait
     (``AUTOJOB_SESSION_KEEP_OPEN_TIMEOUT_SECONDS``; ``0`` waits indefinitely)
     elapses — in which case the browser is **left open** for the human (the agent
     never closes it). Never clicks **Submit application**.
@@ -283,12 +148,18 @@ async def await_human_submit(
         "Waiting for you - submit this application yourself, then close the window.",
     )
     deadline = None if timeout <= 0 else time.monotonic() + timeout
-    # The card's "Applied" badge is only evidence of *this* submission when it
-    # flips from unapplied to Applied during the wait. A card that already read
-    # Applied at the start (a stale status the scan let through, or a job applied
-    # in an earlier run) must not make a dismissed form look like a submission —
-    # that advanced the loop and opened the next job without the human submitting.
-    initial = await read_submission_state(run.page, title)
+    # The card's "Applied" badge and the pane's "Application submitted" status are
+    # only evidence of this submission when they flip during the wait. A card or
+    # status that already read applied/submitted at the start (a stale value, or a
+    # job applied in an earlier run) must not make a dismissed form look like a
+    # submission. The card match uses the title line (and company when known), so a
+    # differently titled card is never mistaken for this job (BUG-060).
+    initial = await _read_state(run.page, title, company)
+    if initial is None:
+        # The page never answered: the CDP link is gone. End the wait instead of
+        # hanging on a dead browser (BUG-061).
+        forget_run(run_id)
+        return "closed"
     baseline = _normalize(initial["confirmation"])
     if baseline:
         # A confirmation already on screen when this wait starts belongs to the
@@ -297,14 +168,24 @@ async def await_human_submit(
         # the loop could "detect" a submission the human never made and open the
         # next job by itself.
         await _dismiss_confirmation(run.page, initial, title)
-        initial = await read_submission_state(run.page, title)
+        initial = await _read_state(run.page, title, company) or initial
         baseline = _normalize(initial["confirmation"])
     already_applied = bool(initial.get("card_applied"))
+    already_submitted = bool(initial.get("status_submitted"))
+    unresponsive = 0
     while True:
         if not run_is_connected(run_id):
             forget_run(run_id)
             return "closed"
-        state = await read_submission_state(run.page, title)
+        state = await _read_state(run.page, title, company)
+        if state is None:
+            unresponsive += 1
+            if not run_is_connected(run_id) or unresponsive >= _MAX_UNRESPONSIVE_READS:
+                forget_run(run_id)
+                return "closed"
+            await asyncio.sleep(poll)
+            continue
+        unresponsive = 0
         confirmation = state["confirmation"]
         if baseline and _normalize(confirmation) == baseline:
             confirmation = ""  # the stale dialog from the previous job
@@ -313,6 +194,8 @@ async def await_human_submit(
             form_open=state["form_open"],
             card_applied=state["card_applied"],
             card_was_applied=already_applied,
+            status_submitted=state["status_submitted"],
+            status_was_submitted=already_submitted,
         ):
             notify("Task 8: submission detected.")
             emit_step(notify, "Submission detected - looking for the next job.")
@@ -323,7 +206,10 @@ async def await_human_submit(
                 "Task 8: no submission detected before the wait ended; "
                 "leaving the browser open."
             )
-            await close_run(run_id)
+            try:
+                await asyncio.wait_for(close_run(run_id), _READ_TIMEOUT_SECONDS)
+            except Exception:  # noqa: BLE001 - a dead CDP link must not hang here
+                forget_run(run_id)
             return "timeout"
         await asyncio.sleep(poll)
 
@@ -388,6 +274,25 @@ async def open_next_job(
             description = await read_job_description(run.page)
         return NextJobResult(opened=True, task2=task2, description=description)
     return NextJobResult(task2=task2, reason=_no_job_reason(task2))
+
+
+async def await_human_submit(
+    run_id: str | None,
+    settings: Settings | None = None,
+    progress=None,
+    title: str = "",
+    company: str = "",
+) -> str:
+    """Task 8 wait with the page unlocked for the human's submit click."""
+    run = get_run(run_id)
+    page = run.page if run is not None else None
+    await begin_human_turn(page)
+    try:
+        return await _await_human_submit(
+            run_id, settings, progress=progress, title=title, company=company
+        )
+    finally:
+        await end_human_turn(page)
 
 
 __all__ = [

@@ -14,7 +14,12 @@ from pathlib import Path
 from src.configuration import Settings
 from src.state import JobDescription, ResumeCandidate, Task3Outcome
 from src.tools.browser import _append_note
-from src.tools.linkedin_status_overlay import emit_llm, emit_step
+from src.tools.linkedin_status_overlay import (
+    begin_human_turn,
+    emit_llm,
+    emit_step,
+    end_human_turn,
+)
 from src.tools.resume_descriptions import (
     ResumeDescriptionError,
     describe_resume,
@@ -163,7 +168,11 @@ async def ensure_resume(
         return outcome
 
     outcome.asked_human = True
-    provided = await (asker or ask_human_for_resume)(page, settings, notify)
+    await begin_human_turn(page)
+    try:
+        provided = await (asker or ask_human_for_resume)(page, settings, notify)
+    finally:
+        await end_human_turn(page)
     if provided is None:
         outcome.notes = _append_note(outcome.notes, "the human did not provide a resume")
         return outcome

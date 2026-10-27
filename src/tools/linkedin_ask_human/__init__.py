@@ -39,9 +39,22 @@ from src.tools.linkedin_ask_human.flow import (
     _dump_question_context,
     _finish_question,
     _looks_unlabeled,
-    ask_human_for_answer,
+)
+from src.tools.linkedin_ask_human.flow import (
+    ask_human_for_answer as _ask_human_for_answer,
 )
 from src.tools.linkedin_ask_human.store import _remember_answer, _store_answer
+from src.tools.linkedin_status_overlay import begin_human_turn, end_human_turn
+
+
+async def ask_human_for_answer(*args, **kwargs):
+    """Task 5 entry point: unlock the page while the human answers."""
+    page = args[0] if args else kwargs.get("page")
+    await begin_human_turn(page)
+    try:
+        return await _ask_human_for_answer(*args, **kwargs)
+    finally:
+        await end_human_turn(page)
 
 __all__ = [
     "_DUMP_HOSTS_JS",

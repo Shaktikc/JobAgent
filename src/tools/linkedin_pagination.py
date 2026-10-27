@@ -1,21 +1,8 @@
-"""Task 7: when every job on a results page is "Applied", go to the next page.
+"""Task 7: move to the next results page when the current one has no usable job.
 
-Task 6 (:mod:`src.tools.linkedin_skip_applied`) skips the cards already marked
-**Applied** and opens the first unapplied job. When *every* card on the current
-results page is Applied there is nothing left to open on that page, so this
-module advances the results list to the **next page** and lets Task 6's scan run
-again on the new page's cards — repeating until an unapplied job is found or
-there are no more pages.
-
-The pagination controls are discovered at runtime (LinkedIn renders them as a
-page-number list plus **Next** / **Previous** buttons, and the exact markup
-varies), so the decision is a pure, unit-testable predicate over the controls'
-labels (``pick_next_page_control``) and the browser interaction is kept thin
-(``go_to_next_page``). Advancing a page **never** opens or applies to a job: it
-only clicks the pagination control and waits for the job list to change.
-
-The caller (:mod:`src.tools.linkedin_job_selection`) owns the job-card scan; this
-module only moves between pages and detects when there is no next page.
+Task 6 skips Applied cards and opens the first unapplied job. When a page yields
+no openable Easy Apply job, this module advances to the next page (discovered at
+runtime) and lets the scan repeat. It never opens or applies to a job.
 """
 
 from __future__ import annotations
@@ -23,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import re
 import time
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from src.configuration import Settings
 from src.tools.browser import (
@@ -34,15 +22,12 @@ from src.tools.browser import (
 )
 from src.tools.linkedin_status_overlay import emit_step
 
-# Safety cap: never advance through more than this many results pages in one run
-# while hunting for an unapplied job. A control that never disables can therefore
-# never loop forever, consistent with the other click/step caps.
+# Safety cap and bounded wait/poll for the next-page check.
 _MAX_RESULT_PAGES = 10
-
-# How long to wait for the new page of cards after clicking Next, and how often
-# to poll. Bounded so a click that never changes the list stops instead of hanging.
 _PAGE_WAIT_SECONDS = 20.0
 _PAGE_POLL_SECONDS = 0.5
+# LinkedIn server-pages results by ``start`` in steps of 25.
+_RESULTS_PAGE_SIZE = 25
 
 
 def _normalize(text: str) -> str:
@@ -50,10 +35,7 @@ def _normalize(text: str) -> str:
 
 
 def page_number(label: str) -> int | None:
-    """The page number a pagination control's label refers to, or ``None``.
-
-    ``"3"`` and ``"Page 3"`` both return ``3``; ``"Next"`` returns ``None``.
-    """
+    """The page number in ``"3"`` / ``"Page 3"``; ``None`` for ``"Next"``."""
     match = re.search(r"\d+", label or "")
     return int(match.group()) if match else None
 
@@ -61,6 +43,31 @@ def page_number(label: str) -> int | None:
 def is_next_label(label: str) -> bool:
     """True for the pagination **Next** control (and not **Previous**)."""
     return "next" in _normalize(label)
+
+
+def next_page_url(url: str, page_size: int = _RESULTS_PAGE_SIZE) -> str:
+    """Advance the results URL's ``start`` by ``page_size``; ``""`` if invalid."""
+    if not (url or "").strip():
+        return ""
+    try:
+        parts = urlsplit(url.strip())
+    except ValueError:
+        return ""
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        return ""
+    query = parse_qsl(parts.query, keep_blank_values=True)
+    current = 0
+    for key, value in query:
+        if key.lower() == "start":
+            try:
+                current = int(value)
+            except (TypeError, ValueError):
+                current = 0
+    query = [(key, value) for key, value in query if key.lower() != "start"]
+    query.append(("start", str(current + page_size)))
+    return urlunsplit(
+        (parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment)
+    )
 
 
 def current_page_number(controls: list[dict]) -> int | None:
@@ -71,15 +78,17 @@ def current_page_number(controls: list[dict]) -> int | None:
     return None
 
 
-def pick_next_page_control(controls: list[dict], current_page: int | None) -> dict | None:
-    """Return the control that moves to the **next** results page, or ``None``.
+def _pager_scope(controls: list[dict]) -> list[dict]:
+    """Keep only controls tagged as the pager; fall back to all when untagged."""
+    if not any("pager" in control for control in controls):
+        return controls
+    scoped = [control for control in controls if control.get("pager")]
+    return scoped or controls
 
-    Prefers an explicit, enabled **Next** button. Otherwise, when the current
-    page number is known, uses the enabled page-number control for
-    ``current_page + 1`` (or the smallest enabled number above the current page).
-    Returns ``None`` when there is no next page — a disabled/absent **Next**, or
-    no page number above the current one — so the caller stops gracefully.
-    """
+
+def pick_next_page_control(controls: list[dict], current_page: int | None) -> dict | None:
+    """Return the next-page control, preferring an enabled **Next** button."""
+    controls = _pager_scope(controls)
     for control in controls:
         if is_next_label(control.get("label", "")) and not control.get("disabled"):
             return control
@@ -129,8 +138,15 @@ _PAGINATION_QUERY = r"""
       || el.getAttribute('aria-disabled') === 'true'
       || el.hasAttribute('disabled');
     const current = /current|active|selected/i.test(cls)
-      || el.getAttribute('aria-current') === 'page';
-    controls.push({ el: el, label: label, disabled: disabled, current: current });
+      || (el.getAttribute('aria-current') || '').toLowerCase() === 'page'
+      || (el.getAttribute('aria-current') || '').toLowerCase() === 'true';
+    controls.push({
+      el: el,
+      label: label,
+      disabled: disabled,
+      current: current,
+      href: el.getAttribute('href') || ''
+    });
   };
   containers.forEach((container) => {
     container.querySelectorAll('button, a, [role="button"]').forEach(add);
@@ -139,15 +155,48 @@ _PAGINATION_QUERY = r"""
     'button[aria-label^="Page " i], a[aria-label^="Page " i], '
     + 'button[aria-label="Next" i], button[aria-label="Previous" i]'
   ).forEach(add);
+  // The current LinkedIn results page hashes its CSS class names and puts each
+  // page number in its own <li> (so a shared-parent group misses Next). Collect
+  // page-number controls and add the enabled Next nearest to the last page
+  // number in DOM order. This avoids unrelated "Next" buttons elsewhere.
+  const all = Array.from(document.querySelectorAll('button, a, [role="button"]'));
+  const order = new Map(all.map((el, index) => [el, index]));
+  const pages = [];
+  const nexts = [];
+  all.forEach((el) => {
+    const label = norm(el.getAttribute('aria-label')) || norm(el.innerText);
+    if (/^page \d+$/i.test(label)) pages.push(el);
+    else if (/^next$/i.test(label)) nexts.push(el);
+  });
+  let group = null;
+  if (pages.length && nexts.length) {
+    const lastPage = Math.max(...pages.map((el) => order.get(el) ?? 0));
+    const next = nexts.reduce((best, el) =>
+      Math.abs((order.get(el) ?? 0) - lastPage)
+        < Math.abs((order.get(best) ?? 0) - lastPage) ? el : best
+    );
+    pages.forEach(add);
+    add(next);
+    group = new Set(pages.concat([next]));
+  }
   const out = controls.map((control, index) => {
     const marker = 'p' + index;
     control.el.setAttribute('data-autojob-page', marker);
-    return {
+    const entry = {
       marker: marker,
       label: control.label,
       disabled: control.disabled,
-      current: control.current
+      current: control.current,
+      href: control.href
     };
+    // Once the pager group is known, tag every control so a *stray* "Next"
+    // elsewhere (for example a details-pane media carousel arrow) is reported
+    // pager=false and never clicked as pagination (BUG-069). When no group is
+    // found the key is omitted, preserving the original behaviour.
+    if (group) {
+      entry.pager = group.has(control.el);
+    }
+    return entry;
   });
   return JSON.stringify({ found: out.length > 0, controls: out });
 }
@@ -167,7 +216,8 @@ _RESULTS_SIGNATURE_JS = r"""
   return JSON.stringify({
     count: cards.length,
     first: texts[0] || '',
-    last: texts[texts.length - 1] || ''
+    last: texts[texts.length - 1] || '',
+    url: location.href
   });
 }
 """
@@ -203,6 +253,7 @@ async def _results_signature(page) -> dict:
         "count": count,
         "first": payload.get("first") or "",
         "last": payload.get("last") or "",
+        "url": payload.get("url") or "",
     }
 
 
@@ -217,7 +268,51 @@ async def _wait_for_page_change(page, before: dict, settings: Settings) -> bool:
     return False
 
 
-async def go_to_next_page(page, settings: Settings, notify=None) -> bool:
+async def _click_control_cdp(element) -> None:
+    """CDP-click a resolved control, tolerating a click that starts a navigation.
+
+    ``Element.click()`` dispatches a CDP mouse event at the control's viewport
+    coordinates. A click that begins a page navigation can raise *after* the
+    navigation has started (the CDP execution context is torn down), which is not
+    a failed click — success is judged from whether the results list changed. The
+    same reasoning used by ``linkedin_search.click_ai_job_search``.
+    """
+    try:
+        await element.click()
+    except Exception:  # noqa: BLE001 - a navigating click tears the CDP context down
+        pass
+
+
+async def _click_control_dom(page, marker: str) -> bool:
+    """Dispatch the control's own DOM ``click()`` (last-resort fallback).
+
+    The current LinkedIn results page hashes its class names and renders the
+    next-page control as a plain ``<button>`` at the bottom of the page. A CDP
+    mouse click at its viewport coordinates can be swallowed by an overlapping
+    element (a sticky bar/ad) or by stale geometry, leaving the list unchanged
+    even though the control is correct (BUG-068). Calling the DOM node's own
+    ``click()`` invokes LinkedIn's handler directly and bypasses hit-testing. Only
+    the discovered next-page control is ever clicked this way — never a job card
+    and never **Submit application**.
+    """
+    element = await _first_element(page, [f'[data-autojob-page="{marker}"]'])
+    if element is None:
+        return False
+    clicked = await _safe(
+        element.evaluate(
+            "() => { this.scrollIntoView({block: 'center'}); this.click(); return true; }"
+        ),
+        False,
+    )
+    return bool(clicked)
+
+
+async def go_to_next_page(
+    page,
+    settings: Settings,
+    notify=None,
+    reason_out: list[str] | None = None,
+) -> bool:
     """Click the pagination **Next** control and wait for the new page.
 
     Returns ``True`` once the results list changed (the next page loaded), and
@@ -225,38 +320,80 @@ async def go_to_next_page(page, settings: Settings, notify=None) -> bool:
     there is no next page, the control disappears, or the list does not change
     after the click. This only advances the list: it never opens or applies to a
     job.
+
+    ``reason_out`` receives a short technical reason when a *recoverable*
+    pagination failure occurs (the controls were not found or the click did not
+    move the list). "no next results page" is a genuine clean end, so it is not
+    added: Task 8 uses this to decide whether self-healing should retry.
     """
     notify = notify or (lambda _message: None)
+
+    def fail(reason: str) -> bool:
+        notify(f"Task 7: {reason}; stopping.")
+        if reason_out is not None and "no next results page" not in reason:
+            reason_out.append(f"results pagination could not advance: {reason}")
+        return False
+
     info = await read_pagination(page)
     if not info["found"]:
-        notify("Task 7: pagination controls not found; stopping.")
-        return False
+        return fail("pagination controls not found")
 
     control = pick_next_page_control(info["controls"], info["current"])
     if control is None:
-        notify("Task 7: no next results page; stopping.")
-        return False
+        return fail("no next results page")
 
     before = await _results_signature(page)
     element = await _first_element(page, [f'[data-autojob-page="{control["marker"]}"]'])
     if element is None:
-        notify("Task 7: the next-page control disappeared before it could be clicked.")
-        return False
+        return fail("the next-page control disappeared before it could be clicked")
 
     await _safe(element.evaluate("() => this.scrollIntoView({block: 'center'})"))
     await _pace(settings)
-    try:
-        await element.click()
-    except Exception as exc:  # noqa: BLE001 - a vanished control is a graceful stop
-        notify(f"Task 7: could not click the next-page control ({exc}).")
-        return False
+    await _click_control_cdp(element)
 
     notify(f"Task 7: moving to the next results page (clicked {control['label']!r}).")
     emit_step(notify, "Please wait - moving to the next results page...")
     if await _wait_for_page_change(page, before, settings):
         return True
-    notify("Task 7: the results did not change after clicking next; stopping.")
-    return False
+    # The CDP mouse click did not move the list. On the hashed results page an
+    # overlay (a sticky bar/ad) or stale geometry can swallow it, so retry with the
+    # control's own DOM click, which invokes LinkedIn's handler directly (BUG-068).
+    # Wait again even if the marker is already gone: a *slow* first click may have
+    # navigated, in which case the second wait still sees the changed list.
+    notify("Task 7: the results did not change; retrying the control directly.")
+    await _click_control_dom(page, control["marker"])
+    if await _wait_for_page_change(page, before, settings):
+        return True
+    # Both in-page clicks failed. Load the next results page directly: the list is
+    # server-paged by a ``start`` parameter, so a full navigation advances it even
+    # when every click is swallowed, the handle went stale, or the clicked control
+    # was an unrelated "Next" (BUG-069). This only loads the next page of results;
+    # it never opens or applies to a job.
+    if await _navigate_to_next_page(page, before, settings, notify):
+        return True
+    return fail("the results did not change after clicking next")
+
+
+async def _navigate_to_next_page(page, before: dict, settings: Settings, notify) -> bool:
+    """Load the next results page by URL; return ``True`` once the list changed.
+
+    A deterministic fallback for when clicking the pagination control does not
+    move the list (an overlay, a stale handle, or a mis-identified **Next**). Only
+    runs when the current URL is HTTP(S) and a next page can be built; a URL that
+    cannot be advanced returns ``False`` so the caller stops gracefully.
+    """
+    get_url = getattr(page, "get_url", None)
+    current_url = await _safe(get_url(), "") if callable(get_url) else ""
+    target = next_page_url(current_url or "")
+    if not target:
+        return False
+    goto = getattr(page, "goto", None)
+    if not callable(goto):
+        return False
+    notify("Task 7: loading the next results page directly.")
+    emit_step(notify, "Please wait - loading the next results page...")
+    await _safe(goto(target), None)
+    return await _wait_for_page_change(page, before, settings)
 
 
 __all__ = [
@@ -264,6 +401,7 @@ __all__ = [
     "current_page_number",
     "go_to_next_page",
     "is_next_label",
+    "next_page_url",
     "page_number",
     "pick_next_page_control",
     "read_pagination",

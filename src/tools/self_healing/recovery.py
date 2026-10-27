@@ -298,10 +298,11 @@ def _print_repair_line(line: str) -> None:
     print(f"self-heal: {line}", flush=True)
 
 
-# Modules that a repair command may have changed and that the fresh browser must
-# import. State, graph, and node modules are deliberately excluded: reloading them
-# while the graph is running would invalidate classes the run still holds.
+# Modules a repair may have changed; reload before retry (state/graph excluded).
 _RUNTIME_MODULES = (
+    "src.tools.self_healing.fingerprint",
+    "src.tools.self_healing.capture",
+    "src.tools.self_healing.buglog",
     "src.tools.forms",
     "src.tools.answers",
     "src.tools.linkedin",
@@ -337,8 +338,7 @@ def reload_runtime_modules() -> list[str]:
     failures: list[str] = []
     for name in _RUNTIME_MODULES:
         try:
-            module = importlib.import_module(name)
-            importlib.reload(module)
+            importlib.reload(importlib.import_module(name))
         except Exception as exc:  # noqa: BLE001 - report which module is stale
             failures.append(f"{name}: {exc}")
     return failures

@@ -133,6 +133,79 @@ def test_panel_never_intercepts_clicks() -> None:
     assert "pointer-events:none" in status._UPDATE_STATUS_JS
 
 
+class _FakeInput:
+    def __init__(self) -> None:
+        self.calls: list[tuple] = []
+
+    async def setIgnoreInputEvents(self, params, session_id=None):
+        self.calls.append(("ignore", params.get("ignore"), session_id))
+
+    async def dispatchMouseEvent(self, params, session_id=None):
+        self.calls.append(("mouse", session_id))
+
+    async def dispatchKeyEvent(self, params, session_id=None):
+        self.calls.append(("key", session_id))
+
+    async def insertText(self, params, session_id=None):
+        self.calls.append(("text", session_id))
+
+
+class _FakeSend:
+    def __init__(self, input_client) -> None:
+        self.Input = input_client
+
+
+class _FakeClient:
+    def __init__(self, input_client) -> None:
+        self.send = _FakeSend(input_client)
+
+
+class _LockPage:
+    def __init__(self, url: str = "https://www.linkedin.com/jobs/") -> None:
+        self.input = _FakeInput()
+        self._client = _FakeClient(self.input)
+        self.session_id = "session-1"
+        self.url = url
+
+    async def get_url(self) -> str:
+        return self.url
+
+    async def evaluate(self, js: str, *args):
+        return False
+
+
+async def test_interaction_lock_blocks_physical_input_but_not_automation() -> None:
+    page = _LockPage()
+    lock = await status.ensure_interaction_lock(page)
+    assert lock is not None
+    await asyncio.sleep(0)  # let install finish
+    assert ("ignore", True, "session-1") in page.input.calls
+
+    # Automation still works: the wrapper opens the lock for that one command.
+    await page._client.send.Input.dispatchMouseEvent({"x": 1}, session_id="session-1")
+    assert page.input.calls[-3:] == [
+        ("ignore", False, "session-1"),
+        ("mouse", "session-1"),
+        ("ignore", True, "session-1"),
+    ]
+
+    await status.begin_human_turn(page)
+    assert page.input.calls[-1] == ("ignore", False, "session-1")
+    await status.end_human_turn(page)
+    assert page.input.calls[-1] == ("ignore", True, "session-1")
+
+    await status.release_interaction_lock(page)
+    assert page.input.calls[-1] == ("ignore", False, "session-1")
+
+
+async def test_interaction_lock_auto_unlocks_the_login_page() -> None:
+    page = _LockPage("https://www.linkedin.com/login?fromSignIn=true")
+    lock = await status.ensure_interaction_lock(page)
+    assert lock is not None
+    assert await lock._on_login_page() is True
+    await status.release_interaction_lock(page)
+
+
 async def test_emit_llm_uses_the_reporter_panel() -> None:
     page = _FakePage()
     emitted: list[str] = []

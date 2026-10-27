@@ -19,12 +19,6 @@ Enable it (the ``browser`` extra must be installed)::
     $env:AUTOJOB_APPLY_LOOP_LIVE="1"
     uv run pytest tests/integration/test_apply_loop_live.py -s
 
-Watch it with the window shown::
-
-    $env:AUTOJOB_APPLY_LOOP_LIVE="1"
-    $env:AUTOJOB_SESSION_HEADLESS="false"
-    uv run pytest tests/integration/test_apply_loop_live.py -s
-
 Skipped by default so the unit suite stays offline.
 """
 
@@ -235,3 +229,185 @@ async def test_await_human_submit_detects_and_dismisses_the_promo(tmp_path: Path
     assert flags["x"] is False
     assert flags["update"] is False
     assert flags["modal_visible"] is False
+
+
+# The live failure (BUG-060): LinkedIn's SDUI confirmation is a bare native
+# <dialog> with hashed classes (no role/artdeco hook), the details pane keeps a
+# plain "Application submitted" status, and the results list carries an already
+# Applied "Senior Software Engineer" card that a title-only match picks for this
+# "Software Engineer" job.
+_SDUI_HTML = """<!doctype html>
+<html><head><meta charset="utf-8"><title>SDUI jobs</title></head>
+<body>
+<ul class="jobs-search__results-list">
+  <li class="jobs-search-results__list-item" id="wrong-card">
+    <div>Senior Software Engineer</div>
+    <div>Other Co</div>
+    <div>Applied · Easy Apply</div>
+  </li>
+  <li class="jobs-search-results__list-item" id="job-card">
+    <div>Software Engineer</div>
+    <div>LEAP Legal Software</div>
+    <div id="card-status">Viewed · Easy Apply</div>
+  </li>
+</ul>
+
+<div id="pane" style="display:none">
+  <h2>Application status</h2>
+  <p>Application submitted</p>
+  <div>now</div>
+  <a href="#">Go to company site</a>
+</div>
+
+<dialog id="confirm" class="mwyabc mwydef">
+  <h2>Your application was sent to LEAP Legal Software!</h2>
+  <p>You can keep track of your application in the "Applied" tab of My Jobs</p>
+  <div>
+    <h3>Turn your resume into a profile that recruiters notice</h3>
+    <p>Easily use your resume to enhance your profile</p>
+  </div>
+  <footer>
+    <button id="sdui-not-now" type="button">Not now</button>
+    <button id="sdui-update-profile" type="button">Update profile</button>
+  </footer>
+</dialog>
+
+<script>
+  window.__notNowClicked = false;
+  window.__updateClicked = false;
+  window.__applyCard = function () {
+    document.getElementById('card-status').textContent = 'Applied · Easy Apply';
+  };
+  window.__showPane = function () {
+    document.getElementById('pane').style.display = 'block';
+  };
+  window.__showConfirm = function () {
+    document.getElementById('confirm').show();
+    window.__applyCard();
+    window.__showPane();
+  };
+  window.__showPaneOnly = function () {
+    window.__showPane();
+  };
+  document.getElementById('sdui-not-now').addEventListener('click', function () {
+    window.__notNowClicked = true;
+    document.getElementById('confirm').close();
+  });
+  document.getElementById('sdui-update-profile').addEventListener('click', function () {
+    window.__updateClicked = true;
+  });
+</script>
+</body></html>
+"""
+
+
+async def _open_sdui_fixture(tmp_path: Path, settings: Settings):
+    page_file = tmp_path / "sdui_post_apply.html"
+    page_file.write_text(_SDUI_HTML, encoding="utf-8")
+    browser = browser_tools.build_browser(settings)
+    await browser.start()
+    page = await browser.new_page()
+    await page.goto(page_file.as_uri())
+    await browser_tools._wait_for_load(page, 10)
+    return browser, page
+
+
+async def _sdui_flags(page) -> dict:
+    return json.loads(
+        await page.evaluate(
+            "() => JSON.stringify({"
+            " not_now: window.__notNowClicked,"
+            " update: window.__updateClicked,"
+            " dialog_open: document.getElementById('confirm').open === true"
+            "})"
+        )
+    )
+
+
+async def test_await_human_submit_detects_a_native_dialog_confirmation(
+    tmp_path: Path,
+) -> None:
+    """The SDUI confirmation is a bare <dialog>; it must not look like the form."""
+    settings = _settings(tmp_path)
+    browser, page = await _open_sdui_fixture(tmp_path, settings)
+    run_id = "live-sdui-dialog"
+    browser_tools._ACTIVE_RUNS[run_id] = browser_tools._Run(session=_StubSession(), page=page)
+
+    async def human_submits() -> None:
+        await asyncio.sleep(0.5)
+        await page.evaluate("() => window.__showConfirm()")
+
+    submit = asyncio.create_task(human_submits())
+    try:
+        result = await await_human_submit(
+            run_id,
+            settings,
+            title="Software Engineer",
+            company="LEAP Legal Software",
+        )
+        flags = await _sdui_flags(page)
+    finally:
+        await submit
+        browser_tools._ACTIVE_RUNS.pop(run_id, None)
+        await browser.kill()
+
+    assert result == "submitted"
+    assert flags["not_now"] is True
+    assert flags["update"] is False
+    assert flags["dialog_open"] is False
+
+
+async def test_await_human_submit_detects_the_application_submitted_status(
+    tmp_path: Path,
+) -> None:
+    """Once the dialog is gone, the pane's "Application submitted" confirms it."""
+    settings = _settings(tmp_path)
+    browser, page = await _open_sdui_fixture(tmp_path, settings)
+    run_id = "live-sdui-status"
+    browser_tools._ACTIVE_RUNS[run_id] = browser_tools._Run(session=_StubSession(), page=page)
+
+    async def human_submits() -> None:
+        await asyncio.sleep(0.5)
+        await page.evaluate("() => window.__showPaneOnly()")
+
+    submit = asyncio.create_task(human_submits())
+    try:
+        result = await await_human_submit(
+            run_id,
+            settings,
+            title="Software Engineer",
+            company="LEAP Legal Software",
+        )
+    finally:
+        await submit
+        browser_tools._ACTIVE_RUNS.pop(run_id, None)
+        await browser.kill()
+
+    assert result == "submitted"
+
+
+async def test_await_human_submit_matches_the_card_by_company(tmp_path: Path) -> None:
+    """An already-Applied longer title must not hide this job's card flip."""
+    settings = _settings(tmp_path)
+    browser, page = await _open_sdui_fixture(tmp_path, settings)
+    run_id = "live-sdui-card"
+    browser_tools._ACTIVE_RUNS[run_id] = browser_tools._Run(session=_StubSession(), page=page)
+
+    async def human_submits() -> None:
+        await asyncio.sleep(0.5)
+        await page.evaluate("() => window.__applyCard()")
+
+    submit = asyncio.create_task(human_submits())
+    try:
+        result = await await_human_submit(
+            run_id,
+            settings,
+            title="Software Engineer",
+            company="LEAP Legal Software",
+        )
+    finally:
+        await submit
+        browser_tools._ACTIVE_RUNS.pop(run_id, None)
+        await browser.kill()
+
+    assert result == "submitted"

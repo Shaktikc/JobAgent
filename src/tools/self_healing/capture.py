@@ -269,7 +269,7 @@ async def capture_failure(
         fields = _task_fields(task4)
 
     notes = getattr(task4, "notes", "") if task4 is not None else ""
-    category = classify_failure(error, task4, notes)
+    category = classify_failure(error, task4, notes, stage=stage)
     fingerprint = failure_fingerprint(category, error=error, task4=task4, step=step, fields=fields)
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S-%f")
     bundle = settings.debug_dir / "self_healing" / f"{stamp}-{fingerprint[:12]}"

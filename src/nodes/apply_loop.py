@@ -43,16 +43,11 @@ async def await_submit(state: ApplyState) -> ApplyState:
     description = state.get("job_description")
     title = (task2.job_title if task2 else "") or ""
 
-    try:
-        result = await await_human_submit(
-            run_id, settings, progress=get_reporter(run_id) or print, title=title
-        )
-    except Exception as exc:  # noqa: BLE001 - surface any wait failure
-        return {
-            "status": "failed",
-            "errors": [f"await_submit: {exc}"],
-            "log": ["await_submit: the human-submit wait failed"],
-        }
+    # Let a crash propagate: the graph's self-heal guard records it, closes the
+    # stale browser, repairs/tests, and retries this same step (Task 11).
+    result = await await_human_submit(
+        run_id, settings, progress=get_reporter(run_id) or print, title=title
+    )
 
     task8 = state.get("task8") or Task8Outcome()
     task8.iterations += 1
@@ -105,16 +100,12 @@ async def next_job(state: ApplyState) -> ApplyState:
     previous = state.get("task2")
     skip_title = (previous.job_title if previous else "") or ""
 
-    try:
-        result = await open_next_job(
-            run_id, settings, progress=get_reporter(run_id) or print, skip_title=skip_title
-        )
-    except Exception as exc:  # noqa: BLE001 - surface any selection failure
-        return {
-            "status": "failed",
-            "errors": [f"next_job: {exc}"],
-            "log": ["next_job: opening the next job failed"],
-        }
+    # Let a crash propagate: the graph's self-heal guard records it, closes the
+    # stale browser, repairs/tests, and retries this same step from the results
+    # list (Task 11).
+    result = await open_next_job(
+        run_id, settings, progress=get_reporter(run_id) or print, skip_title=skip_title
+    )
 
     task2 = result.task2
     log = [

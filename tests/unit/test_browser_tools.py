@@ -857,7 +857,7 @@ async def test_task2_paginates_when_a_whole_page_is_applied(tmp_path, monkeypatc
     page.by_selector = {"li.jobs-search-results__list-item": page_one}
     calls = {"next": 0}
 
-    async def fake_next(p, settings, notify=None):
+    async def fake_next(p, settings, notify=None, **_kwargs):
         calls["next"] += 1
         p.by_selector = {"li.jobs-search-results__list-item": page_two}
         return True
@@ -890,7 +890,7 @@ async def test_task2_stops_after_searching_every_page(tmp_path, monkeypatch) -> 
     }
     calls = {"next": 0}
 
-    async def fake_next(p, settings, notify=None):
+    async def fake_next(p, settings, notify=None, **_kwargs):
         calls["next"] += 1
         if calls["next"] == 1:
             p.by_selector = {
@@ -917,24 +917,36 @@ async def test_task2_stops_after_searching_every_page(tmp_path, monkeypatch) -> 
     assert "searched 2 results page(s)" in outcome.notes
 
 
-async def test_task2_does_not_paginate_when_the_page_is_not_all_applied(
+async def test_task2_paginates_when_unapplied_cards_have_no_easy_apply(
     tmp_path, monkeypatch
 ) -> None:
-    """Task 7 only paginates when the whole page is Applied: an unapplied job
-    (here one without Easy Apply) stops the run without advancing the page."""
+    """A page with unapplied cards but no openable Easy Apply advances.
+
+    Live BUG-063: 21 of 24 cards were Applied and the remaining three had no Easy
+    Apply, so the old "only when the whole page is Applied" rule stopped the loop
+    without ever checking page 2.
+    """
     import src.tools.linkedin_job_selection as job_selection
 
     page = FakePage()
-    page.by_selector = {
+    page_one = {
         "li.jobs-search-results__list-item": [
             _job_card(page, 0, "Backend Engineer Acme Applied 5 months ago"),
             _job_card(page, 1, "Data Engineer Acme Easy Apply"),
         ]
     }
-    called = {"next": False}
+    page_two = {
+        "li.jobs-search-results__list-item": [
+            _job_card(page, 0, "QA Engineer Acme Easy Apply"),
+        ]
+    }
+    page.by_selector = page_one
+    page.details_apply_labels = {0: "Easy Apply to QA Engineer at Acme"}
+    called = {"next": 0}
 
-    async def fake_next(p, settings, notify=None):
-        called["next"] = True
+    async def fake_next(p, settings, notify=None, **_kwargs):
+        called["next"] += 1
+        p.by_selector = page_two
         return True
 
     monkeypatch.setattr(job_selection, "go_to_next_page", fake_next)
@@ -943,9 +955,11 @@ async def test_task2_does_not_paginate_when_the_page_is_not_all_applied(
         page, _settings(tmp_path, post_click_wait_seconds=0), lambda _m: None
     )
 
-    assert called["next"] is False
-    assert outcome.pages_visited == 1
-    assert outcome.easy_apply_clicked is False
+    assert called["next"] == 1
+    assert outcome.pages_visited == 2
+    assert outcome.job_title == "QA Engineer Acme Easy Apply"
+    assert outcome.easy_apply_clicked is True
+    assert outcome.application_form_opened is True
 
 
 async def test_task2_stops_at_the_results_page_cap(tmp_path, monkeypatch) -> None:
@@ -964,7 +978,7 @@ async def test_task2_stops_at_the_results_page_cap(tmp_path, monkeypatch) -> Non
 
     page.by_selector = _applied_page(page)
 
-    async def fake_next(p, settings, notify=None):
+    async def fake_next(p, settings, notify=None, **_kwargs):
         p.by_selector = _applied_page(p)
         return True
 

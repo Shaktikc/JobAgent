@@ -336,3 +336,80 @@ async def test_task2_semantic_layout_uses_label_and_fresh_handles(tmp_path: Path
     assert outcome.easy_apply_button_found is True
     assert outcome.easy_apply_clicked is True
     assert outcome.application_form_opened is True
+
+
+# Reproduces BUG-068: an overlay swallows the coordinate CDP click on the
+# next-page control; the control's own DOM ``click()`` must still advance.
+_PAGINATION_LAYOUT_HTML = """<!doctype html><meta charset="utf-8">
+<ul class="jobs-search__results-list" id="list">
+  <li class="jobs-search-results__list-item">
+    <div class="base-search-card__title">Backend Engineer</div>
+    <div class="job-search-card__snippet">Applied · Easy Apply</div>
+  </li>
+</ul>
+<div id="pager">
+  <button type="button" aria-label="Page 1" aria-current="true">1</button>
+  <button type="button" aria-label="Page 2" aria-current="false">2</button>
+  <button type="button"><span>Next</span></button>
+</div>
+<div id="scrim" style="position:fixed;inset:0;z-index:2147483600"></div>
+<script>
+  var list = document.getElementById('list'), scrim = document.getElementById('scrim'), page = 1;
+  function goToPageTwo() {
+    page = 2;
+    scrim.style.display = 'none';
+    list.innerHTML = '<li class="jobs-search-results__list-item">'
+      + '<div class="base-search-card__title">QA Engineer</div>'
+      + '<div class="job-search-card__snippet">Viewed · Easy Apply</div></li>';
+  }
+  document.querySelectorAll('#pager button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var isNext = b.textContent.trim() === 'Next';
+      if (page === 1 && (b.getAttribute('aria-label') === 'Page 2' || isNext)) {
+        goToPageTwo();
+      }
+    });
+  });
+</script>
+"""
+
+
+async def test_go_to_next_page_survives_a_swallowed_cdp_click(tmp_path, monkeypatch) -> None:
+    """BUG-068: the next-page control still advances when the CDP click is eaten."""
+    import asyncio
+
+    from src.tools import linkedin_pagination
+    from src.tools.linkedin_pagination import (
+        _first_element,
+        go_to_next_page,
+        pick_next_page_control,
+        read_pagination,
+    )
+    monkeypatch.setattr(linkedin_pagination, "_PAGE_WAIT_SECONDS", 1.0)
+    monkeypatch.setattr(linkedin_pagination, "_PAGE_POLL_SECONDS", 0.05)
+    page_file = tmp_path / "pagination.html"
+    page_file.write_text(_PAGINATION_LAYOUT_HTML, encoding="utf-8")
+    settings = _settings(tmp_path)
+    browser = browser_tools.build_browser(settings)
+    try:
+        await browser.start()
+        page = await browser.new_page()
+        await page.goto(page_file.as_uri())
+        await browser_tools._wait_for_load(page, 10)
+        info = await read_pagination(page)
+        control = pick_next_page_control(info["controls"], info["current"])
+        assert control is not None and control["label"] == "Next"
+        element = await _first_element(page, [f'[data-autojob-page="{control["marker"]}"]'])
+        await element.click()  # the scrim swallows this coordinate CDP click
+        await asyncio.sleep(0.3)
+        still_page_one = int(
+            await page.evaluate("() => document.querySelectorAll('#list li').length")
+        )
+        advanced = await go_to_next_page(page, settings, lambda _m: None)
+        title = str(await page.evaluate("() => document.querySelector('#list li').innerText"))
+    finally:
+        await browser.kill()
+
+    assert still_page_one == 1  # the premise: the CDP click did not advance
+    assert advanced is True
+    assert "QA Engineer" in title

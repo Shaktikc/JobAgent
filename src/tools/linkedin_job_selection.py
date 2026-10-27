@@ -21,9 +21,10 @@ as "no Easy Apply" and skipped a job that does offer it (BUG-036).
 Task 6's applied-job detection (classify a card as **Applied**, record the skip,
 and produce the "no unapplied job" note) lives in
 :mod:`src.tools.linkedin_skip_applied`; this module calls it while scanning.
-Task 7's pagination lives in :mod:`src.tools.linkedin_pagination`: when *every*
-card on the current page is Applied, this module advances the results list to the
-next page (up to ``_MAX_RESULT_PAGES``) and scans it again.
+Task 7's pagination lives in :mod:`src.tools.linkedin_pagination`: when the
+current page yields **no openable Easy Apply job** (every card Applied, or the
+remaining unapplied cards have no Easy Apply), this module advances the results
+list to the next page (up to ``_MAX_RESULT_PAGES``) and scans it again.
 The interaction uses browser-use's deterministic CDP actor API (``Page`` /
 ``Element``); no LLM is involved.
 """
@@ -220,7 +221,6 @@ async def _scan_page(
                 cards = await read_job_cards(page)
             if not cards:
                 break
-
         candidate = None
         for index, card in enumerate(cards):
             label = await _element_label(card)
@@ -244,17 +244,14 @@ async def _scan_page(
                 continue
             candidate = (index, card, title, key)
             break
-
         if candidate is None:
             break
-
         index, card, title, key = candidate
         tried.add(key)
         outcome.job_index = index
         outcome.job_title = title
         notify(f"Task 2: opening job {index + 1}: {title or '(untitled)'}")
         emit_step(notify, f"Please wait - opening job {index + 1}: {title or '(untitled)'}...")
-
         opened, pane_title = await open_job_card(page, card, title, settings, notify)
         if not opened:
             # The pane never showed this job, so its apply button says nothing
@@ -319,9 +316,10 @@ async def _task2_on_page(
     """Run Task 2 steps on the results page left open by Task 1.
 
     Task 6 skips the cards already marked **Applied** and opens the first
-    unapplied job. **Task 7:** when *every* card on a page is Applied the results
-    list is advanced to the next page (up to ``_MAX_RESULT_PAGES``) and the scan
-    runs again there, until an unapplied job is found or there are no more pages.
+    unapplied job. **Task 7:** when a page yields no openable Easy Apply job (all
+    cards Applied, or the unapplied cards have no Easy Apply) the results list is
+    advanced to the next page (up to ``_MAX_RESULT_PAGES``) and the scan runs
+    again there, until an Easy Apply job is opened or there are no more pages.
     Paginating never opens or applies to a job by itself.
 
     ``skip_keys`` are job keys (see :func:`_job_key`) to ignore — Task 8 uses this
@@ -347,9 +345,11 @@ async def _task2_on_page(
         await _pace(settings)
         if scan.opened:
             break
-        # Task 7: only paginate when the whole page was Applied. Otherwise this
-        # page has nothing to offer and advancing would not help.
-        if scan.cards_seen == 0 or scan.applied_skipped < scan.cards_seen:
+        # Task 7: when this page yielded no openable Easy Apply job, advance. That
+        # covers both "every card is Applied" and the live case where a few cards
+        # are unapplied but none of them offers Easy Apply: staying on the page
+        # would stop the loop even though later pages may still have a usable job.
+        if scan.cards_seen == 0:
             break
         if page_index == _MAX_RESULT_PAGES - 1:
             outcome.notes = _append_note(
@@ -358,8 +358,13 @@ async def _task2_on_page(
                 "while every page was Applied",
             )
             break
-        if not await go_to_next_page(page, settings, notify):
+        pagination_reason: list[str] = []
+        if not await go_to_next_page(
+            page, settings, notify, reason_out=pagination_reason
+        ):
             exhausted = True
+            if pagination_reason:
+                outcome.notes = _append_note(outcome.notes, pagination_reason[0])
             break
 
     outcome.pages_visited = pages_visited
@@ -375,7 +380,8 @@ async def _task2_on_page(
         if exhausted and pages_visited > 1:
             outcome.notes = _append_note(
                 outcome.notes,
-                f"searched {pages_visited} results page(s); every job is Applied",
+                f"searched {pages_visited} results page(s); "
+                "no openable Easy Apply job was found",
             )
     return outcome
 
