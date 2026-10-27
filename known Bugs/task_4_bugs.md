@@ -17,7 +17,7 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 | BUG-034 | "Experience on AI?" reported unknown despite the store covering it | 🟢 Fixed | (uncommitted) |
 | BUG-035 | checkbox group: the human's tick was never saved (one question per option) | 🟢 Fixed | (uncommitted) |
 | BUG-042 | stopped at **Review** (next step not rendered yet); optional unfilled field failed the run | 🟢 Fixed | `e5a21a2` |
-| BUG-058 | optional (no `*`) questions were asked/filled, blocking the run on diversity questions | 🟢 Fixed | (uncommitted) |
+| BUG-058 | optional (no `*`) questions were asked/filled, blocking the run on diversity questions | 🟢 Fixed | `2d26b71` |
 
 ---
 
@@ -251,7 +251,7 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   fill suite passed, plus a real Chromium check of a `*` text question + a `*`
   radio group next to optional ethnicity/gender/veteran controls: the two required
   answers were filled (`known=filled=2`) and all three optional controls stayed
-  empty/unchecked even though the store held answers for them (uncommitted).
+  empty/unchecked even though the store held answers for them. Commit `2d26b71`.
 
 ### BUG-059 — an SDUI checkbox group was one question per option and the human's ticks were not saved
 
@@ -304,4 +304,4 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   group was asked **once** with all 14 options, three ticks were saved as
   `LinkedIn Job Ad, LinkedIn Social Post, Google Search` (record `filled=True`); a
   stored answer ticked `LinkedIn Job Ad` + `Google Search` with no banner. Node
-  parsed every injected script (`node --check`). Uncommitted.
+  parsed every injected script (`node --check`). Commit `2d26b71`.
