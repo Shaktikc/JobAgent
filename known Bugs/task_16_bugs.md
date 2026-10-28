@@ -11,7 +11,7 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 |----|-----------------|--------|---------------|
 | BUG-073 | a hidden (`display:none`) Easy Apply modal still read as open, so a closed skip looked stuck | 🟢 Fixed | `29c0aff` |
 | BUG-074 | a skipped card gained " (Verified job)" and was reopened as a "new" job | 🟢 Fixed | `29c0aff` |
-| BUG-076 | skip identity used the description title, so cards with longer titles were reopened and the loop alternated | 🟢 Fixed | (uncommitted) |
+| BUG-076 | skip identity used the description title, so cards with longer titles were reopened and the loop alternated | 🟢 Fixed | `121bffb` |
 
 ---
 
