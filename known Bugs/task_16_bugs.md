@@ -9,8 +9,8 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 
 | ID | Symptom (short) | Status | Fix commit(s) |
 |----|-----------------|--------|---------------|
-| BUG-073 | a hidden (`display:none`) Easy Apply modal still read as open, so a closed skip looked stuck | 🟢 Fixed | (uncommitted) |
-| BUG-074 | a skipped card gained " (Verified job)" and was reopened as a "new" job | 🟢 Fixed | (uncommitted) |
+| BUG-073 | a hidden (`display:none`) Easy Apply modal still read as open, so a closed skip looked stuck | 🟢 Fixed | `29c0aff` |
+| BUG-074 | a skipped card gained " (Verified job)" and was reopened as a "new" job | 🟢 Fixed | `29c0aff` |
 
 ---
 
@@ -37,7 +37,8 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   `src/tools/linkedin_resume_gate.py` (`close_easy_apply_form`),
   `tests/integration/test_task16_skip_live.py`
   (`test_dismiss_closes_the_form_and_never_submits`,
-  `test_discard_confirmation_closes_the_draft_without_submitting`). Uncommitted.
+  `test_discard_confirmation_closes_the_draft_without_submitting`). Commit
+  `29c0aff`.
 
 ---
 
@@ -60,4 +61,5 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 - **Evidence:** `src/tools/linkedin_job_selection.py` (`_job_key`,
   `_TITLE_STATUS_SUFFIX`), `tests/unit/test_linkedin_apply_loop.py`
   (`test_job_key_ignores_the_verified_job_status_suffix`), and the live run log
-  that reproduced the reopen (temp pastry-only resume pool, two skips). Uncommitted.
+  that reproduced the reopen (temp pastry-only resume pool, two skips). Commit
+  `29c0aff`.
