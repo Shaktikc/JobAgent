@@ -43,6 +43,7 @@ from src.tools.browser import (
     get_run,
     run_is_connected,
 )
+from src.tools.linkedin_date_posted import PAST_WEEK_VALUE
 from src.tools.linkedin_job_selection import _job_key, _task2_on_page
 from src.tools.linkedin_resume_gate import close_easy_apply_form
 from src.tools.linkedin_status_overlay import begin_human_turn, emit_step, end_human_turn
@@ -229,6 +230,15 @@ class NextJobResult:
 
 def _no_job_reason(task2: Task2Outcome) -> str:
     """Why Task 2 opened no job on this pass (a clear, human-readable note)."""
+    # Task 17: when the scan widened to the week, the 24-hour applied counts no
+    # longer describe the whole search; say both ranges were exhausted instead of
+    # the misleading "every job is Applied".
+    if task2.date_range_fallback_used:
+        return task2.notes or (
+            "no unapplied Easy Apply job remains in the past 24 hours or the past week"
+        )
+    if task2.date_range_used == PAST_WEEK_VALUE:
+        return task2.notes or "no unapplied Easy Apply job remains in the past week"
     if task2.jobs_seen and task2.applied_jobs_skipped >= task2.jobs_seen:
         return "every job on every results page is already Applied"
     return task2.notes or "no unapplied Easy Apply job could be opened"
@@ -241,16 +251,21 @@ async def open_next_job(
     skip_title: str = "",
     skip_titles: Iterable[str] = (),
     close_form: bool = False,
+    date_range: str = "",
 ) -> NextJobResult:
     """Select the next unapplied Easy Apply job on the open results list.
 
     Reuses Task 2's match-first selection (which skips **"Applied"** cards, Task 6,
-    and paginates whole Applied pages, Task 7) and Task 3's description read. The
-    Easy Apply button is **not** clicked here; the graph's ``open_form`` node does
-    that only after a resume match. The jobs named by ``skip_title`` (the one just
-    handled) and every accumulated ``skip_titles`` entry (Task 16 skips) are never
-    re-opened, even if their cards have not flipped to **"Applied"**. When nothing
-    can be selected, ``reason`` explains why and ``opened`` is ``False``.
+    paginates whole Applied pages, Task 7, and widens an exhausted 24-hour list to
+    Past week, Task 17) and Task 3's description read. The Easy Apply button is
+    **not** clicked here; the graph's ``open_form`` node does that only after a
+    resume match. The jobs named by ``skip_title`` (the one just handled) and every
+    accumulated ``skip_titles`` entry (Task 16 skips) are never re-opened, even if
+    their cards have not flipped to **"Applied"**. When nothing can be selected,
+    ``reason`` explains why and ``opened`` is ``False``.
+
+    ``date_range`` is the range the previous scan finished on, so a run that is
+    already on Past week keeps scanning that range instead of widening again.
 
     ``close_form`` closes a form left open by a self-healed retry before re-reading
     the results list. A normal Task 16 skip never opens a form, so this is a no-op
@@ -286,6 +301,7 @@ async def open_next_job(
         skip_keys=skip_keys,
         capture=read_job_description,
         open_form=False,
+        date_range=date_range,
     )
     if task2.job_selected or (task2.easy_apply_clicked and task2.application_form_opened):
         # Task 2 read the description while the job was open (before Easy Apply);

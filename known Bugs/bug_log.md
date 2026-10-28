@@ -129,6 +129,8 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | BUG-075 | Self-Healing — browse/search | "job search returned no results" from an aborted verification run (empty evidence bundle) | ⚪ Won't fix | (not a product defect) |
 | BUG-076 | Task 16 — skip identity | skip set used the description title, so cards with longer titles were reopened and the loop alternated | 🟢 Fixed | `121bffb` |
 
+| BUG-077 | Self-Healing — browse/search | unexpected exception while filling the form: another browser is already using the autojobapply profile c:\users\shakt\on | 🔴 Open | (pending) |
+
 ## Template for new entries
 
 Add the entry to the file for its task (or `general_bugs.md`), and add a row to

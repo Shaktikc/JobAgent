@@ -48,7 +48,6 @@ from src.tools.browser import (
     _pace,
     _query_elements,
     _safe,
-    results_count,
 )
 from src.tools.linkedin import looks_like_easy_apply_action
 from src.tools.linkedin_job_apply_button import (
@@ -70,8 +69,8 @@ from src.tools.linkedin_job_card import (
     find_card_by_title,
     open_job_card,
 )
-from src.tools.linkedin_pagination import _MAX_RESULT_PAGES, go_to_next_page
-from src.tools.linkedin_skip_applied import applied_skip_note, skip_applied_card
+from src.tools.linkedin_results_scan import scan_results_pages
+from src.tools.linkedin_skip_applied import skip_applied_card
 from src.tools.linkedin_status_overlay import emit_step
 
 # Job cards in the left-hand search-results list (Task 2). This mirrors the
@@ -276,15 +275,16 @@ async def _task2_on_page(
     skip_keys: set[str] | None = None,
     capture=None,
     open_form: bool = True,
+    date_range: str = "",
 ) -> Task2Outcome:
     """Run Task 2 steps on the results page left open by Task 1.
 
     Task 6 skips the cards already marked **Applied** and opens the first
-    unapplied job. **Task 7:** when a page yields no openable Easy Apply job (all
-    cards Applied, or the unapplied cards have no Easy Apply) the results list is
-    advanced to the next page (up to ``_MAX_RESULT_PAGES``) and the scan runs
-    again there, until an Easy Apply job is opened or there are no more pages.
-    Paginating never opens or applies to a job by itself.
+    unapplied job. **Task 7** advances the results list while a page yields no
+    openable Easy Apply job. **Task 17** then widens an exhausted **Past 24
+    hours** list to **Past week** (page 1) and keeps scanning; a list already on
+    the week range stays on it. Paginating and switching the range never open or
+    apply to a job by themselves.
 
     ``skip_keys`` are job keys (see :func:`_job_key`) to ignore — Task 8 uses this
     to never re-open the job the human just submitted, even if its card has not yet
@@ -297,69 +297,27 @@ async def _task2_on_page(
     ``open_form=False`` is Task 16's match-first flow: select the first job that
     offers Easy Apply and read its description, but leave the form closed. The
     caller opens it only after a resume match (``open_form`` node).
+
+    ``date_range`` is the range the caller knows the current list uses (Task 8
+    passes the previous scan's ``date_range_used``). When empty, the range is
+    detected from the results URL/a checked Date posted option.
     """
     outcome = Task2Outcome()
     emit_step(notify, "Please wait - reading the job results list...")
-    tried: set[str] = set(skip_keys or ())
-    applied_seen: set[str] = set()
-    pages_visited = 0
-    exhausted = False
-
-    for page_index in range(_MAX_RESULT_PAGES):
-        pages_visited += 1
-        scan = await _scan_page(
-            page,
-            settings,
-            notify,
-            outcome,
-            tried,
-            applied_seen,
-            capture,
-            open_form=open_form,
-        )
-        outcome.jobs_seen = scan.cards_seen or await results_count(page)
-        notify(f"Task 2: {outcome.jobs_seen} job(s) in the list.")
-        await _pace(settings)
-        if scan.opened or scan.selected:
-            break
-        # Task 7: when this page yielded no openable Easy Apply job, advance. That
-        # covers both "every card is Applied" and the live case where a few cards
-        # are unapplied but none of them offers Easy Apply: staying on the page
-        # would stop the loop even though later pages may still have a usable job.
-        if scan.cards_seen == 0:
-            break
-        if page_index == _MAX_RESULT_PAGES - 1:
-            outcome.notes = _append_note(
-                outcome.notes,
-                f"reached the results-page cap ({_MAX_RESULT_PAGES}) "
-                "while every page was Applied",
-            )
-            break
-        pagination_reason: list[str] = []
-        if not await go_to_next_page(
-            page, settings, notify, reason_out=pagination_reason
-        ):
-            exhausted = True
-            if pagination_reason:
-                outcome.notes = _append_note(outcome.notes, pagination_reason[0])
-            break
-
-    outcome.pages_visited = pages_visited
+    await scan_results_pages(
+        page,
+        settings,
+        notify,
+        outcome,
+        set(skip_keys or ()),
+        set(),
+        _scan_page,
+        capture=capture,
+        open_form=open_form,
+        date_range=date_range,
+    )
     outcome.page_url = await _safe(page.get_url(), None)
     outcome.page_title = await _safe(page.get_title(), "") or ""
-
-    if not outcome.easy_apply_clicked and not outcome.job_selected:
-        # Task 6: when every card on this page was skipped as Applied, stop
-        # gracefully with a clear note instead of opening (and applying to) one.
-        note = applied_skip_note(outcome)
-        if note:
-            outcome.notes = _append_note(outcome.notes, note)
-        if exhausted and pages_visited > 1:
-            outcome.notes = _append_note(
-                outcome.notes,
-                f"searched {pages_visited} results page(s); "
-                "no openable Easy Apply job was found",
-            )
     return outcome
 
 

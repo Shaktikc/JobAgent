@@ -53,7 +53,10 @@ async def browse(state: ApplyState) -> ApplyState:
         f"form_opened={task2.application_form_opened} "
         f"skipped={task2.skipped_jobs} "
         f"applied_skipped={task2.applied_jobs_skipped} "
-        f"pages_visited={task2.pages_visited}",
+        f"pages_visited={task2.pages_visited} "
+        f"date_range={task2.date_range_used or '(unknown)'} "
+        f"fallback={task2.date_range_fallback_used} "
+        f"week_pages={task2.pages_visited_past_week}",
         "browse: task3 "
         f"job_title={description.title!r} "
         f"company={description.company!r} "

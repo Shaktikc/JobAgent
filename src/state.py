@@ -173,7 +173,13 @@ class Task2Outcome(BaseModel):
     applied_skipped_cards: list[dict] = Field(default_factory=list)
     # Task 7: how many results pages were visited while looking for an unapplied
     # job (1 = the first page only; >1 = paginated because whole pages were Applied).
+    # Task 17: ``pages_visited`` is the total across the 24-hour and week ranges.
     pages_visited: int = 0
+    # Task 17: the date range the scan ended on, whether an exhausted Past 24
+    # hours list was widened to Past week, and how many week pages were scanned.
+    date_range_used: str = ""
+    date_range_fallback_used: bool = False
+    pages_visited_past_week: int = 0
     # Task 16: a job and its Easy Apply button were found and its description was
     # read, but the form was deliberately not clicked before the resume match.
     job_selected: bool = False

@@ -107,6 +107,9 @@ def _summary(state: ApplyState) -> str:
         lines += [
             f"job         : index={task2.job_index} title={task2.job_title!r} "
             f"skipped={task2.skipped_jobs} pages_visited={task2.pages_visited}",
+            f"date range  : used={task2.date_range_used or '(unknown)'} "
+            f"fallback={task2.date_range_fallback_used} "
+            f"week_pages={task2.pages_visited_past_week}",
             f"apply       : clicked={task2.easy_apply_clicked} "
             f"form_opened={task2.application_form_opened}",
         ]

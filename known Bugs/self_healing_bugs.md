@@ -542,3 +542,13 @@ same index covers runtime crashes and the recovery machinery itself.
 - **Evidence:** bundle `C:\Users\shakt\OneDrive\Desktop\project\AutoJobApply\data\debug\self_healing\20261028-021109-731935-db70a59559c4` (all diagnostic fields empty); successful Task 16 live runs in the same session.
 - **Failure fingerprint:** `db70a59559c47f52d169`
 - **Occurrences:** 1 (first 2026-10-28T02:11:09+00:00)
+
+### BUG-077 — unexpected exception while filling the form: another browser is already using the autojobapply profile c:\users\shakt\onedrive\desktop\project\autojobapply\data
+
+- **Symptom:** another browser is already using the AutoJobApply profile C:\Users\shakt\OneDrive\Desktop\project\AutoJobApply\data\profile (process id(s): 14900, 9784, 20796, 13184, 19800, 22284, 16512, 20856, 15340, 2856, 8664, 9552, 19052, 15164, 6496). Close that window (or wait for the other run to finish), then retry; to force-close it run `autojob --clean-profile`.
+- **Root cause:** Auto-classified as `unknown_exception` during `browse`; see the bundle for the failing step/DOM. A source-level root cause is still pending.
+- **Fix:** Pending. Recorded before any repair attempt.
+- **Status:** 🔴 Open
+- **Evidence:** bundle `C:\Users\shakt\OneDrive\Desktop\project\AutoJobApply\data\debug\self_healing\20261028-084613-663916-dc66109cf271`; captured 2026-10-28T08:46:13.664916+00:00
+- **Failure fingerprint:** `dc66109cf2710429d213`
+- **Occurrences:** 1 (first 2026-10-28T08:46:13+00:00)

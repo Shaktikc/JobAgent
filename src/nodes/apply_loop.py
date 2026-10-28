@@ -112,6 +112,9 @@ async def next_job(state: ApplyState) -> ApplyState:
     skip_title = (previous.job_title if previous else "") or ""
     skipped_titles = list(state.get("skipped_titles") or [])
     skipping = state.get("status") == "skipped"
+    # Task 17: keep scanning the range the previous pass ended on. A week-list
+    # pass must not widen again (or revert to 24 hours).
+    date_range = (previous.date_range_used if previous else "") or ""
 
     # Let a crash propagate: the graph's self-heal guard records it, closes the
     # stale browser, repairs/tests, and retries this same step from the results
@@ -123,6 +126,7 @@ async def next_job(state: ApplyState) -> ApplyState:
         skip_title=skip_title,
         skip_titles=skipped_titles,
         close_form=skipping,
+        date_range=date_range,
     )
 
     task2 = result.task2
@@ -134,7 +138,10 @@ async def next_job(state: ApplyState) -> ApplyState:
         f"easy_apply_clicked={task2.easy_apply_clicked} "
         f"form_opened={task2.application_form_opened} "
         f"applied_skipped={task2.applied_jobs_skipped} "
-        f"pages_visited={task2.pages_visited}",
+        f"pages_visited={task2.pages_visited} "
+        f"date_range={task2.date_range_used or '(unknown)'} "
+        f"fallback={task2.date_range_fallback_used} "
+        f"week_pages={task2.pages_visited_past_week}",
     ]
     if skipped_titles:
         log.append(f"next_job: excluding {len(skipped_titles)} previously skipped job(s)")

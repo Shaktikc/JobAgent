@@ -875,7 +875,7 @@ async def test_task2_applied_skip_can_be_disabled(tmp_path) -> None:
 async def test_task2_paginates_when_a_whole_page_is_applied(tmp_path, monkeypatch) -> None:
     """Task 7: when every card on the page is Applied, the next page is opened
     and Task 6's scan runs again there."""
-    import src.tools.linkedin_job_selection as job_selection
+    import src.tools.linkedin_results_scan as results_scan
 
     page = FakePage(details_apply_labels={0: "Easy Apply to Data Engineer at Acme"})
     page_one = [
@@ -891,7 +891,7 @@ async def test_task2_paginates_when_a_whole_page_is_applied(tmp_path, monkeypatc
         p.by_selector = {"li.jobs-search-results__list-item": page_two}
         return True
 
-    monkeypatch.setattr(job_selection, "go_to_next_page", fake_next)
+    monkeypatch.setattr(results_scan, "go_to_next_page", fake_next)
 
     outcome = await browser_tools._task2_on_page(
         page, _settings(tmp_path, post_click_wait_seconds=0), lambda _m: None
@@ -908,7 +908,7 @@ async def test_task2_paginates_when_a_whole_page_is_applied(tmp_path, monkeypatc
 async def test_task2_stops_after_searching_every_page(tmp_path, monkeypatch) -> None:
     """Task 7: if every job on every page is Applied, nothing is opened and the
     run stops with a clear note (after recording the pages visited)."""
-    import src.tools.linkedin_job_selection as job_selection
+    import src.tools.linkedin_results_scan as results_scan
 
     page = FakePage()
     page.by_selector = {
@@ -931,7 +931,7 @@ async def test_task2_stops_after_searching_every_page(tmp_path, monkeypatch) -> 
             return True
         return False
 
-    monkeypatch.setattr(job_selection, "go_to_next_page", fake_next)
+    monkeypatch.setattr(results_scan, "go_to_next_page", fake_next)
 
     outcome = await browser_tools._task2_on_page(
         page, _settings(tmp_path, post_click_wait_seconds=0), lambda _m: None
@@ -955,7 +955,7 @@ async def test_task2_paginates_when_unapplied_cards_have_no_easy_apply(
     Apply, so the old "only when the whole page is Applied" rule stopped the loop
     without ever checking page 2.
     """
-    import src.tools.linkedin_job_selection as job_selection
+    import src.tools.linkedin_results_scan as results_scan
 
     page = FakePage()
     page_one = {
@@ -978,7 +978,7 @@ async def test_task2_paginates_when_unapplied_cards_have_no_easy_apply(
         p.by_selector = page_two
         return True
 
-    monkeypatch.setattr(job_selection, "go_to_next_page", fake_next)
+    monkeypatch.setattr(results_scan, "go_to_next_page", fake_next)
 
     outcome = await browser_tools._task2_on_page(
         page, _settings(tmp_path, post_click_wait_seconds=0), lambda _m: None
@@ -994,9 +994,9 @@ async def test_task2_paginates_when_unapplied_cards_have_no_easy_apply(
 async def test_task2_stops_at_the_results_page_cap(tmp_path, monkeypatch) -> None:
     """Task 7 caps how many pages it will visit, so a control that never
     disables cannot loop forever."""
-    import src.tools.linkedin_job_selection as job_selection
+    import src.tools.linkedin_results_scan as results_scan
 
-    monkeypatch.setattr(job_selection, "_MAX_RESULT_PAGES", 2)
+    monkeypatch.setattr(results_scan, "_MAX_RESULT_PAGES", 2)
     page = FakePage()
     counter = {"n": 0}
 
@@ -1011,7 +1011,7 @@ async def test_task2_stops_at_the_results_page_cap(tmp_path, monkeypatch) -> Non
         p.by_selector = _applied_page(p)
         return True
 
-    monkeypatch.setattr(job_selection, "go_to_next_page", fake_next)
+    monkeypatch.setattr(results_scan, "go_to_next_page", fake_next)
 
     outcome = await browser_tools._task2_on_page(
         page, _settings(tmp_path, post_click_wait_seconds=0), lambda _m: None

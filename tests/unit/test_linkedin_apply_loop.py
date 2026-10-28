@@ -362,9 +362,12 @@ async def test_open_next_job_opens_and_reads_the_description(monkeypatch) -> Non
     _register("run-next", page)
     captured: dict = {}
 
-    async def fake_task2(p, settings, notify, skip_keys=None, capture=None, open_form=True):
+    async def fake_task2(
+        p, settings, notify, skip_keys=None, capture=None, open_form=True, date_range=""
+    ):
         captured["skip_keys"] = skip_keys
         captured["open_form"] = open_form
+        captured["date_range"] = date_range
         return Task2Outcome(
             jobs_seen=5,
             job_index=1,
@@ -385,6 +388,7 @@ async def test_open_next_job_opens_and_reads_the_description(monkeypatch) -> Non
             _settings(),
             skip_title="Backend Engineer",
             skip_titles=["Data Analyst"],
+            date_range="past_week",
         )
     finally:
         browser_tools._ACTIVE_RUNS.pop("run-next", None)
@@ -393,6 +397,7 @@ async def test_open_next_job_opens_and_reads_the_description(monkeypatch) -> Non
     assert result.description.company == "Acme"
     # Selecting the next job leaves Easy Apply closed until the resume match.
     assert captured["open_form"] is False
+    assert captured["date_range"] == "past_week"
     # The just-handled job and every Task 16 skip are excluded even before their
     # cards flip to Applied.
     assert captured["skip_keys"] == {"backend engineer", "data analyst"}
@@ -406,7 +411,9 @@ async def test_open_next_job_closes_a_skipped_easy_apply_form(monkeypatch) -> No
         captured["closed"] = True
         return True
 
-    async def fake_task2(p, settings, notify, skip_keys=None, capture=None, open_form=True):
+    async def fake_task2(
+        p, settings, notify, skip_keys=None, capture=None, open_form=True, date_range=""
+    ):
         return Task2Outcome(
             jobs_seen=1,
             job_title="QA Engineer",
@@ -450,7 +457,9 @@ async def test_open_next_job_reports_when_every_job_is_applied(monkeypatch) -> N
     page = object()
     _register("run-none", page)
 
-    async def fake_task2(p, settings, notify, skip_keys=None, capture=None, open_form=True):
+    async def fake_task2(
+        p, settings, notify, skip_keys=None, capture=None, open_form=True, date_range=""
+    ):
         return Task2Outcome(
             jobs_seen=3,
             applied_jobs_skipped=3,

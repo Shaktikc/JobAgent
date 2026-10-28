@@ -795,11 +795,18 @@ def test_next_job_opens_the_next_job(monkeypatch) -> None:
     captured: dict = {}
 
     async def fake_open(
-        run_id, settings=None, progress=None, skip_title="", skip_titles=(), close_form=False
+        run_id,
+        settings=None,
+        progress=None,
+        skip_title="",
+        skip_titles=(),
+        close_form=False,
+        date_range="",
     ):
         captured["skip_title"] = skip_title
         captured["skip_titles"] = list(skip_titles)
         captured["close_form"] = close_form
+        captured["date_range"] = date_range
         return loop.NextJobResult(
             opened=True,
             task2=Task2Outcome(
@@ -813,7 +820,7 @@ def test_next_job_opens_the_next_job(monkeypatch) -> None:
     state = ApplyState(
         dry_run=False,
         browser_run_id="run-1",
-        task2=Task2Outcome(job_title="Backend Engineer"),
+        task2=Task2Outcome(job_title="Backend Engineer", date_range_used="past_week"),
         skipped_titles=["backend engineer", "data analyst"],
     )
 
@@ -822,6 +829,7 @@ def test_next_job_opens_the_next_job(monkeypatch) -> None:
     assert captured["skip_title"] == "Backend Engineer"
     assert captured["skip_titles"] == ["backend engineer", "data analyst"]
     assert captured["close_form"] is False
+    assert captured["date_range"] == "past_week"
     assert result["status"] == "applied"
     assert result["task2"].job_title == "QA Engineer"
     assert result["job_description"].title == "QA Engineer"
@@ -833,7 +841,13 @@ def test_next_job_stops_when_nothing_is_left(monkeypatch) -> None:
     import src.tools.linkedin_apply_loop as loop
 
     async def fake_open(
-        run_id, settings=None, progress=None, skip_title="", skip_titles=(), close_form=False
+        run_id,
+        settings=None,
+        progress=None,
+        skip_title="",
+        skip_titles=(),
+        close_form=False,
+        date_range="",
     ):
         return loop.NextJobResult(
             opened=False,

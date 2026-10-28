@@ -6,7 +6,7 @@ best-matching resume, opens the job's **Easy Apply** form only when the resume
 matches, and starts filling it — all through a real browser (via
 [browser-use](https://github.com/browser-use/browser-use)).
 
-> Status: **Tasks 1-11, 13, 15, and 16** — log in, search `"software engineer"`, select the Easy
+> Status: **Tasks 1-13 and 15-17** — log in, search `"software engineer"`, select the Easy
 > Apply filter and **Date posted → Past 24 hours**, read the job description, select the
 > best-matching resume, open Easy Apply only on a match, fill known fields + attach the resume, and ask you in the
 > browser about any question it cannot answer, remembering your answer for next
@@ -60,6 +60,11 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
      scans it again, until an unapplied job is found or there are no more pages.
      The number of pages visited is recorded (`pages_visited`). Paginating never
      opens or applies to a job by itself.
+   - **Task 17:** when every page of the **Past 24 hours** range is exhausted and
+     no unapplied Easy Apply job remains, it selects **Date posted → Past week**,
+     resets to page 1, keeps **Easy Apply** active, and scans the week range. The
+     week list includes the 24-hour jobs, so their applied/skipped keys carry over
+     and are never reopened. Only Past week is used; Past month is out of scope.
    - **Task 3 (read):** reads the open job's title, company, location, and
      description body from the details pane.
    The session is left **open** (registered under an opaque `browser_run_id`) so
@@ -171,7 +176,9 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
    your resume into a profile") is dismissed first so it cannot cover the next
    card. **Task 16:** a job skipped for having no matching resume never had its
    Easy Apply form opened, and its title is excluded from later passes, so the
-   loop never reopens it; the loop stops at
+   loop never reopens it. **Task 17:** when the whole 24-hour range is exhausted,
+   the same scan widens to **Past week** and continues; a scan already on the week
+   range stays there. The loop stops at
    `AUTOJOB_SESSION_MAX_SKIPPED_JOBS` (default `100`, `0` = no cap) if nothing
    matches. The loop otherwise repeats until `AUTOJOB_SESSION_MAX_JOBS` jobs have
    been submitted (default `35`; `0` = until no unapplied job remains), every job
@@ -401,7 +408,14 @@ src/
       easy_apply_filter.py        find/select/verify the Easy Apply filter
       ai_search.py                optional "Try AI job search" detour
       orchestrator.py             Task 1 step sequence (filters + failure outcome)
-    linkedin_date_posted.py       Task 13: Date posted -> "Past 24 hours"
+    linkedin_date_posted/          Task 13/17: Date posted ranges + URL helpers
+      __init__.py                  public API (re-exports the submodules below)
+      labels.py                    range labels, f_TPR values, pure helpers
+      queries.py                   pill/options/Show-results discovery scripts
+      selection.py                 select Past 24 hours / Past week, verify
+      urls.py                      f_TPR URL helpers + page-offset reset
+    linkedin_date_range_fallback.py  Task 17: switch to Past week, keep Easy Apply
+    linkedin_results_scan.py         Tasks 7/17: page walk + 24h -> week fallback
     linkedin_job_selection.py      Task 2: select a job and read its description
     linkedin_job_card.py           Task 2: resolve a card + verify the details pane
     linkedin_job_apply_button.py   Task 2: the details pane's job, apply button, modal
@@ -527,6 +541,10 @@ tests/
   remembered-resume library for a job the LLM did not match. The skip is recorded
   in the run summary and the `task16` state, and the skipped title is not reopened
   this run.
+- **Task 17 (default)** widens an exhausted **Past 24 hours** search to **Past
+  week** once. It resets the results to page 1, preserves **Easy Apply**, carries
+  over applied/skipped job keys, and never selects **Past month**. Both ranges are
+  reported in the `task2` outcome and CLI summary.
 - Task 11 records a structural Easy Apply failure **before** recovery, never
   submits during recovery, and stops after the configured attempt cap instead of
   retrying or patching forever. If no repair command is set, it only reopens the
