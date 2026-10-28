@@ -5,7 +5,8 @@ from __future__ import annotations
 import sys
 import types
 
-from src.main import _parse_args, _silence_windows_pipe_noise
+from src.configuration import SessionSettings, Settings
+from src.main import _parse_args, _recursion_limit, _silence_windows_pipe_noise
 
 
 def test_parse_args_defaults_to_dry_run() -> None:
@@ -20,6 +21,20 @@ def test_parse_args_no_dry_run() -> None:
 
 def test_parse_args_clean_profile_flag() -> None:
     assert _parse_args(["--clean-profile"]).clean_profile is True
+
+
+def test_recursion_limit_budgets_skipped_jobs_too() -> None:
+    # The jobs cap alone is not enough: strict matching may skip many jobs before
+    # any is applied, so the graph needs room for those match -> next_job cycles.
+    limited = Settings(
+        session=SessionSettings(max_jobs_per_run=1, max_skipped_jobs_per_run=2)
+    )
+    unlimited_skips = Settings(
+        session=SessionSettings(max_jobs_per_run=1, max_skipped_jobs_per_run=0)
+    )
+
+    assert _recursion_limit(limited) == 36 + 6
+    assert _recursion_limit(unlimited_skips) == 36
 
 
 def test_silences_only_the_closed_pipe_unraisable(monkeypatch) -> None:
@@ -47,6 +62,34 @@ def test_silence_is_a_noop_off_windows(monkeypatch) -> None:
     _silence_windows_pipe_noise()
 
     assert sys.unraisablehook is original
+
+
+def test_summary_includes_strict_resume_skips() -> None:
+    from src.main import _summary
+    from src.state import ApplyState, SkippedJobRecord, Task16Outcome
+
+    state = ApplyState(
+        status="done",
+        task16=Task16Outcome(
+            enabled=True,
+            jobs_skipped=1,
+            skipped=[
+                SkippedJobRecord(
+                    title="Data Analyst",
+                    company="Acme",
+                    fit="partial",
+                    rationale="not a strong match",
+                )
+            ],
+        ),
+    )
+
+    summary = _summary(state)
+
+    assert "resume gate : strict=True jobs_skipped=1" in summary
+    assert "'Data Analyst' at 'Acme'" in summary
+    assert "fit=partial" in summary
+    assert "not a strong match" in summary
 
 
 def test_summary_includes_task8_loop_results() -> None:

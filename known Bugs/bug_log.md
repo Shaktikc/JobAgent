@@ -29,6 +29,7 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | [`task_5_bugs.md`](task_5_bugs.md) | Ask the human for unknown answers, remember them |
 | [`task_6_bugs.md`](task_6_bugs.md) | Skip jobs already marked "Applied" |
 | [`task_13_bugs.md`](task_13_bugs.md) | Date posted → "Past 24 hours" filter |
+| [`task_16_bugs.md`](task_16_bugs.md) | Strict resume matching, skipping unmatched jobs, closing a skipped form |
 | [`self_healing_bugs.md`](self_healing_bugs.md) | Self-healing loop: auto-captured Easy Apply crashes, recovery, same-job resume |
 | [`general_bugs.md`](general_bugs.md) | Browser session, profile/CDP, CLI, cleanup, build, security, tests |
 
@@ -123,6 +124,9 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | BUG-070 | Self-Healing — repair agent | autonomous repair asked a file-split approval question, exited 1, and stopped the loop | 🟢 Fixed | (uncommitted) |
 | BUG-071 | Task 13 — Date posted | a checked "Past 24 hours" radio was accepted though the results URL was not filtered | 🟢 Fixed | (uncommitted) |
 | BUG-072 | Task 3 — read | AI/search job view read "Are these results helpful?" + the job list as the job | 🟢 Fixed | `55a7838` |
+| BUG-073 | Task 16 — skip/close | a hidden Easy Apply modal still read as open, so a closed skip looked stuck | 🟢 Fixed | (uncommitted) |
+| BUG-074 | Task 16 — skip identity | a skipped card gained " (Verified job)" and was reopened as a "new" job | 🟢 Fixed | (uncommitted) |
+| BUG-075 | Self-Healing — browse/search | "job search returned no results" from an aborted verification run (empty evidence bundle) | ⚪ Won't fix | (not a product defect) |
 
 ## Template for new entries
 

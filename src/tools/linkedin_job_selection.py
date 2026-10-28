@@ -95,9 +95,16 @@ def _first_line(text: str) -> str:
     return ""
 
 
+# Status badges LinkedIn appends to a card's title line after it is opened (live:
+# "Senior Engineer (Verified job)"). They identify the same posting, so they must
+# not make a skipped job look new (Task 16's skip set) or defeat a card retry.
+_TITLE_STATUS_SUFFIX = re.compile(r"\s*\(\s*verified job\s*\)\s*$", re.IGNORECASE)
+
+
 def _job_key(title: str, index: int) -> str:
     """Stable identity for a results-list job (its title, or index when blank)."""
     normalized = re.sub(r"\s+", " ", (title or "").strip().lower())
+    normalized = _TITLE_STATUS_SUFFIX.sub("", normalized).strip()
     return normalized or f"#{index}"
 
 

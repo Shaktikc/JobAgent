@@ -94,6 +94,14 @@ class SessionSettings(BaseModel):
     # unapplied job instead. Set false to ignore the Applied status (open the
     # first Easy Apply card regardless).
     skip_applied: bool = True
+    # Task 16: apply only when the LLM rates an existing resume a **strong** match
+    # for the job. With no strong match the job is skipped (the human is not asked
+    # for a resume and the remembered-resume fallback is not used). Set false to
+    # restore Task 3.1's fallbacks.
+    require_resume_match: bool = True
+    # Task 16: safety cap on jobs skipped for having no matching resume; 0 = no cap.
+    # A skip never counts toward ``max_jobs_per_run``.
+    max_skipped_jobs_per_run: int = Field(default=100, ge=0)
     # Task 4: when the walk stops at the terminal step (only **Submit
     # application** remains) the browser is left open for the human to review and
     # submit the application manually. The run waits for the human to close the
@@ -249,6 +257,8 @@ def load_settings(env_file: Path | None = None) -> Settings:
             ask_poll_seconds=_get_float("AUTOJOB_SESSION_ASK_POLL_SECONDS", 1.0),
             clean_stale_profile=_get_bool("AUTOJOB_SESSION_CLEAN_STALE_PROFILE", True),
             skip_applied=_get_bool("AUTOJOB_SESSION_SKIP_APPLIED", True),
+            require_resume_match=_get_bool("AUTOJOB_SESSION_REQUIRE_RESUME_MATCH", True),
+            max_skipped_jobs_per_run=_get_int("AUTOJOB_SESSION_MAX_SKIPPED_JOBS", 100),
             keep_open_timeout_seconds=_get_float(
                 "AUTOJOB_SESSION_KEEP_OPEN_TIMEOUT_SECONDS", 1800.0
             ),

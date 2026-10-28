@@ -33,6 +33,7 @@ from src.state import (
     Task4Outcome,
     Task5Outcome,
     Task8Outcome,
+    Task16Outcome,
     new_state,
 )
 
@@ -72,6 +73,7 @@ def _task3_ok() -> Task3Outcome:
             ResumeCandidate(path="resumes/a.pdf", summary="Python engineer", described=True)
         ],
         selected_path="resumes/a.pdf",
+        fit="strong",
         rationale="the LLM chose the best match",
     )
 
@@ -149,6 +151,8 @@ def test_route_after_browse() -> None:
 
 def test_route_after_match() -> None:
     assert _route_after_match({"errors": ["match: no resumes"]}) == "cleanup"
+    # Task 16: a strict-mode no-match skips to the next job, never to fill.
+    assert _route_after_match({"status": "skipped"}) == "next_job"
     assert _route_after_match({}) == "fill"
 
 
@@ -299,6 +303,7 @@ def test_match_node_selects_best_resume(tmp_path, monkeypatch) -> None:
                 ResumeCandidate(path="resumes/frontend.txt", summary="Frontend", described=True),
             ],
             selected_path="resumes/python.txt",
+            fit="strong",
             rationale="the LLM's reason",
         )
 
@@ -349,7 +354,11 @@ def test_match_node_reports_empty_folder(tmp_path) -> None:
 
     assert result["task3"].resumes_found == 0
     assert result["task3"].selected_path is None
-    assert result["errors"]
+    # Task 16: an empty pool is a clean skip in strict mode, not a failure.
+    assert result["status"] == "skipped"
+    assert result["task16"].jobs_skipped == 1
+    assert result["skipped_titles"] == ["engineer"]
+    assert "errors" not in result
 
 
 def test_match_node_skips_on_dry_run() -> None:
@@ -682,8 +691,12 @@ def test_next_job_opens_the_next_job(monkeypatch) -> None:
 
     captured: dict = {}
 
-    async def fake_open(run_id, settings=None, progress=None, skip_title=""):
+    async def fake_open(
+        run_id, settings=None, progress=None, skip_title="", skip_titles=(), close_form=False
+    ):
         captured["skip_title"] = skip_title
+        captured["skip_titles"] = list(skip_titles)
+        captured["close_form"] = close_form
         return loop.NextJobResult(
             opened=True,
             task2=Task2Outcome(
@@ -698,11 +711,14 @@ def test_next_job_opens_the_next_job(monkeypatch) -> None:
         dry_run=False,
         browser_run_id="run-1",
         task2=Task2Outcome(job_title="Backend Engineer"),
+        skipped_titles=["backend engineer", "data analyst"],
     )
 
     result = asyncio.run(next_job(state))
 
     assert captured["skip_title"] == "Backend Engineer"
+    assert captured["skip_titles"] == ["backend engineer", "data analyst"]
+    assert captured["close_form"] is False
     assert result["status"] == "applied"
     assert result["task2"].job_title == "QA Engineer"
     assert result["job_description"].title == "QA Engineer"
@@ -713,7 +729,9 @@ def test_next_job_stops_when_nothing_is_left(monkeypatch) -> None:
     import src.nodes.apply_loop as apply_loop
     import src.tools.linkedin_apply_loop as loop
 
-    async def fake_open(run_id, settings=None, progress=None, skip_title=""):
+    async def fake_open(
+        run_id, settings=None, progress=None, skip_title="", skip_titles=(), close_form=False
+    ):
         return loop.NextJobResult(
             opened=False,
             task2=Task2Outcome(jobs_seen=2, applied_jobs_skipped=2),
@@ -734,6 +752,55 @@ def test_next_job_stops_when_nothing_is_left(monkeypatch) -> None:
     assert result["task8"].stopped_reason == "every job on every results page is already Applied"
     # The last successfully opened job is kept for ``verify``.
     assert "task2" not in result
+
+
+def test_next_job_stops_at_the_skipped_jobs_cap(monkeypatch) -> None:
+    import src.nodes.apply_loop as apply_loop
+    import src.tools.linkedin_apply_loop as loop
+
+    async def fake_open(*args, **kwargs):  # pragma: no cover - must not be called
+        raise AssertionError("open_next_job must not run after the skip cap")
+
+    monkeypatch.setattr(loop, "open_next_job", fake_open)
+    monkeypatch.setattr(
+        apply_loop, "load_settings", lambda: _settings(max_skipped_jobs_per_run=1)
+    )
+    state = ApplyState(
+        dry_run=False,
+        browser_run_id="run-1",
+        status="skipped",
+        task2=Task2Outcome(job_title="Data Analyst"),
+        task16=Task16Outcome(enabled=True, jobs_skipped=1),
+    )
+
+    result = asyncio.run(next_job(state))
+
+    assert result["status"] == "stopped"
+    assert result["task8"].stopped_reason == "reached the skipped-jobs cap (1)"
+
+
+def test_verify_passes_when_strict_mode_skipped_the_remaining_jobs() -> None:
+    task3 = _task3_ok()
+    task3.selected_path = None
+    task3.fit = "partial"
+    task3.no_match = True
+    state = ApplyState(
+        dry_run=False,
+        task1=_task1_ok(),
+        task2=_task2_ok(),
+        task3=task3,
+        task5=_task5_ok(),
+        task8=Task8Outcome(
+            jobs_applied=1, stopped_reason="every job on every results page is already Applied"
+        ),
+        task16=Task16Outcome(enabled=True, jobs_skipped=1),
+    )
+
+    result = verify(state)
+
+    assert result["status"] == "done"
+    assert any("skipped 1 job(s) with no matching resume" in line for line in result["log"])
+    assert any("submitted 1 job(s)" in line for line in result["log"])
 
 
 def test_verify_passes_when_the_task8_loop_stopped_cleanly() -> None:

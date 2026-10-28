@@ -97,14 +97,32 @@ async def next_job(state: ApplyState) -> ApplyState:
     from src.tools.linkedin_apply_loop import open_next_job  # lazy: needs the extra
 
     settings = load_settings()
+
+    # Task 16: a skip is not an application. Stop at the configured skip cap so a
+    # run that matches nothing cannot scan forever.
+    task16 = state.get("task16")
+    skip_cap = settings.session.max_skipped_jobs_per_run
+    if task16 is not None and skip_cap and task16.jobs_skipped >= skip_cap:
+        task8 = state.get("task8") or Task8Outcome()
+        task8.stopped_reason = f"reached the skipped-jobs cap ({skip_cap})"
+        log = [f"next_job: stopping - {task8.stopped_reason}"]
+        return {"task8": task8, "status": "stopped", "log": log}
+
     previous = state.get("task2")
     skip_title = (previous.job_title if previous else "") or ""
+    skipped_titles = list(state.get("skipped_titles") or [])
+    skipping = state.get("status") == "skipped"
 
     # Let a crash propagate: the graph's self-heal guard records it, closes the
     # stale browser, repairs/tests, and retries this same step from the results
     # list (Task 11).
     result = await open_next_job(
-        run_id, settings, progress=get_reporter(run_id) or print, skip_title=skip_title
+        run_id,
+        settings,
+        progress=get_reporter(run_id) or print,
+        skip_title=skip_title,
+        skip_titles=skipped_titles,
+        close_form=skipping,
     )
 
     task2 = result.task2
@@ -117,6 +135,8 @@ async def next_job(state: ApplyState) -> ApplyState:
         f"applied_skipped={task2.applied_jobs_skipped} "
         f"pages_visited={task2.pages_visited}",
     ]
+    if skipped_titles:
+        log.append(f"next_job: excluding {len(skipped_titles)} previously skipped job(s)")
     if task2.notes:
         log.append(f"next_job: {task2.notes}")
 

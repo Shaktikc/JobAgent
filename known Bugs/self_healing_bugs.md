@@ -528,3 +528,17 @@ same index covers runtime crashes and the recovery machinery itself.
   signature. Uncommitted.
 - **Failure fingerprint:** `a545c3497393b71a125b`
 - **Occurrences:** 1 (first 2026-10-27T07:25:24+00:00)
+
+### BUG-075 — the job search returned no results (interrupted verification run)
+
+- **Symptom:** browse: job search returned no results
+- **Root cause:** an artifact of aborting the Task 16 live-verification command mid-search.
+  The captured bundle has no page URL, visible text, DOM excerpt, screenshot, or
+  run id, so no browser step actually failed; the self-healing guard classified the
+  interrupted run as `search_no_results`. The same search returned 25-32 jobs in
+  the surrounding successful runs.
+- **Fix:** none needed — not a product defect. The verification run was repeated.
+- **Status:** ⚪ Won't fix
+- **Evidence:** bundle `C:\Users\shakt\OneDrive\Desktop\project\AutoJobApply\data\debug\self_healing\20261028-021109-731935-db70a59559c4` (all diagnostic fields empty); successful Task 16 live runs in the same session.
+- **Failure fingerprint:** `db70a59559c47f52d169`
+- **Occurrences:** 1 (first 2026-10-28T02:11:09+00:00)

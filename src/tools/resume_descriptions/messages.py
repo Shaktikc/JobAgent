@@ -37,8 +37,22 @@ _MATCH_SYSTEM_PROMPT = (
     "domain with each candidate's profile.\n"
     "- Choose ONLY one of the provided ids. Never invent an id, file name, or path.\n"
     '- If no candidate is a reasonable fit, answer "none".\n'
-    'Reply with ONE JSON object: {"choice": "<id or none>", "rationale": "<short reason>"}.'
+    '- Rate the fit: "strong" only when the chosen resume genuinely satisfies the '
+    "job's core requirements (its skills/technologies, title, seniority, and "
+    'domain); "partial" when it is transferable but does not satisfy those core '
+    'requirements; "none" when nothing is a reasonable fit.\n'
+    "Reply with ONE JSON object: "
+    '{"choice": "<id or none>", "fit": "<strong|partial|none>", '
+    '"rationale": "<short reason>"}.'
 )
+
+_FIT_VALUES = frozenset({"strong", "partial", "none"})
+
+
+def _normalise_fit(value) -> str:
+    """Normalize the model's fit rating (an unknown/missing value becomes ``""``)."""
+    fit = str(value or "").strip().lower()
+    return fit if fit in _FIT_VALUES else ""
 
 
 # --- parsing the model's replies -------------------------------------------
@@ -205,8 +219,10 @@ def parse_match(text: str, ids: dict[str, str]) -> ResumeMatch:
         raise ResumeDescriptionError("the LLM returned an unusable match reply")
     match = ResumeMatch(candidate_ids=dict(ids))
     match.rationale = str(payload.get("rationale") or "").strip()
+    match.fit = _normalise_fit(payload.get("fit"))
     choice = str(payload.get("choice") or "").strip()
     if not choice or choice.lower() == "none":
+        match.fit = match.fit or "none"
         return match
     path = ids.get(choice)
     if path is None:

@@ -164,7 +164,10 @@ FIND_APPLY_ROOT_JS = r"""
     const formish = visible.find((el) => el.querySelector(
       'input:not([type=hidden]), textarea, select, [role="radio"], [role="checkbox"]'
     ));
-    const dialog = applyish || formish || visible[0] || easy || null;
+    // Never fall back to a hidden Easy Apply dialog: a closed modal left in the
+    // DOM with ``display:none`` is not an open application form (Task 16 needs the
+    // close check to see the difference).
+    const dialog = applyish || formish || visible[0] || null;
     if (dialog) return dialog;
 
     // 2) The inline full-page form. Anchor on an application control (a phone

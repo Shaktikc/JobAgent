@@ -78,6 +78,15 @@ def test_task_failure_reason_reads_match_outcomes() -> None:
     assert task_heal.task_failure_reason(
         "match", {"task3": Task3Outcome(selected_path="resumes/a.pdf")}
     ) == ""
+    # Task 16: a deliberate strict-mode skip is not a task failure.
+    assert task_heal.task_failure_reason(
+        "match",
+        {
+            "status": "skipped",
+            "task3": Task3Outcome(no_match=True, fit="partial"),
+            "task16": None,
+        },
+    ) == ""
 
 
 def test_task_failure_reason_ignores_exception_only_stages() -> None:

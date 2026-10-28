@@ -25,6 +25,9 @@ from src.tools.resume_library import load_library, remember_resume
 
 
 def _settings(tmp_path: Path, **session) -> Settings:
+    # These tests cover Task 3.1's legacy fallbacks; Task 16's strict gate has its
+    # own tests in test_task16_resume_gate.py.
+    session.setdefault("require_resume_match", False)
     return Settings(
         session=SessionSettings(**session),
         data_dir=tmp_path,
@@ -53,7 +56,9 @@ def _describer(summary: str = "profile", *, error: str = ""):
 def _picks_first(rationale: str = "best fit"):
     async def pick(job_description, candidates):
         return ResumeMatch(
-            selected_path=candidates[0][0] if candidates else None, rationale=rationale
+            selected_path=candidates[0][0] if candidates else None,
+            fit="strong",
+            rationale=rationale,
         )
 
     return pick
@@ -61,7 +66,7 @@ def _picks_first(rationale: str = "best fit"):
 
 def _picks_none(rationale: str = "nothing fits"):
     async def pick(job_description, candidates):
-        return ResumeMatch(rationale=rationale)
+        return ResumeMatch(fit="none", rationale=rationale)
 
     return pick
 

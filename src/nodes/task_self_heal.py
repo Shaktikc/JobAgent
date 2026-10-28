@@ -98,6 +98,10 @@ def _match_reason(update: ApplyState) -> str:
     error = _text(getattr(task3, "error", ""))
     if error:
         return error
+    # Task 16: a strict-mode skip is deliberate; reopening the job cannot change
+    # the LLM's match decision, so the guard must pass it through untouched.
+    if update.get("status") == "skipped" and bool(getattr(task3, "no_match", False)):
+        return ""
     if not _text(getattr(task3, "selected_path", "")):
         return "match: no resume could be selected"
     return ""
@@ -159,7 +163,7 @@ def task_failure_is_recoverable(stage: str, reason: str, update: ApplyState) -> 
 def _merge_failed_update(result: ApplyState, update: ApplyState) -> ApplyState:
     """Keep a retried task's outcomes/logs when self-healing is exhausted."""
     merged = dict(result)
-    for key in ("task1", "task2", "task3", "task8", "job_description"):
+    for key in ("task1", "task2", "task3", "task8", "task16", "job_description"):
         if update.get(key) is not None:
             merged[key] = update[key]
     merged["errors"] = list(update.get("errors") or merged.get("errors") or [])

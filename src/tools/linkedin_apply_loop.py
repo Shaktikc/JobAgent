@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import re
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from src.configuration import Settings, load_settings
@@ -42,6 +43,7 @@ from src.tools.browser import (
     run_is_connected,
 )
 from src.tools.linkedin_job_selection import _job_key, _task2_on_page
+from src.tools.linkedin_resume_gate import close_easy_apply_form
 from src.tools.linkedin_status_overlay import begin_human_turn, emit_step, end_human_turn
 from src.tools.linkedin_submission import (
     is_dismiss_label,
@@ -236,14 +238,21 @@ async def open_next_job(
     settings: Settings | None = None,
     progress=None,
     skip_title: str = "",
+    skip_titles: Iterable[str] = (),
+    close_form: bool = False,
 ) -> NextJobResult:
     """Open the next unapplied Easy Apply job on the open results list.
 
     Reuses Task 2's selection (which skips **"Applied"** cards, Task 6, and
-    paginates whole Applied pages, Task 7) and Task 3's description read. The job
-    named by ``skip_title`` (the one the human just submitted) is never re-opened,
-    even if its card has not yet flipped to **"Applied"**. When nothing can be
-    opened, ``reason`` explains why and ``opened`` is ``False``.
+    paginates whole Applied pages, Task 7) and Task 3's description read. The jobs
+    named by ``skip_title`` (the one just handled) and every accumulated
+    ``skip_titles`` entry (Task 16 skips) are never re-opened, even if their cards
+    have not flipped to **"Applied"**. When nothing can be opened, ``reason``
+    explains why and ``opened`` is ``False``.
+
+    ``close_form`` closes the Easy Apply form left open by a Task 16 skip before
+    re-reading the results list. After a human submission the form is already
+    gone, so callers leave it off.
     """
     from src.tools.linkedin_best_matching_resume import read_job_description  # keep light
 
@@ -256,12 +265,18 @@ async def open_next_job(
             reason="browser session is no longer available",
         )
 
-    skip_keys = {_job_key(skip_title, -1)} if skip_title else set()
+    titles = [title for title in (skip_title, *skip_titles) if (title or "").strip()]
+    skip_keys = {_job_key(title, -1) for title in titles}
     emit_step(notify, "Please wait - opening the next unapplied job...")
     # The post-apply "Your application was sent..." / "Turn your resume into a
     # profile" dialog can still cover the results list; its backdrop would block
     # the next card's click, so dismiss it (Not now) before re-reading the cards.
     await dismiss_post_apply_modals(run.page, skip_title)
+    if close_form and not await close_easy_apply_form(run.page, settings, notify):
+        return NextJobResult(
+            task2=Task2Outcome(notes="the Easy Apply form could not be closed"),
+            reason="the Easy Apply form could not be closed",
+        )
     task2 = await _task2_on_page(
         run.page, settings, notify, skip_keys=skip_keys, capture=read_job_description
     )

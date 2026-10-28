@@ -8,6 +8,11 @@ Subtask 3.1: when the LLM finds nothing that matches the job, the agent reuses a
 resume it remembered for a similar job, or asks the human to upload one in the
 browser (the live session is still registered under ``state['browser_run_id']``),
 stores that file in the pool, has the LLM describe it, and remembers it.
+
+Task 16: in strict resume-matching mode (the default) only a **strong** LLM match
+is used. Anything else is a clean skip: the node records it on ``task16``, appends
+the job title to ``skipped_titles``, and returns ``status="skipped"`` so the graph
+opens the next job instead of filling this one. Task 3.1's fallbacks are not used.
 """
 
 from __future__ import annotations
@@ -50,6 +55,11 @@ async def match(state: ApplyState) -> ApplyState:
         return {"status": "matched", "log": ["match: dry-run, resume selection skipped"]}
 
     from src.tools.linkedin_best_matching_resume import ensure_resume  # keep light
+    from src.tools.linkedin_resume_gate import (  # keep light
+        normalize_title,
+        record_skip,
+        should_skip_job,
+    )
 
     settings = load_settings()
     description = _as_description(state.get("job_description"))
@@ -73,9 +83,44 @@ async def match(state: ApplyState) -> ApplyState:
 
     log = [
         f"match: resumes_dir={outcome.resumes_dir} found={outcome.resumes_found}",
-        f"match: selected={outcome.selected_path}",
+        f"match: selected={outcome.selected_path} fit={outcome.fit or '(unknown)'}",
         f"match: rationale={outcome.rationale or '(none)'}",
     ]
+
+    # Task 16: a strict-mode no-match is a deliberate skip, not a failure.
+    if should_skip_job(outcome, settings):
+        task2 = state.get("task2")
+        title = (
+            (description.title or (task2.job_title if task2 is not None else "") or "").strip()
+        )
+        task16 = record_skip(state.get("task16"), outcome, task2)
+        log.append(
+            f"match(task16): skipped {title or 'this job'!r} - no existing resume is "
+            f"a strong match (fit={outcome.fit or 'unknown'}; "
+            f"{outcome.rationale or 'no rationale'})"
+        )
+        if outcome.notes:
+            log.append(f"match: {outcome.notes}")
+        try:
+            from src.tools.linkedin_status_overlay import emit_step  # keep light
+
+            emit_step(
+                _progress_for(state, state.get("browser_run_id")),
+                f"Skipping {title or 'this job'} - no matching resume; "
+                "opening the next job.",
+            )
+        except Exception:  # noqa: BLE001 - status display must never break matching
+            pass
+        update: ApplyState = {
+            "task3": outcome,
+            "task16": task16,
+            "status": "skipped",
+            "log": log,
+        }
+        if title:
+            update["skipped_titles"] = [normalize_title(title)]
+        return update
+
     if outcome.no_match:
         log.append("match(task3.1): no resume matched the job")
     if outcome.reused_from_library:

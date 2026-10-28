@@ -52,8 +52,8 @@ def _picks_name(name: str):
 
         for path, _description in candidates:
             if Path(path).name == name:
-                return ResumeMatch(selected_path=path, rationale="best fit")
-        return ResumeMatch(rationale="nothing fits")
+                return ResumeMatch(selected_path=path, fit="strong", rationale="best fit")
+        return ResumeMatch(fit="none", rationale="nothing fits")
 
     return pick
 

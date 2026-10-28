@@ -264,11 +264,24 @@ def test_build_match_messages_list_the_job_and_candidates() -> None:
 
 def test_parse_match_chooses_a_candidate() -> None:
     ids = {"c1": "a.pdf", "c2": "b.pdf"}
-    match = parse_match('{"choice": "c2", "rationale": "best fit"}', ids)
+    match = parse_match(
+        '{"choice": "c2", "fit": "strong", "rationale": "best fit"}', ids
+    )
 
     assert match.selected_path == "b.pdf"
+    assert match.fit == "strong"
+    assert match.is_strong is True
     assert match.rationale == "best fit"
     assert match.candidate_ids == ids
+
+
+def test_parse_match_normalises_the_fit_rating() -> None:
+    ids = {"c1": "a.pdf"}
+    assert parse_match('{"choice": "c1", "fit": "PARTIAL"}', ids).fit == "partial"
+    assert parse_match('{"choice": "c1", "fit": " Strong "}', ids).fit == "strong"
+    # An unknown/missing rating fails closed (it is not a strong match).
+    assert parse_match('{"choice": "c1", "fit": "excellent"}', ids).fit == ""
+    assert parse_match('{"choice": "c1"}', ids).is_strong is False
 
 
 def test_parse_match_none_or_unknown_id_is_a_no_match() -> None:
@@ -276,6 +289,14 @@ def test_parse_match_none_or_unknown_id_is_a_no_match() -> None:
     assert parse_match('{"choice": "none"}', ids).selected_path is None
     assert parse_match('{"choice": "c9"}', ids).selected_path is None
     assert parse_match('{"choice": ""}', ids).selected_path is None
+    assert parse_match('{"choice": "none"}', ids).fit == "none"
+
+
+def test_build_match_messages_ask_for_a_fit_rating() -> None:
+    candidates = [("a.pdf", ResumeDescription(summary="Cloud", skills=["AWS"]))]
+    messages = build_match_messages(JobDescription(title="X"), candidates, {"c1": "a.pdf"})
+    assert '"fit"' in messages[0]["content"]
+    assert "strong" in messages[0]["content"]
 
 
 def test_parse_match_rejects_an_unusable_reply() -> None:

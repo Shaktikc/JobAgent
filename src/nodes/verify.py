@@ -4,6 +4,10 @@ Task 8 adds one more check: when the submit-and-repeat loop ran, it must have
 recorded why it stopped (the human submitted, closed the browser, the cap was
 reached, or nothing was left to apply to). The human's submission is never treated
 as a failure — the agent never clicks **Submit application**.
+
+Task 16 adds a clean stop for strict resume matching: when the last job was
+skipped because no existing resume matched, the run is done (not failed) as long
+as the loop recorded its stop reason and no error was raised.
 """
 
 from __future__ import annotations
@@ -69,6 +73,32 @@ def _task5_succeeded(state: ApplyState) -> bool:
     return outcome.asked == outcome.answered + outcome.skipped + outcome.timed_out
 
 
+def _task16_skipped_to_the_end(state: ApplyState) -> bool:
+    """True when the run ended with a deliberate Task 16 skip, not a failure.
+
+    The last opened job has no selected resume (that is why it was skipped), so
+    the normal Task 3/Task 4 checks cannot describe the run. A run is clean when
+    the loop recorded why it stopped and the last job was a strict-mode no-match;
+    jobs skipped this way never fill a form and are never counted as applications.
+    """
+    task16 = state.get("task16")
+    task3 = state.get("task3")
+    task8 = state.get("task8")
+    return bool(
+        task16 is not None
+        and task16.enabled
+        and task16.jobs_skipped >= 1
+        and task3 is not None
+        and task3.no_match
+        and not task3.selected_path
+        and _task1_succeeded(state)
+        and _task2_succeeded(state)
+        and _task5_succeeded(state)
+        and task8 is not None
+        and task8.stopped_reason
+    )
+
+
 def _task8_succeeded(state: ApplyState) -> bool:
     """Task 8 passes when the loop recorded why it stopped (or never ran).
 
@@ -111,6 +141,20 @@ def verify(state: ApplyState) -> ApplyState:
                 f"stopped: {task8.stopped_reason}"
             )
         return {"status": "done", "log": log}
+
+    if _task16_skipped_to_the_end(state):
+        task16 = state.get("task16")
+        task8 = state.get("task8")
+        return {
+            "status": "done",
+            "log": [
+                f"verify: strict resume matching skipped {task16.jobs_skipped} job(s) "
+                "with no matching resume; no application was started for them "
+                "(not submitted)",
+                f"verify: Task 8 loop submitted {task8.jobs_applied} job(s); "
+                f"stopped: {task8.stopped_reason}",
+            ],
+        }
 
     return {
         "status": "failed",

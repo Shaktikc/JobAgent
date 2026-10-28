@@ -121,6 +121,7 @@ def _summary(state: ApplyState) -> str:
         lines += [
             f"resumes     : dir={task3.resumes_dir} found={task3.resumes_found}",
             f"best resume : {task3.selected_path}",
+            f"match fit   : {task3.fit or '(unknown)'}",
             f"why         : {task3.rationale or '(none)'}",
         ]
     if task4 is not None:
@@ -154,6 +155,16 @@ def _summary(state: ApplyState) -> str:
             lines.append(f"self-heal stop: {healing.stop_reason}")
         if healing.last_bundle:
             lines.append(f"self-heal evidence: {healing.last_bundle}")
+    task16 = state.get("task16")
+    if task16 is not None:
+        lines.append(
+            f"resume gate : strict={task16.enabled} jobs_skipped={task16.jobs_skipped}"
+        )
+        for job in task16.skipped:
+            lines.append(
+                f"  skipped   : {job.title!r} at {job.company!r} "
+                f"(fit={job.fit or 'none'}, {job.rationale or 'no rationale'})"
+            )
     task8 = state.get("task8")
     if task8 is not None:
         cap = task8.max_jobs if task8.max_jobs else "none"
@@ -174,6 +185,20 @@ def _summary(state: ApplyState) -> str:
     return "\n".join(lines)
 
 
+def _recursion_limit(settings) -> int:
+    """LangGraph's step budget for Task 8's loop plus Task 16's skips.
+
+    Each submitted job costs several graph nodes, and each skipped job costs a
+    ``match -> next_job`` cycle. Budget both caps so a run that matches nothing
+    reaches its skip cap instead of failing on the graph recursion limit.
+    """
+    cap = settings.session.max_jobs_per_run
+    skip_cap = settings.session.max_skipped_jobs_per_run
+    job_budget = 300 if cap == 0 else cap * 6 + 30
+    skip_budget = skip_cap * 3 if skip_cap else 0
+    return job_budget + skip_budget
+
+
 async def _run(args: argparse.Namespace) -> ApplyState:
     settings = load_settings()
     resumes_dir = args.resumes_dir or str(settings.resumes_dir)
@@ -184,10 +209,9 @@ async def _run(args: argparse.Namespace) -> ApplyState:
         resumes_dir=resumes_dir,
     )
     # Task 8's submit-and-repeat loop is a graph cycle, so raise LangGraph's
-    # default recursion limit to leave room for a few nodes per job.
-    cap = settings.session.max_jobs_per_run
-    recursion_limit = 300 if cap == 0 else cap * 6 + 30
-    return await graph.ainvoke(state, config={"recursion_limit": recursion_limit})
+    # default recursion limit to leave room for a few nodes per job and per
+    # Task 16 skip.
+    return await graph.ainvoke(state, config={"recursion_limit": _recursion_limit(settings)})
 
 
 def _clean_profile() -> int:

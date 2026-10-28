@@ -2951,7 +2951,9 @@ async def test_run_full_agent_end_to_end_offline(monkeypatch: pytest.MonkeyPatch
 
     async def fake_pick(job_description, candidates, settings, **kwargs):
         return ResumeMatch(
-            selected_path=candidates[0][0] if candidates else None, rationale="best fit"
+            selected_path=candidates[0][0] if candidates else None,
+            fit="strong",
+            rationale="best fit",
         )
 
     monkeypatch.setattr(resume_selection, "describe_resume", fake_describe)

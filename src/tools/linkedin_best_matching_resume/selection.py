@@ -51,18 +51,27 @@ async def ensure_resume(
     describer=None,
     matcher=None,
     new_resumes_dir: str | Path | None = None,
+    allow_fallback: bool | None = None,
 ) -> Task3Outcome:
     """Select the best resume, falling back to the human when nothing matches.
 
     Task 3.2: every resume in the pool is described by the **LLM**, then the LLM
-    chooses the single best match (or **none**). Task 15 first describes resumes
-    in the intake folder, moves them into the pool, and then includes them in the
-    match. Task 3.1: when the LLM answers **none**, reuse a resume already
-    remembered for a similar job; otherwise ask the human for one in the browser,
-    store it in the pool, have the **LLM** describe it, and use it directly.
-    ``asker``/``describer``/``matcher`` are injectable for tests.
+    chooses the single best match (or **none**) and rates its fit. Task 15 first
+    describes resumes in the intake folder, moves them into the pool, and then
+    includes them in the match. Task 3.1: when the LLM answers **none**, reuse a
+    resume already remembered for a similar job; otherwise ask the human for one
+    in the browser, store it in the pool, have the **LLM** describe it, and use it
+    directly. ``asker``/``describer``/``matcher`` are injectable for tests.
+
+    Task 16: when strict resume matching is on (``allow_fallback`` defaults to the
+    inverse of ``settings.session.require_resume_match``), only a **strong** LLM
+    match is selected. Anything else is a clean no-match: the remembered-resume
+    and human-upload fallbacks are **not** used, so the caller can skip the job.
     """
     notify = notify or (lambda _message: None)
+    strict = (
+        settings.session.require_resume_match if allow_fallback is None else not allow_fallback
+    )
     store_path = settings.resume_descriptions_file
     intake_dir = (
         Path(new_resumes_dir)
@@ -170,8 +179,9 @@ async def ensure_resume(
         f"chosen resume for {job_label!r}",
     )
 
-    if result.selected_path:
+    if result.selected_path and (not strict or result.is_strong):
         outcome.selected_path = result.selected_path
+        outcome.fit = result.fit
         outcome.rationale = result.rationale or "the LLM chose the best-matching resume"
         outcome.notes = _append_note(outcome.notes, "the LLM chose the best-matching resume")
         emit_llm(
@@ -181,10 +191,46 @@ async def ensure_resume(
         )
         return outcome
 
-    # No resume matched the job: hand off to Task 3.1.
+    # Task 16: strict mode does not use a partially matching resume.
+    if result.selected_path:
+        outcome.no_match = True
+        outcome.fit = result.fit
+        outcome.rationale = result.rationale or (
+            f"the LLM rated the best resume {result.fit or 'unknown'}, not strong"
+        )
+        outcome.notes = _append_note(
+            outcome.notes,
+            "strict resume matching: the best resume was not a strong match",
+        )
+        emit_llm(
+            notify,
+            f"no strong resume match for {job_label!r} "
+            f"(fit={result.fit or 'unknown'}); skipping the job",
+            result.rationale,
+        )
+        emit_step(
+            notify,
+            f"Task 16: no existing resume is a strong match for {job_label!r}; "
+            "skipping this job.",
+        )
+        return outcome
+
+    # No resume matched the job: hand off to Task 3.1 (legacy mode only).
     outcome.no_match = True
+    outcome.fit = result.fit or "none"
     outcome.rationale = result.rationale or "the LLM found no matching resume"
     emit_llm(notify, f"no resume matched {job_label!r}", result.rationale)
+    if strict:
+        outcome.notes = _append_note(
+            outcome.notes,
+            "strict resume matching: no existing resume matched, so the job is skipped",
+        )
+        emit_step(
+            notify,
+            f"Task 16: no existing resume is a strong match for {job_label!r}; "
+            "skipping this job.",
+        )
+        return outcome
     reusable = find_reusable_resume(
         load_library(settings.resume_library_file), description, resumes_dir
     )

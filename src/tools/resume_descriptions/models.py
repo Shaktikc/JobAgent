@@ -34,12 +34,21 @@ class ResumeMatch(BaseModel):
 
     ``selected_path`` is ``None`` when the model answered **none** or named an id
     that is not one of the candidates; ``candidate_ids`` records the id -> path
-    map so the decision stays explainable.
+    map so the decision stays explainable. Task 16 adds ``fit``: the model's
+    quality rating for the chosen resume (``"strong"``, ``"partial"``, ``"none"``,
+    or ``""`` when it did not say). Only a strong match may be applied to when
+    strict resume matching is on.
     """
 
     selected_path: str | None = None
+    fit: str = ""
     rationale: str = ""
     candidate_ids: dict[str, str] = Field(default_factory=dict)
+
+    @property
+    def is_strong(self) -> bool:
+        """True when a resume was chosen and the LLM rated it a strong fit."""
+        return bool(self.selected_path and self.fit == "strong")
 
 
 class ResumeDescriptionError(RuntimeError):

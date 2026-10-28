@@ -18,6 +18,7 @@ from src.tools.linkedin_apply_loop import (
     read_submission_state,
     submission_detected,
 )
+from src.tools.linkedin_job_selection import _job_key
 
 
 def _settings(**session) -> Settings:
@@ -341,6 +342,16 @@ async def test_await_human_submit_returns_closed_without_a_run() -> None:
     assert await await_human_submit("missing", _settings()) == "closed"
 
 
+def test_job_key_ignores_the_verified_job_status_suffix() -> None:
+    plain = "Senior Engineer ( .Net/Data migration / ETL)"
+    verified = "Senior Engineer ( .Net/Data migration / ETL) (Verified job)"
+
+    assert _job_key(verified, 4) == _job_key(plain, 4)
+    assert _job_key(verified, 4) == "senior engineer ( .net/data migration / etl)"
+    # A legitimate parenthesised title is preserved.
+    assert _job_key("Engineer (Backend)", 0) == "engineer (backend)"
+
+
 # --- open_next_job ---------------------------------------------------------
 
 
@@ -368,14 +379,68 @@ async def test_open_next_job_opens_and_reads_the_description(monkeypatch) -> Non
     monkeypatch.setattr(resume_tools, "read_job_description", fake_read)
 
     try:
-        result = await open_next_job("run-next", _settings(), skip_title="Backend Engineer")
+        result = await open_next_job(
+            "run-next",
+            _settings(),
+            skip_title="Backend Engineer",
+            skip_titles=["Data Analyst"],
+        )
     finally:
         browser_tools._ACTIVE_RUNS.pop("run-next", None)
 
     assert result.opened is True
     assert result.description.company == "Acme"
-    # The just-submitted job is excluded even before its card flips to Applied.
-    assert captured["skip_keys"] == {"backend engineer"}
+    # The just-handled job and every Task 16 skip are excluded even before their
+    # cards flip to Applied.
+    assert captured["skip_keys"] == {"backend engineer", "data analyst"}
+
+
+async def test_open_next_job_closes_a_skipped_easy_apply_form(monkeypatch) -> None:
+    _register("run-skip-form", object())
+    captured: dict = {}
+
+    async def fake_close(page, settings=None, notify=None):
+        captured["closed"] = True
+        return True
+
+    async def fake_task2(p, settings, notify, skip_keys=None, capture=None):
+        return Task2Outcome(
+            jobs_seen=1,
+            job_title="QA Engineer",
+            easy_apply_clicked=True,
+            application_form_opened=True,
+            job_description=JobDescription(title="QA Engineer", company="Acme"),
+        )
+
+    monkeypatch.setattr(loop, "close_easy_apply_form", fake_close)
+    monkeypatch.setattr(loop, "_task2_on_page", fake_task2)
+
+    try:
+        result = await open_next_job(
+            "run-skip-form", _settings(), skip_title="Data Analyst", close_form=True
+        )
+    finally:
+        browser_tools._ACTIVE_RUNS.pop("run-skip-form", None)
+
+    assert captured["closed"] is True
+    assert result.opened is True
+
+
+async def test_open_next_job_stops_when_the_skipped_form_will_not_close(monkeypatch) -> None:
+    _register("run-stuck-form", object())
+
+    async def fake_close(page, settings=None, notify=None):
+        return False
+
+    monkeypatch.setattr(loop, "close_easy_apply_form", fake_close)
+
+    try:
+        result = await open_next_job("run-stuck-form", _settings(), close_form=True)
+    finally:
+        browser_tools._ACTIVE_RUNS.pop("run-stuck-form", None)
+
+    assert result.opened is False
+    assert result.reason == "the Easy Apply form could not be closed"
 
 
 async def test_open_next_job_reports_when_every_job_is_applied(monkeypatch) -> None:

@@ -73,7 +73,18 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
      describes each one, then the file is moved into `resumes/` without
      overwriting an existing resume. The description entry follows the file, and
      the moved resume joins the matching pool.
-   - **Task 3.1:** when the LLM answers **none**, the agent first reuses a resume
+   - **Task 16 (strict resume matching, default):** the LLM also rates the fit of
+     its choice (`strong` / `partial` / `none`). The agent applies **only** to a
+     `strong` match against an existing resume. Anything else — `none`, `partial`,
+     a missing rating, or an empty pool — is a **clean skip**: the open Easy Apply
+     form is closed with a dismiss control, the job is recorded with the LLM's
+     rationale, its title is excluded from later passes, and the next unapplied
+     job is opened. No upload prompt, remembered-resume fallback, fill, or submit
+     happens for a skipped job. Set
+     `AUTOJOB_SESSION_REQUIRE_RESUME_MATCH=false` to restore the Task 3.1
+     fallbacks below.
+   - **Task 3.1 (only when strict matching is off):** when the LLM answers
+     **none**, the agent first reuses a resume
      it remembered for a similar job; otherwise it shows a banner with a file
      picker, **pauses for you to upload a resume**, stores it in the folder, has
      the LLM describe it, and remembers its job profile
@@ -153,11 +164,15 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
    Applied (Task 7), and opens the first unapplied **Easy Apply** job, reading its
    description so `match` and `fill` run for it again. Any leftover post-apply
    dialog ("Your application was sent..." / "Turn your resume into a profile") is
-   dismissed first so it cannot cover the next card. The loop repeats until
-   `AUTOJOB_SESSION_MAX_JOBS` jobs have been submitted (default `35`; `0` = until no
-   unapplied job remains), every job is Applied, you close the browser, or a step
-   fails — each with a clear `stopped_reason`. The session is reused across
-   iterations.
+   dismissed first so it cannot cover the next card. **Task 16:** a job skipped for
+   having no matching resume is closed and its title is excluded from later passes,
+   so the loop never reopens it; the loop stops at
+   `AUTOJOB_SESSION_MAX_SKIPPED_JOBS` (default `100`, `0` = no cap) if nothing
+   matches. The loop otherwise repeats until `AUTOJOB_SESSION_MAX_JOBS` jobs have
+   been submitted (default `35`; `0` = until no unapplied job remains), every job
+   is Applied, you close the browser, or a step fails — each with a clear
+   `stopped_reason`. Skips never count as applications. The session is reused
+   across iterations.
 7. **cleanup** — releases the shared browser session on every path. The **agent
    never closes the browser**: the Chromium window is left open so you can inspect a
    failure and keep driving it yourself. At the last step (Task 4 only **Submit
@@ -165,8 +180,12 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
    `AUTOJOB_SESSION_KEEP_OPEN_TIMEOUT_SECONDS` elapses) and leaves it open either
    way. Run `autojob --clean-profile` to force-close a leftover browser.
 8. **verify** — passes only when all of the above succeeded (including a clean
-   Task 8 stop reason; your submission is never a failure). Otherwise the run fails
-   and a full-page screenshot plus the page URL are recorded under `data/debug/`.
+   Task 8 stop reason; your submission is never a failure). **Task 16:** a run
+   whose last job was skipped because no existing resume matched (or that skipped
+   every job) also finishes cleanly, with the skipped count and the LLM rationale
+   in the summary; an unreadable description or an LLM/match error still fails.
+   Otherwise the run fails and a full-page screenshot plus the page URL are
+   recorded under `data/debug/`.
 
 The browser interaction is deterministic (browser-use's CDP actor API). The resume
 match (Task 3.2) and the answer choice (Task 4.1/10) use an LLM; the LLM never drives
@@ -355,6 +374,7 @@ uv run langgraph dev
 src/
   configuration.py   Typed settings from AUTOJOB_* environment variables
   state.py           The graph's shared state (Task1-11 outcomes, JobDescription)
+  state_loop.py      Task 8/16 loop + skip outcome models (re-exported by state.py)
   graph.py           Graph assembly (START -> ingest -> browse -> match -> fill -> await_submit -> next_job -> ... -> cleanup -> verify -> END)
   nodes/
     ingest.py        Validate the LinkedIn URL and search query
@@ -382,6 +402,7 @@ src/
     linkedin_skip_applied.py       Task 6: skip cards already marked "Applied"
     linkedin_pagination.py         Task 7: when a page is all Applied, go to the next page
     linkedin_apply_loop.py         Task 8: detect the human's submit, open the next job
+    linkedin_resume_gate.py        Task 16: strict match gate + close a skipped Easy Apply form
     linkedin_status_overlay.py     Task 9: the on-page status panel + status reporter
     linkedin_best_matching_resume/  Task 3: read the job description + LLM match
       __init__.py                   public API (re-exports the submodules below)
@@ -492,6 +513,12 @@ tests/
   Task 15 is the one exception for the **intake folder**: after a resume in
   `resumes/new/` is described, it is moved into `resumes/` without changing its
   bytes or overwriting an existing file. The description entry follows the file.
+- **Task 16 (default)** applies only when an existing resume is a **strong** match.
+  Otherwise the job is skipped and the loop moves on; the agent never fills or
+  submits an unmatched application, never asks for a resume in strict mode, and
+  never reuses the remembered-resume library for a job the LLM did not match.
+  The skip is recorded in the run summary and the `task16` state, and the
+  skipped title is not reopened this run.
 - Task 11 records a structural Easy Apply failure **before** recovery, never
   submits during recovery, and stops after the configured attempt cap instead of
   retrying or patching forever. If no repair command is set, it only reopens the

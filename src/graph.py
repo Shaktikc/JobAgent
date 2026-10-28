@@ -21,6 +21,11 @@ reached, no unapplied job remains, the human closes the browser, or a step fails
 ``cleanup`` then closes the session once. Failure paths skip straight to
 ``cleanup`` (or ``verify`` for a dry run) so the session is always released.
 
+**Task 16:** in strict resume-matching mode a job whose description matches no
+existing resume is skipped cleanly: ``match`` returns ``status="skipped"``, the
+graph goes straight to ``next_job`` (never ``fill``), and the skipped title is
+excluded from later passes until no job (or the skip cap) stops the loop.
+
 Every node is also wrapped by the self-healing guards: uncaught crashes in any
 node are recorded/repaired/retried, and returned Task 1-3 hard stops (login gate
 excluded) are retried through the task-level guard. Clean Task 8 stops (cap,
@@ -51,8 +56,12 @@ def _route_after_browse(state: ApplyState) -> str:
 
 
 def _route_after_match(state: ApplyState) -> str:
-    """Only fill the form when resume selection succeeded."""
-    return "cleanup" if state.get("errors") else "fill"
+    """Fill only on a selected resume; Task 16 skips carry on to the next job."""
+    if state.get("errors"):
+        return "cleanup"
+    if state.get("status") == "skipped":
+        return "next_job"
+    return "fill"
 
 
 def _route_after_fill(state: ApplyState) -> str:
@@ -114,7 +123,9 @@ def build_graph():
         {"match": "match", "cleanup": "cleanup", "verify": "verify"},
     )
     builder.add_conditional_edges(
-        "match", _route_after_match, {"fill": "fill", "cleanup": "cleanup"}
+        "match",
+        _route_after_match,
+        {"fill": "fill", "next_job": "next_job", "cleanup": "cleanup"},
     )
     builder.add_conditional_edges(
         "fill", _route_after_fill, {"await_submit": "await_submit", "cleanup": "cleanup"}
