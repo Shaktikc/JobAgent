@@ -4,9 +4,9 @@ Task 1 logs in, searches jobs, and selects the **Easy Apply** filter. Task 2 pic
 a job from those results and clicks its **Easy Apply** button, confirming the
 application form opens. Task 3 reads the open job's description and chooses the
 best-matching resume from the ``resumes/`` folder. Task 4 fills the open Easy
-Apply form: the LLM (Task 4.1/10) classifies each question and answers it from
-the store (copying a stored answer or deriving one it entails), and attaches that
-resume — without submitting. Task 5 runs
+Apply form: the LLM (Task 4.1/10/12) classifies each question and answers it from
+the store or, for job-specific free text, the job description + selected resume;
+it attaches that resume — without submitting. Task 5 runs
 inside that fill: when the LLM cannot answer a question it pauses for the human
 (in the browser) and remembers the answer for next time. Task 8 then waits for
 the human to submit, opens the next unapplied job, and repeats.
@@ -74,6 +74,77 @@ class JobDescription(BaseModel):
         """Title + company + location + body joined into one searchable blob."""
         parts = (self.title, self.company, self.location, self.body)
         return " ".join(part for part in parts if part)
+
+
+class JobContextAudit(BaseModel):
+    """The small, non-sensitive record of what a fill's job context contained.
+
+    The full job/resume text stays in :class:`JobAnswerContext` (memory and the
+    LLM prompt only); this snapshot is what the run state and log may show.
+    """
+
+    job_title: str = ""
+    company: str = ""
+    resume_path: str = ""
+    job_chars: int = 0
+    resume_chars: int = 0
+    profile_available: bool = False
+    sources: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+
+
+class JobAnswerContext(BaseModel):
+    """The current job + selected resume, available to answer job questions.
+
+    Task 12 builds a fresh instance for every job (and every self-healed retry).
+    ``resume_text`` is excluded from serialisation/repr so the raw resume text is
+    never dumped by ``--json`` or written to a log; the prompt uses it directly.
+    """
+
+    job_description: JobDescription = Field(default_factory=JobDescription)
+    resume_path: str = ""
+    resume_text: str = Field(default="", exclude=True, repr=False)
+    resume_profile: dict = Field(default_factory=dict)
+    errors: list[str] = Field(default_factory=list)
+
+    @property
+    def has_job_description(self) -> bool:
+        """True when any part of the current job description was captured."""
+        description = self.job_description
+        return bool(
+            description.title.strip()
+            or description.company.strip()
+            or description.location.strip()
+            or description.body.strip()
+        )
+
+    @property
+    def has_resume(self) -> bool:
+        """True when the selected resume has readable text or a stored profile."""
+        return bool(self.resume_text.strip() or self.resume_profile)
+
+    @property
+    def sources(self) -> list[str]:
+        """The available context sources, in prompt order."""
+        available: list[str] = []
+        if self.has_resume:
+            available.append("resume")
+        if self.has_job_description:
+            available.append("job_description")
+        return available
+
+    def audit(self) -> JobContextAudit:
+        """Build the small snapshot recorded on the fill outcome/log."""
+        return JobContextAudit(
+            job_title=self.job_description.title,
+            company=self.job_description.company,
+            resume_path=self.resume_path,
+            job_chars=len(self.job_description.body),
+            resume_chars=len(self.resume_text),
+            profile_available=bool(self.resume_profile),
+            sources=self.sources,
+            errors=list(self.errors),
+        )
 
 
 class Task2Outcome(BaseModel):
@@ -178,6 +249,10 @@ class FormField(BaseModel):
     # Task 10: provenance for an answer matched or derived from the store.
     derived: bool = False  # True when the answer was derived, not copied
     source_keys: list[str] = Field(default_factory=list)  # the stored keys used
+    # Task 12: provenance for a job-specific answer grounded in the job context.
+    answer_source: str = ""  # "resume", "job_description", or "resume+job_description"
+    job_specific: bool = False
+    context_evidence: list[str] = Field(default_factory=list)
     error: str = ""
 
 
@@ -210,6 +285,8 @@ class Task4Outcome(BaseModel):
     submitted: bool = False
     screenshot_path: str | None = None
     page_url: str | None = None
+    # Task 12: what the per-job context contained (sources/counts, never raw text).
+    job_context: JobContextAudit = Field(default_factory=JobContextAudit)
     notes: str = ""
 
     @property
@@ -305,6 +382,8 @@ class ApplyState(TypedDict, total=False):
     task5: Task5Outcome
     task8: Task8Outcome
     self_healing: SelfHealingOutcome
+    # Task 12: the current job + selected resume (rebuilt for every job).
+    job_context: JobAnswerContext
 
     # --- live browser session handle (Tasks 2-4 share one session) ---
     browser_run_id: str

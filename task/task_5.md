@@ -42,3 +42,7 @@ in the browser UI saying that the agent does not know the answer.
   record the update explicitly.
 - The store must not contain credentials or other secrets.
 - This task does **not** submit the application.
+- **Task 12 extension:** a job-specific free-text question can be answered from
+  the current job description + selected resume before this flow runs. When that
+  context cannot ground an answer, the question still reaches this Task 5 flow and
+  is saved here as usual. A generated context answer is never written to the store.

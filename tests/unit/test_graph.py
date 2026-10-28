@@ -376,7 +376,7 @@ def test_fill_node_records_task5(monkeypatch: pytest.MonkeyPatch) -> None:
     """The fill node stores the Task 5 outcome returned with the Task 4 fill."""
     import src.tools.browser as browser_tools
 
-    async def fake_fill(run_id, resume_path, settings=None, progress=None):
+    async def fake_fill(run_id, resume_path, settings=None, progress=None, context=None):
         return _task4_ok(), _task5_ok()
 
     monkeypatch.setattr(browser_tools, "fill_application", fake_fill)
@@ -408,7 +408,7 @@ def test_fill_node_does_not_fail_on_an_optional_unfilled_field(
         )
     ]
 
-    async def fake_fill(run_id, resume_path, settings=None, progress=None):
+    async def fake_fill(run_id, resume_path, settings=None, progress=None, context=None):
         return outcome, _task5_ok()
 
     monkeypatch.setattr(browser_tools, "fill_application", fake_fill)
@@ -437,7 +437,7 @@ def test_fill_node_names_the_required_fields_that_block_review(
         FormField(question="Unanswered question", known=False, required=True),
     ]
 
-    async def fake_fill(run_id, resume_path, settings=None, progress=None):
+    async def fake_fill(run_id, resume_path, settings=None, progress=None, context=None):
         return outcome, _task5_ok()
 
     monkeypatch.setattr(browser_tools, "fill_application", fake_fill)

@@ -167,3 +167,9 @@ the run wait until the human closes the browser window themselves.
   indefinitely).
 - "Reached the last step" is an explicit outcome flag
   (`Task4Outcome.reached_terminal_step`), not a string match on the note.
+- **Task 12 extension:** a free-text question about the current job/employer/role
+  (or the applicant's fit) may instead be answered by the LLM from the current
+  job description and the selected resume, with cited evidence. This wraps the
+  Task 4.1/10 chooser; an exact human-confirmed store answer still wins, and a
+  generated context answer is never written to `answers.json` or
+  `derived_answers.json`.

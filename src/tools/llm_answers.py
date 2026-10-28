@@ -53,6 +53,22 @@ class QuestionDecision(BaseModel):
     source_keys: list[str] = Field(default_factory=list)
     derived: bool = False
     source_summary: str = ""
+    # Task 12: provenance for a job-specific answer grounded in the job context.
+    job_specific: bool | None = None
+    context_sources: list[str] = Field(default_factory=list)
+    evidence: list[str] = Field(default_factory=list)
+
+    @property
+    def context_source(self) -> str:
+        """The job-context source(s) recorded on a FormField, e.g. ``resume``."""
+        if self.job_specific is not True:
+            return ""
+        ordered = [
+            source
+            for source in ("resume", "job_description")
+            if source in self.context_sources
+        ]
+        return "+".join(ordered)
 
     @property
     def decided(self) -> bool:

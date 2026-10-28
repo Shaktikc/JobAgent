@@ -279,7 +279,7 @@ async def test_loop_recovers_by_reopening_the_same_job(tmp_path: Path) -> None:
         assert target.url.startswith("https://www.linkedin.com/jobs/search-results/")
         return _reopened()
 
-    async def fake_fill(run_id, resume_path, settings=None, progress=None):
+    async def fake_fill(run_id, resume_path, settings=None, progress=None, context=None):
         calls.append(f"fill:{run_id}")
         return _successful_fill(), Task5Outcome(enabled=True, asked=1, answered=1)
 
@@ -309,7 +309,7 @@ async def test_loop_stops_after_the_attempt_cap(tmp_path: Path) -> None:
     async def fake_capture(*args, **kwargs):
         return _captured(tmp_path)
 
-    async def fake_fill(run_id, resume_path, settings=None, progress=None):
+    async def fake_fill(run_id, resume_path, settings=None, progress=None, context=None):
         return _failed_fill(), Task5Outcome()
 
     result = await heal_fill_failure(
@@ -379,7 +379,7 @@ async def test_fill_node_uses_the_healing_result(monkeypatch, tmp_path: Path) ->
     settings = _settings(tmp_path, max_repair_attempts=2)
     monkeypatch.setattr(fill_node, "load_settings", lambda: settings)
 
-    async def fake_fill(run_id, resume_path, settings=None, progress=None):
+    async def fake_fill(run_id, resume_path, settings=None, progress=None, context=None):
         return _failed_fill(), Task5Outcome()
 
     async def fake_heal(**kwargs):

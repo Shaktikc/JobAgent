@@ -13,5 +13,6 @@ Each task lives in its own file. This index links to them.
 - [Task 9 — Show live progress in the browser UI (what the agent and the LLM are doing)](task_9.md) — ✅ Done
 - [Task 10 — Answer similar questions from the answers.json knowledge base](task_10.md) — ✅ Done
 - [Self-Healing Loop — record, fix, and resume after a new Easy Apply crash](self_healing_loop.md) — 🟡 In progress
-- [Task 12 — Answer job-specific questions from the selected resume and job description](task_12.md) — ⬜ Not started
-- [Task 13 — Select the Date posted filter to "Past 24 hours"](task_13.md) — ⬜ Not started
+- [Task 12 — Answer job-specific questions from the selected resume and job description](task_12.md) — ✅ Done
+- [Task 13 — Select the Date posted filter to "Past 24 hours"](task_13.md) — ✅ Done
+- [Task 14 — Route LLM work per purpose: MiMo-V2.6-Pro for general tasks, DeepSeek V4.1 Flash 1017 for self-healing](task_14.md) — ⬜ Not started

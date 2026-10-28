@@ -8,8 +8,11 @@ This package owns Task 4's interactive fill flow, split out of
 2. For each question, ask the LLM (Task 4.1/10) to classify it and answer it from
    the store — copying a stored answer or deriving one the stored entries entail,
    always citing the stored key(s) it used (see :mod:`src.tools.llm_answers` and
-   :mod:`src.tools.llm_answer_reasoning`). Questions the LLM cannot ground are left
-   for Task 5 (or flagged). Attach the resume chosen by Task 3, preferring a resume
+   :mod:`src.tools.llm_answer_reasoning`). Task 12 wraps that chooser with a
+   job-context chooser for free-text questions about this job/employer/role, so
+   those are answered (and evidence-grounded) from the current job description
+   and selected resume. Questions neither source can ground are left for Task 5
+   (or flagged). Attach the resume chosen by Task 3, preferring a resume
    already listed on the form over uploading a duplicate.
 3. Advance through multi-step forms, stopping before **Submit application**.
 

@@ -16,7 +16,7 @@ import contextlib
 import traceback
 
 from src.configuration import load_settings
-from src.state import ApplyState, Task4Outcome, Task5Outcome
+from src.state import ApplyState, FormField, Task4Outcome, Task5Outcome
 
 
 def _fill_errors(outcome: Task4Outcome) -> list[str]:
@@ -48,6 +48,28 @@ def _fill_errors(outcome: Task4Outcome) -> list[str]:
     return errors
 
 
+def _decision_line(field: FormField) -> str:
+    """One LLM decision for the audit log, including Task 12 provenance."""
+    if field.answer_source:
+        evidence = "; ".join(
+            snippet if len(snippet) <= 120 else snippet[:117] + "..."
+            for snippet in field.context_evidence
+            if snippet
+        )
+        return (
+            f"{field.question!r}->{field.value!r} "
+            f"(job-specific, source={field.answer_source}, evidence={evidence!r}; "
+            f"{field.rationale or 'no rationale'})"
+        )
+    return (
+        f"{field.question!r}->{field.value!r} "
+        f"({'derived' if field.derived else 'matched'}"
+        f"{', sources=' + repr(field.source_keys) if field.source_keys else ''}; "
+        f"key={field.matched_key!r}, {field.question_type or 'question'}: "
+        f"{field.rationale or 'no rationale'})"
+    )
+
+
 def _fill_log(outcome: Task4Outcome, task5: Task5Outcome) -> list[str]:
     """Build the audit log for one fill (kept compatible with earlier runs)."""
     log = [
@@ -75,17 +97,21 @@ def _fill_log(outcome: Task4Outcome, task5: Task5Outcome) -> list[str]:
                 for field in unfilled
             )
         )
+    if outcome.job_context.sources or outcome.job_context.errors:
+        context = outcome.job_context
+        log.append(
+            "fill(task12): "
+            f"job={context.job_title or '(untitled)'!r} company={context.company or '(none)'!r} "
+            f"resume={context.resume_path or '(none)'!r} "
+            f"job_chars={context.job_chars} resume_chars={context.resume_chars} "
+            f"profile={context.profile_available} sources={context.sources}"
+            + (f" errors={context.errors}" if context.errors else "")
+        )
     decisions = [
-        f"{field.question!r}->{field.value!r} "
-        f"({'derived' if field.derived else 'matched'}"
-        f"{', sources=' + repr(field.source_keys) if field.source_keys else ''}; "
-        f"key={field.matched_key!r}, {field.question_type or 'question'}: "
-        f"{field.rationale or 'no rationale'})"
-        for field in outcome.fields
-        if field.answered_by == "llm"
+        _decision_line(field) for field in outcome.fields if field.answered_by == "llm"
     ]
     if decisions:
-        log.append("fill(task4.1/task10): LLM chose " + "; ".join(decisions))
+        log.append("fill(task4.1/task10/task12): LLM chose " + "; ".join(decisions))
     if task5.notes:
         log.append(f"fill(task5): {task5.notes}")
     if outcome.notes:
@@ -123,6 +149,16 @@ async def fill(state: ApplyState) -> ApplyState:
 
     settings = load_settings()
     from src.tools.browser import fill_application, get_reporter  # lazy: browser extra
+    from src.tools.job_context import build_job_context
+
+    # Task 12: build a fresh context for THIS job (never reuse another job's). A
+    # read failure only records an error on the context; the fill still runs.
+    description = state.get("job_description")
+    if description is None or not getattr(description, "is_read", False):
+        description = task3.job_description
+    context = build_job_context(
+        description, task3.selected_path, settings.resume_descriptions_file
+    )
 
     progress = get_reporter(run_id) or print
     if settings.self_healing.enabled:
@@ -133,22 +169,33 @@ async def fill(state: ApplyState) -> ApplyState:
 
     error = ""
     traceback_text = ""
-    outcome = Task4Outcome(resume_path=task3.selected_path)
+    outcome = Task4Outcome(resume_path=task3.selected_path, job_context=context.audit())
     task5 = Task5Outcome()
     try:
         outcome, task5 = await fill_application(
-            run_id, task3.selected_path, settings=settings, progress=progress
+            run_id,
+            task3.selected_path,
+            settings=settings,
+            progress=progress,
+            context=context,
         )
     except Exception as exc:  # noqa: BLE001 - surface any fill failure
         error = str(exc)
         traceback_text = traceback.format_exc()
         outcome = Task4Outcome(
             resume_path=task3.selected_path,
+            job_context=context.audit(),
             notes=f"fill raised: {exc}",
         )
-
-    log = _fill_log(outcome, task5)
-    update: ApplyState = {"task4": outcome, "task5": task5, "status": "filled", "log": log}
+    outcome.job_context = context.audit()
+    update: ApplyState = {
+        "task4": outcome,
+        "task5": task5,
+        "job_context": context,
+        "status": "filled",
+        "log": _fill_log(outcome, task5),
+    }
+    log = update["log"]
     errors = _fill_errors(outcome)
     if error:
         errors.insert(0, f"fill: {error}")
@@ -171,9 +218,10 @@ async def fill(state: ApplyState) -> ApplyState:
                 target=job_target_from_state(state),
                 resume_path=str(task3.selected_path),
                 task2=state.get("task2"),
-                description=state.get("job_description"),
+                description=description,
                 error=error,
                 traceback_text=traceback_text,
+                context=context,
             )
         except Exception as exc:  # noqa: BLE001 - healing must not crash the run
             healing = HealResult(
@@ -197,6 +245,13 @@ async def fill(state: ApplyState) -> ApplyState:
             update["task2"] = healing.task2
         if healing.description is not None:
             update["job_description"] = healing.description
+            # Task 12: rebuild for the same job after the heal, using the
+            # description the reopened page produced (never the previous job's).
+            context = build_job_context(
+                healing.description, task3.selected_path, settings.resume_descriptions_file
+            )
+            update["job_context"] = context
+            outcome.job_context = context.audit()
         if healing.recovered:
             errors = _fill_errors(outcome)
             log.append(

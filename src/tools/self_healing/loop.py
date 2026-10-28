@@ -23,7 +23,13 @@ from pathlib import Path
 from typing import Any
 
 from src.configuration import PROJECT_ROOT, Settings, load_settings
-from src.state import JobDescription, Task2Outcome, Task4Outcome, Task5Outcome
+from src.state import (
+    JobAnswerContext,
+    JobDescription,
+    Task2Outcome,
+    Task4Outcome,
+    Task5Outcome,
+)
 from src.tools.self_healing.buglog import mark_exhausted, mark_fixed, record_failure
 from src.tools.self_healing.capture import capture_failure, install_console_capture
 from src.tools.self_healing.fingerprint import (
@@ -125,10 +131,13 @@ async def _default_fill(
     resume_path: str,
     settings: Settings,
     progress,
+    context: JobAnswerContext | None = None,
 ) -> tuple[Task4Outcome, Task5Outcome]:
     from src.tools.browser import fill_application
 
-    return await fill_application(run_id, resume_path, settings=settings, progress=progress)
+    return await fill_application(
+        run_id, resume_path, settings=settings, progress=progress, context=context
+    )
 
 
 async def heal_fill_failure(
@@ -144,6 +153,7 @@ async def heal_fill_failure(
     description: JobDescription | None = None,
     error: str = "",
     traceback_text: str = "",
+    context: JobAnswerContext | None = None,
     bug_root: Path | None = None,
     fill_fn: FillFn | None = None,
     reopen_fn: ReopenFn | None = None,
@@ -318,11 +328,22 @@ async def heal_fill_failure(
         notify("self-heal: reopened the same job; retrying the fill...")
 
         try:
+            fill_kwargs: dict = {
+                "settings": settings,
+                "progress": notify,
+            }
+            if context is not None:
+                # Task 12: rebuild the job context from the reopened job's
+                # description, keeping the same selected resume for this job.
+                from src.tools.job_context import build_job_context
+
+                fill_kwargs["context"] = build_job_context(
+                    current_description,
+                    resume_path,
+                    settings.resume_descriptions_file,
+                )
             current_task4, retry_task5 = await fill_fn(
-                current_run_id,
-                resume_path,
-                settings=settings,
-                progress=notify,
+                current_run_id, resume_path, **fill_kwargs
             )
         except Exception as exc:  # noqa: BLE001 - record and continue the bounded loop
             current_task4 = Task4Outcome(

@@ -2941,8 +2941,8 @@ async def test_run_full_agent_end_to_end_offline(monkeypatch: pytest.MonkeyPatch
     # stored answers exactly as the model is expected to.
     monkeypatch.setattr(
         fill_tools.form_walk,
-        "build_answer_chooser",
-        lambda settings, answers: _store_chooser(answers),
+        "build_fill_chooser",
+        lambda settings, answers, context: _store_chooser(answers),
     )
     # Task 3.2's LLM is a stand-in here too (no network in unit tests): it describes
     # the pool and picks the only resume.

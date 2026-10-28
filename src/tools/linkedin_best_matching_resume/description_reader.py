@@ -64,20 +64,66 @@ _JOB_DESCRIPTION_QUERY = r"""
     }
     return parts.join('\n');
   };
+  // The AI/search view has an "About the job" heading; read the page text after
+  // it (LinkedIn renders the description there) instead of every paragraph in
+  // the page's main area, which also holds the job list (BUG-072).
+  const aboutText = () => {
+    const heading = Array.from(document.querySelectorAll('h1,h2,h3,h4'))
+      .filter((el) => el.getClientRects().length > 0)
+      .find((el) => /^about the job$/i.test(clean(el.innerText)));
+    if (!heading) return '';
+    const root = document.querySelector('main, [role="main"]') || document.body;
+    const full = clean(root.innerText);
+    const marker = clean(heading.innerText);
+    const index = full.indexOf(marker);
+    if (index < 0) return '';
+    return full.slice(index + marker.length).trim();
+  };
+  const bodyAfterHeading = (pattern) => {
+    const heading = Array.from(document.querySelectorAll('h1,h2,h3,h4'))
+      .filter((el) => el.getClientRects().length > 0)
+      .find((el) => pattern.test(clean(el.innerText)));
+    if (!heading) return '';
+    const parts = [];
+    for (let node = heading.nextElementSibling; node; node = node.nextElementSibling) {
+      if (/^h[1-6]$/i.test(node.tagName)) break;
+      const text = clean(node.innerText);
+      if (text) parts.push(text);
+    }
+    return parts.join('\n');
+  };
   // LinkedIn's global navigation exposes headings such as "0 notifications".
   // They are never a job title, and using one made the resume match meaningless.
   const chromeCount = /^(?:\(\d+\)\s*)?(?:\d+\s+)?(?:new\s+)?notifications?$/i;
   const chromeNav = /^(?:home|my network|jobs|messaging|linkedin|for business)$/i;
+  const chromeNoise = new RegExp(
+    '^(?:are these results helpful.*|about the job|get job alerts.*|'
+    + 'see jobs where.*|your feedback helps.*)$', 'i');
   const plausibleTitle = (value) => {
     const text = clean(value);
-    if (!text || chromeCount.test(text) || chromeNav.test(text)) return '';
+    if (!text || chromeCount.test(text) || chromeNav.test(text) || chromeNoise.test(text)) {
+      return '';
+    }
     return text;
   };
-  const documentTitle = () => plausibleTitle(
-    clean(document.title)
+  // The tab title is often "Job title | Company | LinkedIn" on the AI/semantic
+  // job view. Parse it before any generic heading: a survey heading such as
+  // "Are these results helpful?" is not a job title (BUG-072).
+  const documentMeta = () => {
+    const parts = clean(document.title)
       .replace(/\s*\|\s*LinkedIn\s*$/i, '')
       .replace(/^\(\d+\)\s*/, '')
-  );
+      .split('|')
+      .map(clean)
+      .filter(Boolean);
+    const companyText = parts.length > 1 ? parts[parts.length - 1] : '';
+    return {
+      title: plausibleTitle(parts[0] || ''),
+      company: companyText && !chromeNoise.test(companyText) ? companyText : ''
+    };
+  };
+  const meta = documentMeta();
+  const documentTitle = () => meta.title;
 
   const root = detailsRoot();
   const scoped = root && root !== document.body ? root : null;
@@ -89,12 +135,16 @@ _JOB_DESCRIPTION_QUERY = r"""
     'h1.t-24',
     '[class*="job-title"]'
   ];
+  const aboutBody = bodyAfterHeading(/^about the job$/i);
+  const about = aboutText();
   let title = plausibleTitle(firstIn(scoped, titleSelectors));
   if (!title) {
-    title = plausibleTitle(firstIn(scoped, ['h1', 'h2']));
+    // Prefer the tab title over generic pane headings: the AI/search view puts
+    // survey headings ("Are these results helpful?") before the job title.
+    title = documentTitle();
   }
   if (!title) {
-    title = documentTitle();
+    title = plausibleTitle(firstIn(scoped, ['h1', 'h2']));
   }
   if (!title) {
     title = plausibleTitle(firstIn(document, ['[class*="job-title"]']));
@@ -112,7 +162,7 @@ _JOB_DESCRIPTION_QUERY = r"""
     '.topcard__org-name-link',
     'a.topcard__org-name-link',
     '[class*="company-name"]'
-  ]);
+  ]) || meta.company;
   const locationText = firstIn(scoped, [
     '.job-details-jobs-unified-top-card__bullet',
     '.jobs-unified-top-card__bullet',
@@ -122,7 +172,7 @@ _JOB_DESCRIPTION_QUERY = r"""
     '.jobs-unified-top-card__bullet',
     '.topcard__flavor--bullet'
   ]);
-  const body =
+  let body =
     firstIn(scoped, [
       '.jobs-description__content',
       '.jobs-box__html-content',
@@ -132,7 +182,21 @@ _JOB_DESCRIPTION_QUERY = r"""
     firstIn(scoped, ['.description__text', '.show-more-less-html__markup']) ||
     firstIn(scoped, ['[class*="description"]'], 200) ||
     firstIn(document, ['.description__text', '.show-more-less-html__markup']) ||
+    (about.length >= 200 ? about : '') ||
+    (aboutBody.length >= 200 ? aboutBody : '') ||
     paragraphText(root);
+  // On the AI/search landing view the paragraph fallback reads the whole main
+  // area (job list + survey + description). Start at the actual job title when it
+  // appears, and stop before LinkedIn's Premium footer, so the stored description
+  // is the job's text rather than the page chrome (BUG-072).
+  if (title && body.length > 800) {
+    const first = body.indexOf(title);
+    const second = first >= 0 ? body.indexOf(title, first + title.length) : -1;
+    const start = second > 0 ? second : first;
+    if (start > 0) body = body.slice(start);
+  }
+  const premium = body.search(/Job search faster with Premium/i);
+  if (premium > 0) body = body.slice(0, premium);
   return JSON.stringify({
     title: title,
     company: company,

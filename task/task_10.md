@@ -230,6 +230,11 @@ confirmed.
   `data/derived_answers.json` (gitignored with the rest of `data/`).
 - Keeping the cache separate preserves the "`answers.json` = human-confirmed"
   contract and makes the derivation reversible/auditable.
+- **Task 12 extension:** a separate context chooser wraps this store chooser for
+  free-text job-specific questions. It never writes to `answers.json` or
+  `derived_answers.json`; an exact human answer still wins, and a likely
+  job-specific question without a grounded context answer goes to Task 5 instead
+  of reusing a stale similar store entry.
 
 ## Main flow — Use the reasoning chooser in the fill path
 

@@ -413,3 +413,76 @@ async def test_go_to_next_page_survives_a_swallowed_cdp_click(tmp_path, monkeypa
     assert still_page_one == 1  # the premise: the CDP click did not advance
     assert advanced is True
     assert "QA Engineer" in title
+
+
+# Reproduces BUG-069: the results page carries an unrelated "Next" (a details-pane
+# media carousel arrow) *earlier in the DOM* than the results pager. Picking the
+# first "Next" clicked the carousel, which never moved the list.
+_PAGINATION_WITH_STRAY_NEXT_HTML = """<!doctype html><meta charset="utf-8">
+<ul class="jobs-search__results-list" id="list">
+  <li class="jobs-search-results__list-item">
+    <div class="base-search-card__title">Backend Engineer</div>
+    <div class="job-search-card__snippet">Applied · Easy Apply</div>
+  </li>
+</ul>
+<div id="carousel">
+  <button type="button" aria-label="Next" id="carousel-next">&#8250;</button>
+</div>
+<div id="pager">
+  <button type="button" aria-label="Page 1" aria-current="true">1</button>
+  <button type="button" aria-label="Page 2" aria-current="false">2</button>
+  <button type="button" aria-label="Page 3" aria-current="false">3</button>
+  <button type="button"><span>Next</span></button>
+</div>
+<script>
+  var list = document.getElementById('list');
+  // The carousel arrow does nothing to the results list.
+  document.getElementById('carousel-next').addEventListener('click', function () {});
+  document.querySelectorAll('#pager button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var isNext = b.textContent.trim() === 'Next';
+      if (b.getAttribute('aria-label') === 'Page 2' || isNext) {
+        list.innerHTML = '<li class="jobs-search-results__list-item">'
+          + '<div class="base-search-card__title">QA Engineer</div>'
+          + '<div class="job-search-card__snippet">Viewed · Easy Apply</div></li>';
+      }
+    });
+  });
+</script>
+"""
+
+
+async def test_go_to_next_page_ignores_a_stray_carousel_next(tmp_path, monkeypatch) -> None:
+    """BUG-069: the pager group is picked, not an unrelated carousel "Next"."""
+    from src.tools import linkedin_pagination
+    from src.tools.linkedin_pagination import (
+        go_to_next_page,
+        pick_next_page_control,
+        read_pagination,
+    )
+
+    monkeypatch.setattr(linkedin_pagination, "_PAGE_WAIT_SECONDS", 1.0)
+    monkeypatch.setattr(linkedin_pagination, "_PAGE_POLL_SECONDS", 0.05)
+    page_file = tmp_path / "pagination-stray-next.html"
+    page_file.write_text(_PAGINATION_WITH_STRAY_NEXT_HTML, encoding="utf-8")
+    settings = _settings(tmp_path)
+    browser = browser_tools.build_browser(settings)
+    try:
+        await browser.start()
+        page = await browser.new_page()
+        await page.goto(page_file.as_uri())
+        await browser_tools._wait_for_load(page, 10)
+        info = await read_pagination(page)
+        control = pick_next_page_control(info["controls"], info["current"])
+        # The stray carousel "Next" is present but must not be chosen.
+        labels = [c["label"] for c in info["controls"]]
+        assert labels.count("Next") == 2
+        assert control is not None and control["label"] == "Next"
+        assert control.get("pager") is True
+        advanced = await go_to_next_page(page, settings, lambda _m: None)
+        title = str(await page.evaluate("() => document.querySelector('#list li').innerText"))
+    finally:
+        await browser.kill()
+
+    assert advanced is True
+    assert "QA Engineer" in title

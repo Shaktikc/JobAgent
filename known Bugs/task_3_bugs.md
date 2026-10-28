@@ -13,6 +13,7 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 | BUG-031 | unread description treated as "no resume matched" | 🟢 Fixed | `7dce47d` |
 | BUG-038 | resume match hung for minutes / "unusable match reply" | 🟢 Fixed | `1ca5311` |
 | BUG-039 | job title read as "0 notifications" → weak resume match | 🟢 Fixed | `1ca5311` |
+| BUG-072 | AI/search view read the survey heading + job list as the job | 🟢 Fixed | (uncommitted) |
 
 ---
 
@@ -98,3 +99,31 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 - **Evidence:** `src/tools/linkedin_best_matching_resume/description_reader.py`;
   `tests/integration/test_job_description_live.py` (`global-nav` case). Live run
   with the real Chromium query: 4 cases passed. Commit `1ca5311`.
+
+### BUG-072 — the AI/search job view read a survey heading and the job list as the job
+
+- **Symptom:** during Task 12's live verification the open job
+  "Software Engineer - AI Legal Risk Systems" (LEAP Legal Software) was read as
+  title `"Are these results helpful?"`, company `""`, and a 4,935-character body
+  made up mostly of the job list and page chrome. Task 12's job context therefore
+  had a wrong title/company and noisy evidence, and Task 3's resume match was
+  based on the same text.
+- **Root cause:** on LinkedIn's AI/search landing view the details pane has no
+  stable class names. The reader fell back to `main`, tried a generic `h1`/`h2`
+  **before** the tab title, and returned the survey heading that precedes the job
+  description. The paragraph fallback then joined every `<p>`/`<li>` in `main`,
+  including the results list and survey/footer text. The tab title itself was
+  correct and contained both the job title and company.
+- **Fix:** parse the tab title (`Job title | Company | LinkedIn`) into the title
+  and company fallbacks, reject survey/chrome headings, prefer the tab title over
+  generic pane headings, and read the body from the text after LinkedIn's
+  "About the job" heading (cutting the Premium footer) before the whole-page
+  paragraph fallback. Title/company/body selected from stable job selectors are
+  unchanged.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/linkedin_best_matching_resume/description_reader.py`;
+  `tests/integration/test_job_description_live.py` (`ai-search-survey` case,
+  plus the existing four layouts). Live Chromium check against the real LinkedIn
+  page: title `"Software Engineer - AI Legal Risk Systems"`, company
+  `"LEAP Legal Software"`, body starts `"About LEAP …"` and contains
+  `"Develop core features and APIs"`, with no survey/footer text.

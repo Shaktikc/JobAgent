@@ -60,7 +60,7 @@ def test_summary_includes_task8_loop_results() -> None:
         task8=Task8Outcome(
             iterations=2,
             jobs_applied=2,
-            max_jobs=5,
+            max_jobs=35,
             stopped_reason="every job on every results page is already Applied",
             jobs=[
                 Task8JobRecord(
@@ -85,7 +85,7 @@ def test_summary_includes_task8_loop_results() -> None:
 
     assert "task 8" in summary
     assert "jobs_submitted=2" in summary
-    assert "cap=5" in summary
+    assert "cap=35" in summary
     assert "every job on every results page is already Applied" in summary
     assert "Backend Engineer" in summary
     assert "Data Engineer" in summary

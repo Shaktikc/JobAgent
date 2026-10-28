@@ -143,6 +143,45 @@ def test_pick_next_page_control_returns_none_without_a_next_or_current() -> None
     assert pick_next_page_control([], 1) is None
 
 
+def test_pick_next_page_control_ignores_a_stray_next_outside_the_pager() -> None:
+    """BUG-069: a details-pane media carousel "Next" is not the results pager.
+
+    The current LinkedIn results page carries an unrelated ``Next`` control (the
+    "Trending employee content" carousel) earlier in the DOM than the results
+    pager. When the discovery script tagged the real pager group, the picker must
+    stay inside it instead of clicking the carousel — the click that previously
+    did nothing and stalled ``next_job``.
+    """
+    controls = [
+        {"marker": "carousel", "label": "Next", "disabled": False,
+         "current": False, "pager": False},
+        {"marker": "p0", "label": "Page 1", "disabled": False,
+         "current": True, "pager": True},
+        {"marker": "p1", "label": "Page 2", "disabled": False,
+         "current": False, "pager": True},
+        {"marker": "pager-next", "label": "Next", "disabled": False,
+         "current": False, "pager": True},
+    ]
+    chosen = pick_next_page_control(controls, current_page=1)
+    assert chosen is not None
+    assert chosen["marker"] == "pager-next"
+
+
+def test_pick_next_page_control_without_pager_tags_keeps_all_candidates() -> None:
+    """When no pager group was tagged, the original preference is unchanged."""
+    controls = [_control("Next"), _control("Page 1", current=True), _control("Page 2")]
+    chosen = pick_next_page_control(controls, current_page=1)
+    assert chosen is not None
+    assert chosen["label"] == "Next"
+
+
+def test_pagination_query_tags_the_pager_group() -> None:
+    """The discovery script marks each control so the picker can scope itself."""
+    js = linkedin_pagination._PAGINATION_QUERY
+    assert "entry.pager" in js
+    assert "group.has(control.el)" in js
+
+
 async def test_go_to_next_page_clicks_next_and_waits_for_the_change() -> None:
     page = _FakePage(
         controls=[

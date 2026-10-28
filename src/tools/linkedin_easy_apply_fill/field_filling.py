@@ -21,6 +21,7 @@ from src.tools.forms import (
     looks_like_resume_field,
     select_is_answered,
 )
+from src.tools.job_context_answers import emit_decision, record_decision
 from src.tools.linkedin_ask_human import _remember_answer
 from src.tools.linkedin_easy_apply_fill import checkbox_groups
 from src.tools.linkedin_easy_apply_fill.required_only import only_required_fields
@@ -131,33 +132,22 @@ async def _decide(
     options: list[str],
     status=None,
 ) -> QuestionDecision:
-    """Ask the LLM to answer ``question`` from the store (Task 4.1/10).
+    """Ask the chooser to answer ``question`` (Task 4.1/10/12).
 
     With no chooser the question is unknown, which hands it to Task 5. ``status``
     is Task 9's optional status object: it announces what the LLM is doing before
-    the call and what it decided after, including the stored source when a Task
-    10 answer was matched or derived.
+    the call and what it decided after, including the stored source (Task 10) or
+    the job-context source (Task 12) when one was used.
     """
     if chooser is None:
         return QuestionDecision(question=question)
     shown = question if len(question) <= 120 else question[:117] + "..."
     emit_llm(
         status,
-        f"classifying the question {shown!r} and choosing a stored answer...",
+        f"classifying the question {shown!r} and choosing an answer...",
     )
     decision = await chooser(question, field_type, options)
-    if decision.decided:
-        # Task 10: name the stored source, and say whether the answer was copied
-        # from it ("from") or reasoned from it ("derived from").
-        detail = f"{decision.answer!r}"
-        if decision.source_summary:
-            kind = "derived from" if decision.derived else "from"
-            detail += f" ({kind} {decision.source_summary})"
-        elif decision.category:
-            detail += f" ({decision.category})"
-        emit_llm(status, f"answered {shown!r}", detail)
-    else:
-        emit_llm(status, f"no confident answer for {shown!r} - asking you")
+    emit_decision(status, shown, decision)
     return decision
 
 
@@ -296,11 +286,7 @@ async def _fill_step(
             answer = decision.answer
             source = "llm" if decision.decided else "human"
             if decision.decided:
-                record.question_type = decision.category
-                record.matched_key = decision.matched_key
-                record.rationale = decision.rationale
-                record.derived = decision.derived
-                record.source_keys = list(decision.source_keys)
+                record_decision(record, decision)
             option = (
                 next((g for g in group if answers_match(g.get("option", ""), answer)), None)
                 if answer is not None
@@ -368,11 +354,7 @@ async def _fill_step(
         answer = decision.answer
         source = "llm" if decision.decided else "human"
         if decision.decided:
-            record.question_type = decision.category
-            record.matched_key = decision.matched_key
-            record.rationale = decision.rationale
-            record.derived = decision.derived
-            record.source_keys = list(decision.source_keys)
+            record_decision(record, decision)
         if answer is None and ask is not None:
             answered = await ask(question, field)
             if answered is not None:

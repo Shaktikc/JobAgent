@@ -1,6 +1,6 @@
 # Task 12 — Answer job-specific questions from the selected resume and job description
 
-**Status:** ⬜ Not started
+**Status:** ✅ Done
 
 **Goal:** Keep the current job's description and the resume selected by Task 3
 available as a per-job **context** while Task 4 fills the Easy Apply form. When
@@ -241,7 +241,7 @@ submitted by this task.
 
 ## Subtask 12.1 — Build and thread the per-job context
 
-**Status:** ⬜ Not started
+**Status:** ✅ Done
 
 **Goal:** Make the current job description and the resume selected by Task 3
 available to the form-filling code as one immutable per-job context, without
@@ -290,7 +290,7 @@ changing any existing answer behavior.
 
 ## Subtask 12.2 — Answer a job-specific question from the context
 
-**Status:** ⬜ Not started
+**Status:** ✅ Done
 
 **Goal:** Ask the LLM to recognize a job-specific free-text question and draft a
 short, first-person answer from the job description and selected resume, with
@@ -340,7 +340,7 @@ source evidence.
 
 ## Subtask 12.3 — Ground, validate, and route the context answer safely
 
-**Status:** ⬜ Not started
+**Status:** ✅ Done
 
 **Goal:** Guarantee that a context answer is genuinely supported by the current
 job description and selected resume, and that the routing never overrides a
@@ -401,7 +401,7 @@ human answer or a valid store answer with stale job-specific prose.
 
 ## Main flow — Use the job context in the Easy Apply fill path
 
-**Status:** ⬜ Not started
+**Status:** ✅ Done
 
 **Goal:** Wire Subtasks 12.1-12.3 into the existing fill path so a live LinkedIn
 run answers job-specific questions from the selected resume and current job

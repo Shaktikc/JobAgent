@@ -2,12 +2,16 @@
 
 - Do not commit or push code unless explicitly told to do so.
 - Do not edit anything in the task files (the `task/` folder: the `task/task.md`
-  index and each `task/task_N.md`) unless the user has reviewed the change and
-  given explicit approval.
-- Task tracking: each task lives in its own file, `task/task_N.md`, listed in the
-  `task/task.md` index. Once the user has reviewed and approved the completed
-  work, mark the task ✅ Done in its `task/task_N.md` file and update the status
-  shown in `task/task.md`.
+  index and each `task/task_N.md`) except for status updates (**🟡 In progress**
+  and **✅ Done**), unless the user has reviewed another change and given
+  explicit approval.
+- **Task tracking (required):** each task lives in its own file, `task/task_N.md`,
+  listed in the `task/task.md` index. **When you start working on a task, mark it
+  🟡 In progress** in its `task/task_N.md` file and in `task/task.md`. **Always,
+  immediately after a task is implemented and verified, mark it ✅ Done** in both
+  files — in the same change as the finished work. Never leave a task marked
+  "Not started" while it is being worked on, and never leave a completed task
+  marked "Not started" or "In progress".
 - Whenever you change code for any task (for example a bug fix), also update
   any interrelated code that the change could affect, including code used by
   other tasks. Do not leave other parts of the codebase inconsistent.

@@ -1,6 +1,6 @@
 # Task 13 — Select the Date posted filter to "Past 24 hours"
 
-**Status:** ⬜ Not started
+**Status:** ✅ Done
 
 **Goal:** On the LinkedIn jobs results page opened by Task 1, open the
 **Date posted** filter, select **"Past 24 hours"**, apply it with **Show

@@ -29,6 +29,7 @@ from src.configuration import Settings
 from src.state import FormField, Task5Outcome
 from src.tools.browser import _loads, _safe
 from src.tools.forms import answers_match
+from src.tools.job_context_answers import record_decision
 from src.tools.linkedin_ask_human import _remember_answer
 
 # Injected into the form-enumeration query (see
@@ -332,11 +333,7 @@ async def fill_checkbox_group(
         answer = decision.answer
         record.answered_by = "llm" if decision.decided else "human"
         if decision.decided:
-            record.question_type = decision.category
-            record.matched_key = decision.matched_key
-            record.rationale = decision.rationale
-            record.derived = decision.derived
-            record.source_keys = list(decision.source_keys)
+            record_decision(record, decision)
         selected = selected_options(answer, options)
     else:
         answer, selected = None, []

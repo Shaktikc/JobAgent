@@ -372,6 +372,14 @@ same index covers runtime crashes and the recovery machinery itself.
 - **Evidence:** bundle `C:\Users\shakt\OneDrive\Desktop\project\AutoJobApply\data\debug\self_healing\20261027-060628-966030-99ae64bd9186`; captured 2026-10-27T06:06:29.344388+00:00
 - **Failure fingerprint:** `99ae64bd91860b0b160f`
 - **Occurrences:** 1 (first 2026-10-27T06:06:29+00:00)
+- **Additional live evidence (2026-10-27, Task 12 verification):** a real
+  `run_full_agent` fill on the LEAP Legal Software job reached the `3/4 pages`
+  review step and then cycled through alternating step identities
+  (`text:1998546265` → `text:193140353` → back to `text:1998546265`) while the
+  footer kept reading `Review`; the walk filled 34 fields and stopped at the
+  10-step cap without reaching the terminal step or submitting. This is the same
+  open "form did not advance" family; the Task 12 context path was not the cause
+  (the one job-specific question had an exact human-confirmed store answer).
 
 ### BUG-064 � a crash outside `fill` ended the run without self-healing
 

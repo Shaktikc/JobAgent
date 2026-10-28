@@ -14,16 +14,16 @@ import asyncio
 import time
 
 from src.configuration import Settings
-from src.state import FormField, Task4Outcome, Task5Outcome
+from src.state import FormField, JobAnswerContext, Task4Outcome, Task5Outcome
 from src.tools.browser import _append_note, _marker_element, _pace, _safe
 from src.tools.forms import looks_like_next, looks_like_submit, pick_next_button
+from src.tools.job_context_answers import build_fill_chooser
 from src.tools.linkedin_ask_human import ask_human_for_answer
 from src.tools.linkedin_easy_apply_fill.field_filling import _choice_hint, _fill_step
 from src.tools.linkedin_easy_apply_fill.form_queries import read_form, read_form_buttons
 from src.tools.linkedin_easy_apply_fill.resume_attachment import _attach_resume
 from src.tools.linkedin_status_overlay import emit_step
-from src.tools.llm_answer_reasoning import build_reasoning_answer_chooser
-from src.tools.llm_answers import AnswerChooser, build_answer_chooser
+from src.tools.llm_answers import AnswerChooser
 
 # How many steps of a multi-step Easy Apply form to walk before stopping. The
 # form is dynamic, so this is only a safety cap: the walk stops as soon as there
@@ -158,6 +158,7 @@ async def _task4_on_page(
     notify,
     human: Task5Outcome | None = None,
     chooser: AnswerChooser | None = None,
+    context: JobAnswerContext | None = None,
 ) -> Task4Outcome:
     """Fill the open Easy Apply form and attach the resume, without submitting.
 
@@ -176,18 +177,20 @@ async def _task4_on_page(
     banner and reads the answer the human types into the form field. Answers are
     remembered so the same question is answered automatically next time. The
     optional ``human`` tracker records the questions asked, answered, skipped, and
-    timed out.
+    timed out. The optional ``context`` (Task 12) holds this job's description and
+    selected resume; when present, likely job-specific free-text questions are
+    answered from it and validated before filling.
     """
     outcome = Task4Outcome(resume_path=resume_path or "")
+    if context is not None:
+        outcome.job_context = context.audit()
     human = human if human is not None else Task5Outcome()
     human.enabled = bool(settings.session.ask_human)
     if chooser is None:
-        # Task 10: prefer the match-or-derive chooser when a model is configured;
-        # fall back to the select-only chooser (which is also ``None`` when no
-        # model is configured, so questions flow to Task 5 unchanged).
-        chooser = build_reasoning_answer_chooser(settings, answers) or build_answer_chooser(
-            settings, answers
-        )
+        # Task 10/12: prefer match-or-derive from the store, wrapped by the
+        # job-context chooser when this fill has a current job context. With no
+        # model configured the builders return ``None``, so Task 5 still asks.
+        chooser = build_fill_chooser(settings, answers, context)
 
     asker = None
     if human.enabled:

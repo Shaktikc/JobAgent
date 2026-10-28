@@ -119,6 +119,30 @@ _GLOBAL_NAV = """<!doctype html><html><head><meta charset="utf-8">
 </body></html>"""
 
 
+# The AI/search landing view: the job page is a hashed full-page layout with a
+# survey heading before the job title and the job list text mixed into ``main``.
+# The tab title still names the job and company, and the real description starts
+# at the second (description-header) occurrence of the job title (BUG-072).
+_AI_SEARCH_SURVEY = """<!doctype html><html><head><meta charset="utf-8">
+<title>Software Engineer - AI Legal Risk Systems | LEAP Legal Software | LinkedIn</title>
+</head><body>
+<main>
+  <h2>0 notifications</h2>
+  <h2>Are these results helpful?</h2>
+  <p>Your feedback helps us improve search results.</p>
+  <p>Software Engineer - AI Legal Risk Systems (Verified job)</p>
+  <p>LEAP Legal Software</p>
+  <h2>About the job</h2>
+  <p>Software Engineer - AI Legal Risk Systems</p>
+  <p>Sydney, New South Wales, Australia</p>
+  <p>Develop core features and APIs for our AI risk management platform.</p>
+  <p>Proficiency with JavaScript/TypeScript, React, and Node.js.</p>
+  <p>Job search faster with Premium</p>
+  <p>Access company insights like strategic priorities and headcount trends.</p>
+</main>
+</body></html>"""
+
+
 def _settings(tmp_path: Path) -> Settings:
     headless = os.environ.get("AUTOJOB_SESSION_HEADLESS", "true").strip().lower() not in {
         "0",
@@ -134,16 +158,23 @@ def _settings(tmp_path: Path) -> Settings:
 
 
 @pytest.mark.parametrize(
-    ("name", "html", "title", "needle"),
+    ("name", "html", "title", "company", "needle"),
     [
-        ("classic", _CLASSIC, "Backend Engineer", "Python"),
-        ("bem", _BEM, "Senior Software Engineer", "MongoDB"),
-        ("hashed", _HASHED, "Senior Full Stack Engineer", "TypeScript"),
-        ("global-nav", _GLOBAL_NAV, "Senior Full Stack Engineer", "TypeScript"),
+        ("classic", _CLASSIC, "Backend Engineer", "Acme", "Python"),
+        ("bem", _BEM, "Senior Software Engineer", "Respondent", "MongoDB"),
+        ("hashed", _HASHED, "Senior Full Stack Engineer", "", "TypeScript"),
+        ("global-nav", _GLOBAL_NAV, "Senior Full Stack Engineer", "", "TypeScript"),
+        (
+            "ai-search-survey",
+            _AI_SEARCH_SURVEY,
+            "Software Engineer - AI Legal Risk Systems",
+            "LEAP Legal Software",
+            "Develop core features",
+        ),
     ],
 )
 async def test_reads_the_description_across_linkedin_layouts(
-    tmp_path: Path, name: str, html: str, title: str, needle: str
+    tmp_path: Path, name: str, html: str, title: str, company: str, needle: str
 ) -> None:
     page_file = tmp_path / f"{name}.html"
     page_file.write_text(html, encoding="utf-8")
@@ -160,4 +191,7 @@ async def test_reads_the_description_across_linkedin_layouts(
 
     assert description.is_read is True, f"{name}: nothing was read"
     assert description.title == title
+    assert description.company == company
     assert needle in description.body
+    assert "Are these results helpful?" not in description.body
+    assert "Job search faster with Premium" not in description.body

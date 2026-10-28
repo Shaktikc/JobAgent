@@ -94,7 +94,13 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
    `data/derived_answers.json` (kept separate from the human-confirmed
    `answers.json`) so the same question is instant next time. It also attaches the
    chosen resume — preferring a resume already listed on the form over uploading
-   a duplicate — and advances multi-step forms. A **checkbox** question ("select
+   a duplicate — and advances multi-step forms. **Task 12** handles a free-text
+   question about this job, employer, role, or the applicant's fit (for example
+   "What attracts you to Propeller as an employer?") by answering it from the
+   **current job description** and the **selected resume**, with cited evidence;
+   normal/factual questions (salary, city, work authorization) still use the store
+   or Task 5, and generated context answers are never written to either store. A
+   **checkbox** question ("select
    all that apply") is answered as one group: its options are treated as a single
    question, and a stored answer ticks every matching box. It **stops before Submit
    application** and never clicks it.
@@ -144,7 +150,7 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
    description so `match` and `fill` run for it again. Any leftover post-apply
    dialog ("Your application was sent..." / "Turn your resume into a profile") is
    dismissed first so it cannot cover the next card. The loop repeats until
-   `AUTOJOB_SESSION_MAX_JOBS` jobs have been submitted (default `5`; `0` = until no
+   `AUTOJOB_SESSION_MAX_JOBS` jobs have been submitted (default `35`; `0` = until no
    unapplied job remains), every job is Applied, you close the browser, or a step
    fails — each with a clear `stopped_reason`. The session is reused across
    iterations.
@@ -174,7 +180,10 @@ with an explicit `LLM:` label and a purple heading, naming exactly what it is do
 question) and what it decided. For a Task 10 answer it also names the stored
 source and whether the answer was **matched** or **derived** (e.g. `LLM: answered
 'Experience on AI? [Yes/No]' - 'Yes' (derived from 'how many years of work
-experience do you have with artificial intelligence (ai)': '5')`). The panel is
+experience do you have with artificial intelligence (ai)': '5')`). A Task 12
+job-context answer names its source instead, e.g. `LLM: answered 'What attracts
+you to Propeller as an employer?' - 'I am drawn to Propeller's mission…' (from the
+job description + your resume)`. The panel is
 read-only, best-effort feedback: a failed render never fails or slows a step, and
 it is removed when the run ends.
 
@@ -219,6 +228,33 @@ default (mapped to OpenCode's `openrouter/...` id); set
 `AUTOJOB_SELF_HEAL_REPAIR_MODEL` / `..._AGENT` to override the model/agent, or
 `AUTOJOB_SELF_HEAL_OPENCODE` when the CLI is not on `PATH`.
 
+**Task 12 — answer job-specific questions from the job and your resume.** At the
+start of every fill (and every self-healed retry), the agent builds a fresh
+**per-job context**: the current job description (title, company, location, body,
+URL) plus the resume Task 3 selected, its extracted text (read-only, capped to a
+safe prompt size), and its stored Task 3.2 profile. No previous job's context is
+ever reused. For a free-text question about this job/employer/role or your fit for
+it, the LLM answers from those two sources in a short first-person reply, cites
+verbatim `evidence`, and returns `job_specific`; the answer is only filled when it
+passes grounding checks:
+
+- non-empty, at most 1,200 characters, and not a placeholder or a restatement of
+  the question;
+- every claimed source (`resume`, `job_description`, or both) has at least one
+  evidence snippet that actually appears in it;
+- every number in the answer appears in the resume or job description;
+- a question about the employer/company gets the company name in the answer;
+- choice controls (radio/select/checkbox) never receive prose.
+
+An exact human-confirmed `data/answers.json` entry always wins. A likely
+job-specific question does **not** reuse a similar-but-stale store answer: if the
+context cannot ground it, it goes to **Task 5**. Normal/factual questions (salary,
+city, work authorization, notice period, years of experience, …) skip the context
+path entirely and keep the existing Task 4.1/10 store behavior or Task 5.
+Generated context answers live only in the run state/log (and Task 9's `LLM:`
+line); they are **never** written to `answers.json` or `derived_answers.json` and
+are recomputed for each job. The application is never submitted.
+
 ## Requirements
 
 - Python 3.11 or 3.12
@@ -261,6 +297,9 @@ across runs. Every auto-answer is grounded: the model must copy a stored value o
 cite the stored key(s) it derived from, so it never invents one. Derived answers
 are cached in `data/derived_answers.json` (a separate file, so `answers.json`
 stays human-confirmed).
+**Task 12** answers a free-text question about the current job/employer/role from
+the job description and the selected resume instead; those answers are generated
+per job, validated against cited evidence, and never stored in either file.
 For example:
 
 ```json
@@ -360,6 +399,13 @@ src/
     llm_answers.py   Task 4.1: LLM classifies a question and picks the stored answer
     llm_answer_reasoning.py  Task 10: LLM matches *or derives* an answer, with grounding
     derived_answers.py  Task 10.3: cache of answers the LLM derived from the store
+    job_context.py   Task 12: build/cap the per-job job description + selected resume
+    job_context_answers/  Task 12: job-specific prefilter, prompt, grounding, routing
+      filters.py      job-specific/factual free-text classification
+      prompt.py       job-context prompt + tolerant JSON parse
+      validation.py   evidence/number/placeholder/company grounding
+      chooser.py      the LLM call + context-aware AnswerChooser routing
+      presentation.py Task 9 status line + FormField provenance
     linkedin_ask_human/  Task 5: banner, answer watcher/reader, wait flow, answer store
     matching.py      Pure keyword helpers (skills, titles, seniority) for 3.1 profiles
     answers.py       Question -> answer store (read by Task 4.1/10, written by Task 5)
@@ -415,7 +461,12 @@ tests/
   may copy one or **derive** one the stored entries entail, always citing the
   stored key(s) it used, so it can never invent an answer — attaches the chosen
   resume, and **never clicks Submit application** — submission stays a manual human
-  step.
+  step. **Task 12** adds a second grounded source only for job-specific free-text
+  questions: the current job description and the selected resume. Its answer must
+  cite evidence that actually exists in every claimed source, is length-bounded,
+  and is rejected (Task 5 asks you) when unsupported. Choice controls never
+  receive prose; generated context answers are never written to `answers.json` or
+  `derived_answers.json`.
 - Task 5 never guesses: when the LLM cannot choose a grounded answer, the run
   pauses on a browser banner and waits for you to type the answer into the form
   field. Answers are stored in `data/answers.json` (no credentials) and reused by

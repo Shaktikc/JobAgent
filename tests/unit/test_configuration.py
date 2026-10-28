@@ -38,7 +38,7 @@ def test_defaults_are_safe() -> None:
     assert settings.session.ask_poll_seconds == 1.0
     assert settings.session.clean_stale_profile is True
     assert settings.session.skip_applied is True
-    assert settings.session.max_jobs_per_run == 5
+    assert settings.session.max_jobs_per_run == 35
     assert settings.self_healing.enabled is True
     assert settings.self_healing.max_repair_attempts == 3
     assert settings.self_healing.repair_command is None

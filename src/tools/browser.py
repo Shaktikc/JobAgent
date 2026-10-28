@@ -55,6 +55,7 @@ from uuid import uuid4
 from src.configuration import Settings, load_settings
 from src.state import (
     AgentOutcome,
+    JobAnswerContext,
     JobDescription,
     Task1Outcome,
     Task2Outcome,
@@ -702,10 +703,13 @@ async def fill_application(
     resume_path: str | None,
     settings: Settings | None = None,
     progress=None,
+    context: JobAnswerContext | None = None,
 ) -> tuple[Task4Outcome, Task5Outcome]:
     """Fill the open Easy Apply form in the session registered under ``run_id``.
 
-    Returns ``(task4, task5)``. The browser is left open; the caller only releases
+    Returns ``(task4, task5)``. ``context`` (Task 12) is the current job + selected
+    resume, used to answer job-specific free-text questions; when omitted the fill
+    behaves exactly as before. The browser is left open; the caller only releases
     the run (the graph's ``cleanup`` node or :func:`run_full_agent`) — it is never
     closed, so an in-flight session can still be screenshotted on failure.
     """
@@ -728,7 +732,14 @@ async def fill_application(
 
     answers = load_answers(settings.answers_file)
     outcome = await _task4_on_page(
-        run.page, run.session, resume_path, answers, settings, notify, human=human
+        run.page,
+        run.session,
+        resume_path,
+        answers,
+        settings,
+        notify,
+        human=human,
+        context=context,
     )
     if not _task4_ok(outcome):
         outcome.screenshot_path = await capture_failure_screenshot(run.session, settings, "task4")
@@ -789,8 +800,20 @@ async def run_full_agent(
             notify=reporter,
         )
         if outcome.task3.selected_path:
+            from src.tools.job_context import build_job_context
+
+            description = (
+                outcome.job_description
+                if outcome.job_description.is_read
+                else outcome.task3.job_description
+            )
+            context = build_job_context(
+                description,
+                outcome.task3.selected_path,
+                settings.resume_descriptions_file,
+            )
             outcome.task4, outcome.task5 = await fill_application(
-                run_id, outcome.task3.selected_path, settings, reporter
+                run_id, outcome.task3.selected_path, settings, reporter, context=context
             )
     finally:
         await release_run(run_id, outcome.task4, settings, reporter)
