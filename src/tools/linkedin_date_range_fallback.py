@@ -1,12 +1,17 @@
-"""Task 17: widen LinkedIn's **Date posted** filter from Past 24 hours to Past week.
+"""Task 17: fall back between LinkedIn's **Past 24 hours** and **Past week**.
 
-When the 24-hour results list has no unapplied Easy Apply job left, the agent
-must keep looking at older postings. This module owns that transition:
+The user chooses the primary range at startup. When every job in that range has
+been scanned and no openable job is left, the agent switches to the other range:
+
+* Past 24 hours → Past week
+* Past week → Past 24 hours
+
+This module owns that transition:
 
 * detect which range the current results list uses (the ``f_TPR`` URL parameter
   is authoritative; a checked Date posted option is the fallback),
-* select **Past week** through the visible filter UI, or through the URL when a
-  layout hides the dropdown,
+* select the target range through the visible filter UI, or through the URL
+  when a layout hides the dropdown,
 * reset the results pagination to page 1,
 * re-check/re-apply the **Easy Apply** filter because the range reload can reset
   it, and verify both filters together.
@@ -18,6 +23,7 @@ results-page walk in :mod:`src.tools.linkedin_results_scan` owns the scanning.
 from __future__ import annotations
 
 from src.configuration import Settings
+from src.date_range import date_range_label, date_range_option, other_date_range
 from src.tools.linkedin_date_posted import (
     PAST_24_HOURS_TPR,
     PAST_24_HOURS_VALUE,
@@ -27,7 +33,7 @@ from src.tools.linkedin_date_posted import (
     looks_like_past_24_hours,
     looks_like_past_week,
     read_date_controls,
-    select_past_week,
+    select_date_range_value,
 )
 from src.tools.linkedin_search.easy_apply_filter import (
     easy_apply_filter_selected,
@@ -64,29 +70,40 @@ async def current_date_range(page) -> str:
     return ""
 
 
-async def switch_to_past_week(
+async def switch_to_date_range(
     page,
     settings: Settings,
+    value: str,
     notify=None,
 ) -> tuple[bool, str]:
-    """Select **Date posted → Past week**, reset page 1, and keep Easy Apply.
+    """Select **Date posted → ``value``**, reset page 1, and keep Easy Apply.
 
-    Returns ``(selected, note)``. The range is verified through
-    ``f_TPR=r604800``, not merely a checked radio. If the range reload resets
-    the Easy Apply pill, it is re-applied through ``f_AL=true`` so the date range
-    is preserved. Both filters must be active together before scanning resumes.
+    ``value`` is ``past_24_hours`` or ``past_week``. Returns ``(selected, note)``.
+    The range is verified through ``f_TPR``, not merely a checked radio. If the
+    range reload resets the Easy Apply pill, it is re-applied through
+    ``f_AL=true`` so the date range is preserved. Both filters must be active
+    together before scanning resumes.
     """
     notify = notify or (lambda _message: None)
-    notify("Task 17: no more Past 24 hours jobs to scan; switching to Past week.")
+    target_label, target_tpr = date_range_option(value)
+    if not target_label:
+        return False, f"unsupported date range {value!r}"
+
+    source_value = other_date_range(value)
+    source_label = date_range_label(source_value) or "the current range"
+    notify(
+        f"Task 17: no more {source_label} jobs to scan; "
+        f"switching to {target_label}."
+    )
     emit_step(
         notify,
-        "Please wait - no more jobs posted in the past 24 hours; "
-        "widening the search to the past week...",
+        f"Please wait - no more jobs posted in the {source_label.lower()}; "
+        f"falling back to the {target_label.lower()}...",
     )
 
-    selected, note = await select_past_week(page, settings)
+    selected, note = await select_date_range_value(page, settings, value, reset_start=True)
     if not selected:
-        return False, note or "the Past week filter could not be selected"
+        return False, note or f"the {target_label} filter could not be selected"
 
     if not await easy_apply_filter_selected(page):
         applied, easy_note = await select_easy_apply_filter(
@@ -94,29 +111,40 @@ async def switch_to_past_week(
         )
         note = _join_notes(note, easy_note)
         if not applied:
-            return False, note or "Easy Apply could not be re-selected for Past week"
+            return False, note or f"Easy Apply could not be re-selected for {target_label}"
 
     # Re-applying Easy Apply navigates; a slow reload can drop the range. Verify
     # both filters together, retrying the range once through the generic helper
     # (which preserves f_AL and resets the page offset).
-    if not await date_range_applied(page, PAST_WEEK_TPR):
-        reselected, range_note = await select_past_week(page, settings)
+    if not await date_range_applied(page, target_tpr):
+        reselected, range_note = await select_date_range_value(
+            page, settings, value, reset_start=True
+        )
         note = _join_notes(note, range_note)
         if not reselected:
-            return False, note or "the Past week filter was lost after re-applying Easy Apply"
+            return False, note or f"the {target_label} filter was lost after re-applying Easy Apply"
         if not await easy_apply_filter_selected(page):
             applied, easy_note = await select_easy_apply_filter(
                 page, settings, prefer_url=True
             )
             note = _join_notes(note, easy_note)
             if not applied:
-                return False, note or "Easy Apply was lost after selecting Past week"
+                return False, note or f"Easy Apply was lost after selecting {target_label}"
 
-    if not await date_range_applied(page, PAST_WEEK_TPR):
-        return False, note or "the Past week filter could not be verified"
+    if not await date_range_applied(page, target_tpr):
+        return False, note or f"the {target_label} filter could not be verified"
 
-    emit_step(notify, "Scanning jobs posted in the past week...")
+    emit_step(notify, f"Scanning jobs posted in the {target_label.lower()}...")
     return True, note
 
 
-__all__ = ["current_date_range", "switch_to_past_week"]
+async def switch_to_past_week(
+    page,
+    settings: Settings,
+    notify=None,
+) -> tuple[bool, str]:
+    """Compatibility wrapper for the original 24-hours → week fallback."""
+    return await switch_to_date_range(page, settings, PAST_WEEK_VALUE, notify)
+
+
+__all__ = ["current_date_range", "switch_to_date_range", "switch_to_past_week"]

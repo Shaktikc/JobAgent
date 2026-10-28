@@ -8,8 +8,9 @@ working unchanged. The implementation is grouped by concern:
 * :mod:`.search_box` — login state, the jobs search bar, and the search results.
 * :mod:`.easy_apply_filter` — find/select/verify the **Easy Apply** filter.
 * :mod:`.ai_search` — the optional "Try AI job search" detour.
-* :mod:`.orchestrator` — the Task 1 step sequence, including Task 13's
-  **Date posted → Past 24 hours** filter.
+* :mod:`.orchestrator` — the Task 1 step sequence, including Task 13/17's
+  **Date posted** filter for the range chosen at startup
+  (**Past 24 hours** or **Past week**).
 """
 
 from __future__ import annotations

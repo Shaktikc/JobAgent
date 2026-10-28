@@ -10,23 +10,27 @@ from __future__ import annotations
 
 import re
 
+from src.date_range import (
+    PAST_24_HOURS_LABEL,
+    PAST_24_HOURS_TPR,
+    PAST_24_HOURS_VALUE,
+    PAST_MONTH_LABEL,
+    PAST_MONTH_TPR,
+    PAST_MONTH_VALUE,
+    PAST_WEEK_LABEL,
+    PAST_WEEK_TPR,
+    PAST_WEEK_VALUE,
+)
+
 # LinkedIn's f_TPR values and the agent's normalized range names. Only
-# ``r86400``/``past_24_hours`` satisfies Task 13; Task 17 widens to
-# ``r604800``/``past_week``; ``past_month`` is intentionally never selected.
+# ``r86400``/``past_24_hours`` satisfies Task 13; Task 17 can scan either the
+# 24-hour or week range first and fall back to the other; ``past_month`` is
+# intentionally never selected.
 _RANGE_SPECS = {
-    "past 24 hours": (86400, "r86400", "past_24_hours"),
-    "past week": (604800, "r604800", "past_week"),
-    "past month": (2592000, "r2592000", "past_month"),
+    PAST_24_HOURS_LABEL.lower(): (86400, PAST_24_HOURS_TPR, PAST_24_HOURS_VALUE),
+    PAST_WEEK_LABEL.lower(): (604800, PAST_WEEK_TPR, PAST_WEEK_VALUE),
+    PAST_MONTH_LABEL.lower(): (2592000, PAST_MONTH_TPR, PAST_MONTH_VALUE),
 }
-PAST_24_HOURS_LABEL = "Past 24 hours"
-PAST_24_HOURS_VALUE = "past_24_hours"
-PAST_24_HOURS_TPR = "r86400"
-PAST_WEEK_LABEL = "Past week"
-PAST_WEEK_VALUE = "past_week"
-PAST_WEEK_TPR = "r604800"
-PAST_MONTH_LABEL = "Past month"
-PAST_MONTH_VALUE = "past_month"
-PAST_MONTH_TPR = "r2592000"
 
 
 def normalize_label(text: str) -> str:

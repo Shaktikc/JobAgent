@@ -127,6 +127,10 @@ _READ_STATE_JS = """() => JSON.stringify({
     const input = document.getElementById('tp-24h');
     return !!(input && input.checked);
   })(),
+  past_week_checked: (() => {
+    const input = document.getElementById('tp-week');
+    return !!(input && input.checked);
+  })(),
   url: window.location.href
 })"""
 
@@ -232,6 +236,41 @@ async def test_task1_selects_past_24_hours_and_keeps_easy_apply(tmp_path: Path) 
     assert observed["easy_apply_clicks"] == 1
 
     # A job card's "Posted 1 day ago" text is never treated as the filter/option.
+    assert observed["card_clicks"] == 0
+
+
+async def test_task1_selects_the_requested_past_week_range(tmp_path: Path) -> None:
+    """Task 17: when the user chooses Past week first, Task 1 applies it."""
+    page_file = tmp_path / "date_posted_week.html"
+    page_file.write_text(_PAGE_HTML, encoding="utf-8")
+    server, url = _serve(tmp_path, "date_posted_week.html")
+
+    browser = browser_tools.build_browser(_settings(tmp_path))
+    try:
+        await browser.start()
+        page = await browser.new_page()
+        outcome = await browser_tools._task1_on_page(
+            page,
+            url,
+            "software engineer",
+            _settings(tmp_path),
+            lambda _m: None,
+            date_range="past_week",
+        )
+        observed = json.loads(await page.evaluate(_READ_STATE_JS))
+    finally:
+        await browser.kill()
+        server.shutdown()
+
+    assert outcome.logged_in is True
+    assert outcome.results_found is True
+    assert outcome.easy_apply_filter_selected is True
+    assert outcome.date_posted_filter_selected is True
+    assert outcome.date_posted_filter_value == "past_week"
+    assert "f_TPR=r604800" in observed["url"]
+    assert observed["date_filter_clicks"] == 1
+    assert observed["show_results_clicks"] == 1
+    assert observed["past_week_checked"] is True
     assert observed["card_clicks"] == 0
 
 

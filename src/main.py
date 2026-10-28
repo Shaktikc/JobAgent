@@ -9,6 +9,12 @@ import sys
 from pathlib import Path
 
 from src.configuration import load_settings
+from src.date_range import (
+    DEFAULT_DATE_RANGE,
+    date_range_label,
+    normalize_date_range,
+)
+from src.date_range_choice import choose_date_range
 from src.graph import graph
 from src.state import (
     DEFAULT_LOGIN_URL,
@@ -18,16 +24,29 @@ from src.state import (
 )
 
 
+def _date_range_argument(value: str) -> str:
+    """Validate a ``--date-range`` value and normalize its alias."""
+    normalized = normalize_date_range(value)
+    if not normalized:
+        raise argparse.ArgumentTypeError(
+            f"unknown date range {value!r}; choose past_24_hours (24h) "
+            "or past_week (week)"
+        )
+    return normalized
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="autojob",
         description=(
-            "Log in to LinkedIn, search jobs, select the Easy Apply filter, "
-            "open a job's Easy Apply form, pick the best-matching resume, and "
-            "start filling the form (Tasks 1-4), asking the human in the browser "
-            "about unknown questions and remembering the answers (Task 5). After "
-            "you submit a job yourself, the agent opens the next unapplied job "
-            "and repeats (Task 8). The agent never clicks Submit."
+            "Log in to LinkedIn, choose Past 24 hours or Past week, search jobs, "
+            "select the Easy Apply filter, open a job's Easy Apply form, pick the "
+            "best-matching resume, and start filling the form (Tasks 1-4), asking "
+            "the human in the browser about unknown questions and remembering the "
+            "answers (Task 5). When the chosen range is exhausted the agent falls "
+            "back to the other range (Task 17). After you submit a job yourself, "
+            "the agent opens the next unapplied job and repeats (Task 8). The "
+            "agent never clicks Submit."
         ),
     )
     parser.add_argument(
@@ -39,6 +58,17 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--query",
         default=DEFAULT_SEARCH_QUERY,
         help=f"Job search query (default: {DEFAULT_SEARCH_QUERY!r})",
+    )
+    parser.add_argument(
+        "--date-range",
+        default=None,
+        type=_date_range_argument,
+        metavar="{24h,week}",
+        help=(
+            "Search Past 24 hours (24h) or Past week (week) first; the agent "
+            "falls back to the other range when it is exhausted. Asked at "
+            "startup when omitted."
+        ),
     )
     parser.add_argument(
         "--resumes-dir",
@@ -84,11 +114,14 @@ def _summary(state: ApplyState) -> str:
     description = state.get("job_description")
     task3 = state.get("task3")
     task4 = state.get("task4")
+    requested_range = state.get("date_range") or DEFAULT_DATE_RANGE
     lines = [
         "",
         f"status      : {state.get('status', 'unknown')}",
         f"url         : {state.get('url', 'unknown')}",
         f"search      : {state.get('search_query', 'unknown')!r}",
+        f"date range  : {date_range_label(requested_range) or requested_range} "
+        "(fallback: the other range)",
     ]
     if task1 is not None:
         lines += [
@@ -107,7 +140,8 @@ def _summary(state: ApplyState) -> str:
         lines += [
             f"job         : index={task2.job_index} title={task2.job_title!r} "
             f"skipped={task2.skipped_jobs} pages_visited={task2.pages_visited}",
-            f"date range  : used={task2.date_range_used or '(unknown)'} "
+            f"date scan   : used={task2.date_range_used or '(unknown)'} "
+            f"preferred={task2.date_range_preferred or '(unknown)'} "
             f"fallback={task2.date_range_fallback_used} "
             f"week_pages={task2.pages_visited_past_week}",
             f"apply       : clicked={task2.easy_apply_clicked} "
@@ -188,17 +222,23 @@ def _summary(state: ApplyState) -> str:
     return "\n".join(lines)
 
 
+# Task 16: with no skip cap (0), LangGraph still needs a finite step budget for
+# its cycle. This is deliberately far above any realistic results list.
+_UNLIMITED_SKIP_BUDGET = 1_000_000
+
+
 def _recursion_limit(settings) -> int:
     """LangGraph's step budget for Task 8's loop plus Task 16's skips.
 
     Each submitted job costs several graph nodes, and each skipped job costs a
     ``match -> next_job`` cycle. Budget both caps so a run that matches nothing
-    reaches its skip cap instead of failing on the graph recursion limit.
+    reaches its skip cap instead of failing on the graph recursion limit. An
+    uncapped run gets a large fixed skip budget instead of zero.
     """
     cap = settings.session.max_jobs_per_run
     skip_cap = settings.session.max_skipped_jobs_per_run
     job_budget = 300 if cap == 0 else cap * 6 + 30
-    skip_budget = skip_cap * 3 if skip_cap else 0
+    skip_budget = skip_cap * 3 if skip_cap else _UNLIMITED_SKIP_BUDGET
     return job_budget + skip_budget
 
 
@@ -210,6 +250,7 @@ async def _run(args: argparse.Namespace) -> ApplyState:
         search_query=args.query,
         dry_run=args.dry_run,
         resumes_dir=resumes_dir,
+        date_range=args.date_range or DEFAULT_DATE_RANGE,
     )
     # Task 8's submit-and-repeat loop is a graph cycle, so raise LangGraph's
     # default recursion limit to leave room for a few nodes per job and per
@@ -293,6 +334,14 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:  # noqa: BLE001 - surface a clean CLI error
             print(f"error: could not process new resumes: {exc}", file=sys.stderr)
             return 1
+
+    # Task 17: ask which range to scan first. A non-interactive stdin (tests,
+    # piped output, LangGraph Studio) keeps the Past 24 hours default.
+    try:
+        args.date_range = choose_date_range(args.date_range)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
 
     try:
         state = asyncio.run(_run(args))

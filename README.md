@@ -6,11 +6,13 @@ best-matching resume, opens the job's **Easy Apply** form only when the resume
 matches, and starts filling it — all through a real browser (via
 [browser-use](https://github.com/browser-use/browser-use)).
 
-> Status: **Tasks 1-13 and 15-17** — log in, search `"software engineer"`, select the Easy
-> Apply filter and **Date posted → Past 24 hours**, read the job description, select the
-> best-matching resume, open Easy Apply only on a match, fill known fields + attach the resume, and ask you in the
+> Status: **Tasks 1-13 and 15-17** — log in, search `"software engineer"`, choose
+> **Date posted → Past 24 hours** or **Past week** at startup, select the Easy
+> Apply filter, read the job description, select the best-matching resume, open
+> Easy Apply only on a match, fill known fields + attach the resume, and ask you in the
 > browser about any question it cannot answer, remembering your answer for next
-> time. For each form question an **LLM (Task 4.1/10)** classifies the question and
+> time. When the chosen date range is exhausted, the agent falls back to the other
+> range (Past 24 hours ⇄ Past week). For each form question an **LLM (Task 4.1/10)** classifies the question and
 > answers it from the store — copying a stored answer, or **deriving** one the
 > stored entries entail (e.g. a stored "years of experience with AI: 5" answers
 > "Experience on AI? [Yes/No]" as **Yes**), always citing the stored key(s) it used
@@ -30,7 +32,8 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
 > Regenerate the diagram (or the Mermaid source) with
 > `python -m src.visualize --out docs/graph.png --mermaid-out docs/graph.mmd`.
 
-1. **ingest** — validates the LinkedIn URL and the search query.
+1. **ingest** — validates the LinkedIn URL, the search query, and the startup
+   date range (**Past 24 hours** or **Past week**).
 2. **browse** — runs Tasks 1-3's browser work in **one session**:
    - **Task 1:** opens Chromium, navigates to the login page, and checks whether
      you are logged in. If not, it **waits for you to log in** in the browser
@@ -38,13 +41,15 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
      runs LinkedIn's **AI job search** — clicking the **"Try AI job search"**
      control and typing the query (default `"software engineer"`) into the AI
      prompt ("Describe the job you want") — then selects the **Easy Apply** filter
-     and **Date posted → Past 24 hours** on the results page. Applying the date
-     filter reloads the results, so the agent re-checks/re-applies Easy Apply
-     before Task 2 opens a job — through the URL (`f_AL=true`) so the date range
-     is preserved. The applied range is verified from `f_TPR=r86400` in the
-     results URL (a checked popover option alone is not enough); if the layout
-     hides the dropdown, the agent adds that parameter to the current results URL
-     while preserving the other filters. The classic jobs search bar is not used.
+     and the **Date posted** range chosen at startup (**Past 24 hours** or **Past
+     week**) on the results page. Applying the date filter reloads the results,
+     so the agent re-checks/re-applies Easy Apply before Task 2 opens a job —
+     through the URL (`f_AL=true`) so the date range is preserved. The applied
+     range is verified from `f_TPR=r86400` (Past 24 hours) or `f_TPR=r604800`
+     (Past week) in the results URL (a checked popover option alone is not
+     enough); if the layout hides the dropdown, the agent adds that parameter to
+     the current results URL while preserving the other filters. The classic jobs
+     search bar is not used.
    - **Task 2:** reads the job list from those results, selects the first job that
      offers Easy Apply (skipping external-apply jobs), and reads its description.
      The **Easy Apply** button is deliberately **not** clicked yet: Task 16 matches
@@ -60,11 +65,12 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
      scans it again, until an unapplied job is found or there are no more pages.
      The number of pages visited is recorded (`pages_visited`). Paginating never
      opens or applies to a job by itself.
-   - **Task 17:** when every page of the **Past 24 hours** range is exhausted and
-     no unapplied Easy Apply job remains, it selects **Date posted → Past week**,
-     resets to page 1, keeps **Easy Apply** active, and scans the week range. The
-     week list includes the 24-hour jobs, so their applied/skipped keys carry over
-     and are never reopened. Only Past week is used; Past month is out of scope.
+   - **Task 17:** when every page of the startup range is exhausted and no
+     unapplied Easy Apply job remains, it selects **Date posted → the other
+     range** (Past 24 hours → Past week, or Past week → Past 24 hours), resets to
+     page 1, keeps **Easy Apply** active, and scans it. The week list includes the
+     24-hour jobs, so their applied/skipped keys carry over and are never
+     reopened. Past month is out of scope.
    - **Task 3 (read):** reads the open job's title, company, location, and
      description body from the details pane.
    The session is left **open** (registered under an opaque `browser_run_id`) so
@@ -176,12 +182,13 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
    your resume into a profile") is dismissed first so it cannot cover the next
    card. **Task 16:** a job skipped for having no matching resume never had its
    Easy Apply form opened, and its title is excluded from later passes, so the
-   loop never reopens it. **Task 17:** when the whole 24-hour range is exhausted,
-   the same scan widens to **Past week** and continues; a scan already on the week
-   range stays there. The loop stops at
-   `AUTOJOB_SESSION_MAX_SKIPPED_JOBS` (default `100`, `0` = no cap) if nothing
-   matches. The loop otherwise repeats until `AUTOJOB_SESSION_MAX_JOBS` jobs have
-   been submitted (default `35`; `0` = until no unapplied job remains), every job
+   loop never reopens it. **Task 17:** when the whole startup range is exhausted,
+   the same scan falls back to the other range (Past 24 hours ⇄ Past week) and
+   continues; a scan already on the fallback range stays there. Skips are uncapped by default; set
+   `AUTOJOB_SESSION_MAX_SKIPPED_JOBS` to a positive number to stop after that many
+   unmatched jobs. The loop otherwise repeats until `AUTOJOB_SESSION_MAX_JOBS`
+   jobs have been submitted (default `35`; `0` = until no unapplied job remains),
+   every job
    is Applied, you close the browser, or a step fails — each with a clear
    `stopped_reason`. Skips never count as applications. The session is reused
    across iterations.
@@ -361,14 +368,22 @@ uvx playwright install chromium
 # Offline dry run - validates the wiring, no browser is launched.
 uv run autojob --dry-run
 
-# Real run - opens Chromium, waits for login, searches, opens Easy Apply,
-# reads the job, picks a resume, and fills the form (never submits).
+# Real run - asks whether to search Past 24 hours or Past week first, opens
+# Chromium, waits for login, searches, opens Easy Apply, reads the job, picks a
+# resume, and fills the form (never submits).
 uv run autojob --no-dry-run
+uv run autojob --no-dry-run --date-range week
 uv run autojob --no-dry-run --query "software engineer" --resumes-dir ./resumes
 
 # Task 15: describe resumes in resumes/new/, then move them into resumes/
 uv run autojob --describe-new-resumes
 ```
+
+`--date-range` accepts `24h`/`past_24_hours` or `week`/`past_week`. When it is
+omitted, an interactive terminal asks which range to scan first (default: **Past
+24 hours**); a non-interactive run (tests, piped output, LangGraph Studio) keeps
+that default. When the chosen range is exhausted, the agent falls back to the
+other range.
 
 Exit code is `0` only when all acceptance criteria pass. Add `--json` for the raw
 final state.
@@ -385,6 +400,8 @@ uv run langgraph dev
 ```
 src/
   configuration.py   Typed settings from AUTOJOB_* environment variables
+  date_range.py      Task 17: normalized Past 24 hours / Past week helpers
+  date_range_choice.py  Task 17: startup prompt for the primary range
   state.py           The graph's shared state (Task1-11 outcomes, JobDescription)
   state_loop.py      Task 8/16 loop + skip outcome models (re-exported by state.py)
   graph.py           Graph assembly (START -> ingest -> browse -> match -> fill -> await_submit -> next_job -> ... -> cleanup -> verify -> END)
@@ -414,8 +431,8 @@ src/
       queries.py                   pill/options/Show-results discovery scripts
       selection.py                 select Past 24 hours / Past week, verify
       urls.py                      f_TPR URL helpers + page-offset reset
-    linkedin_date_range_fallback.py  Task 17: switch to Past week, keep Easy Apply
-    linkedin_results_scan.py         Tasks 7/17: page walk + 24h -> week fallback
+    linkedin_date_range_fallback.py  Task 17: switch ranges, keep Easy Apply
+    linkedin_results_scan.py         Tasks 7/17: page walk + two-way range fallback
     linkedin_job_selection.py      Task 2: select a job and read its description
     linkedin_job_card.py           Task 2: resolve a card + verify the details pane
     linkedin_job_apply_button.py   Task 2: the details pane's job, apply button, modal
@@ -541,10 +558,12 @@ tests/
   remembered-resume library for a job the LLM did not match. The skip is recorded
   in the run summary and the `task16` state, and the skipped title is not reopened
   this run.
-- **Task 17 (default)** widens an exhausted **Past 24 hours** search to **Past
-  week** once. It resets the results to page 1, preserves **Easy Apply**, carries
-  over applied/skipped job keys, and never selects **Past month**. Both ranges are
-  reported in the `task2` outcome and CLI summary.
+- **Task 17 (default)** asks at startup whether to scan **Past 24 hours** or
+  **Past week** first. When that range is exhausted it falls back once to the
+  other range (24 hours ⇄ past week). It resets the results to page 1, preserves
+  **Easy Apply**, carries over applied/skipped job keys, and never selects **Past
+  month**. The requested and used ranges are reported in the `task2` outcome and
+  CLI summary.
 - Task 11 records a structural Easy Apply failure **before** recovery, never
   submits during recovery, and stops after the configured attempt cap instead of
   retrying or patching forever. If no repair command is set, it only reopens the

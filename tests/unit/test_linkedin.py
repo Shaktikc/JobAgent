@@ -129,7 +129,9 @@ def test_looks_like_job_card_label() -> None:
         "Actively reviewing applicants Viewed 3 months ago Easy Apply"
     )
     assert looks_like_job_card_label(card)
-    assert looks_like_job_card_label("Full Stack Engineer MoreGoodDays Australia (Remote) Easy Apply")
+    assert looks_like_job_card_label(
+        "Full Stack Engineer MoreGoodDays Australia (Remote) Easy Apply"
+    )
     assert looks_like_job_card_label("Software Engineer UpGuard Posted 1 week ago Easy Apply")
 
     # An apply button's label is short and carries no location/status metadata.

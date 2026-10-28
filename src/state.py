@@ -23,6 +23,7 @@ from typing import Annotated, TypedDict
 
 from pydantic import BaseModel, Field
 
+from src.date_range import DEFAULT_DATE_RANGE, normalize_date_range
 from src.state_loop import (  # noqa: F401 - re-exported for existing callers
     SkippedJobRecord,
     Task8JobRecord,
@@ -53,8 +54,9 @@ class Task1Outcome(BaseModel):
     ai_job_search_clicks: int = 0
     ai_job_search_candidates: list[str] = Field(default_factory=list)
     easy_apply_filter_selected: bool = False
-    # Task 13: the results are limited to the last 24 hours. ``value`` is the
-    # normalized selection (``"past_24_hours"``) so the CLI/verify/log can report it.
+    # Tasks 13/17: the results are limited to the range the user chose at startup
+    # (``past_24_hours`` or ``past_week``). ``value`` is that normalized selection
+    # so the CLI/verify/log can report it.
     date_posted_filter_selected: bool = False
     date_posted_filter_value: str = ""
     screenshot_path: str | None = None
@@ -173,10 +175,12 @@ class Task2Outcome(BaseModel):
     applied_skipped_cards: list[dict] = Field(default_factory=list)
     # Task 7: how many results pages were visited while looking for an unapplied
     # job (1 = the first page only; >1 = paginated because whole pages were Applied).
-    # Task 17: ``pages_visited`` is the total across the 24-hour and week ranges.
+    # Task 17: ``pages_visited`` is the total across the scanned ranges.
     pages_visited: int = 0
-    # Task 17: the date range the scan ended on, whether an exhausted Past 24
-    # hours list was widened to Past week, and how many week pages were scanned.
+    # Task 17: the range the user chose at startup, the range the scan ended on,
+    # whether an exhausted primary range was widened to the other range, and how
+    # many week pages were scanned.
+    date_range_preferred: str = ""
     date_range_used: str = ""
     date_range_fallback_used: bool = False
     pages_visited_past_week: int = 0
@@ -360,6 +364,9 @@ class ApplyState(TypedDict, total=False):
     search_query: str
     dry_run: bool
     resumes_dir: str
+    # Task 17: the range the user chose at startup (``past_24_hours`` or
+    # ``past_week``). The scan starts here and falls back to the other range.
+    date_range: str
 
     # --- results ---
     task1: Task1Outcome
@@ -394,6 +401,7 @@ def new_state(
     search_query: str = DEFAULT_SEARCH_QUERY,
     dry_run: bool = True,
     resumes_dir: str = "",
+    date_range: str = DEFAULT_DATE_RANGE,
 ) -> ApplyState:
     """Build a well-formed initial state for a single agent run."""
     return ApplyState(
@@ -401,6 +409,7 @@ def new_state(
         search_query=search_query,
         dry_run=dry_run,
         resumes_dir=resumes_dir,
+        date_range=normalize_date_range(date_range) or DEFAULT_DATE_RANGE,
         status="pending",
         log=[],
         errors=[],

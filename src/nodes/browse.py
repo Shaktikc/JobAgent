@@ -11,6 +11,7 @@ Apply**; ``open_form`` opens the form only after a resume match (Task 16).
 
 from __future__ import annotations
 
+from src.date_range import date_range_label, normalize_date_range
 from src.state import ApplyState
 
 
@@ -26,11 +27,13 @@ async def browse(state: ApplyState) -> ApplyState:
 
     # Let a launch/setup crash propagate to the graph's self-heal guard, which
     # records it, repairs/tests, and retries this node with a fresh browser.
+    date_range = normalize_date_range(state.get("date_range") or "")
     result, run_id = await start_tasks(
         state["url"],
         state.get("search_query") or "",
         progress=print,
         open_form=False,
+        date_range=date_range,
     )
 
     task1, task2 = result.task1, result.task2
@@ -55,6 +58,7 @@ async def browse(state: ApplyState) -> ApplyState:
         f"applied_skipped={task2.applied_jobs_skipped} "
         f"pages_visited={task2.pages_visited} "
         f"date_range={task2.date_range_used or '(unknown)'} "
+        f"preferred={task2.date_range_preferred or '(unknown)'} "
         f"fallback={task2.date_range_fallback_used} "
         f"week_pages={task2.pages_visited_past_week}",
         "browse: task3 "
@@ -87,9 +91,19 @@ async def browse(state: ApplyState) -> ApplyState:
         )
     elif not task1.easy_apply_filter_selected:
         errors.append(f"browse: Easy Apply filter not selected (url={task1.page_url})")
-    elif not task1.date_posted_filter_selected:
+    elif date_range and task1.date_posted_filter_value != date_range:
         errors.append(
-            "browse: Date posted filter 'Past 24 hours' not selected "
+            "browse: Date posted filter is "
+            f"'{task1.date_posted_filter_value or 'unknown'}', expected "
+            f"'{date_range_label(date_range) or date_range}' "
+            f"(url={task1.page_url})"
+        )
+    elif not task1.date_posted_filter_selected:
+        requested = date_range_label(task1.date_posted_filter_value) or (
+            date_range_label(date_range) or date_range or "selected range"
+        )
+        errors.append(
+            f"browse: Date posted filter '{requested}' not selected "
             f"(url={task1.page_url})"
         )
     elif not task2.job_selected:

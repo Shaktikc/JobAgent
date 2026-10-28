@@ -502,6 +502,7 @@ async def start_tasks(
     settings: Settings | None = None,
     progress=None,
     open_form: bool = True,
+    date_range: str = "",
 ) -> tuple[AgentOutcome, str | None]:
     """Open one browser session and run Tasks 1-3's interactive steps.
 
@@ -513,6 +514,10 @@ async def start_tasks(
     ``open_form=False`` is Task 16's match-first flow: select the job and read its
     description but leave Easy Apply closed. The graph then matches a resume and
     calls :func:`open_easy_apply_form` only on a selected resume.
+
+    ``date_range`` is the range the user chose at startup (Task 17). Task 1
+    applies it and Task 2 scans it first, falling back to the other range when it
+    is exhausted. An empty value keeps the legacy default (**Past 24 hours**).
     """
     # Tasks 1-3 live in their own modules. Imported here (not at module load) so
     # they can share this module's browser primitives without an import cycle.
@@ -541,18 +546,25 @@ async def start_tasks(
         reporter.bind_page(page)
         emit_step(reporter, "Please wait - starting the browser and opening LinkedIn...")
 
-        task1 = await _task1_on_page(page, url, search_query, settings, reporter)
+        task1 = await _task1_on_page(
+            page, url, search_query, settings, reporter, date_range=date_range
+        )
         if not _task1_ok(task1):
             reporter("Task 1 did not complete; skipping Tasks 2-4.")
             task2.notes = "Task 1 did not complete; Tasks 2-4 were skipped."
             task1.screenshot_path = await capture_failure_screenshot(session, settings, "task1")
         else:
+            # Task 1 reports the range it actually applied; use that as both the
+            # current range and the preferred range for the first Task 2 scan.
+            applied_range = date_range or task1.date_posted_filter_value or ""
             task2 = await _task2_on_page(
                 page,
                 settings,
                 reporter,
                 capture=read_job_description,
                 open_form=open_form,
+                date_range=applied_range,
+                preferred_range=applied_range,
             )
             selected = _task2_selected_ok(task2) and (not open_form or _task2_ok(task2))
             if not selected:

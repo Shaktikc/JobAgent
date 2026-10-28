@@ -19,6 +19,9 @@ class JobTarget(BaseModel):
     company: str = ""
     search_query: str = ""
     login_url: str = ""
+    # Task 17: the range the user chose at startup, so a reopened browser does
+    # not silently revert to Past 24 hours.
+    date_range: str = ""
 
 
 class FailureEvidence(BaseModel):

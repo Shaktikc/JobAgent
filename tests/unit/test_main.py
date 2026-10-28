@@ -6,7 +6,12 @@ import sys
 import types
 
 from src.configuration import SessionSettings, Settings
-from src.main import _parse_args, _recursion_limit, _silence_windows_pipe_noise
+from src.main import (
+    _UNLIMITED_SKIP_BUDGET,
+    _parse_args,
+    _recursion_limit,
+    _silence_windows_pipe_noise,
+)
 
 
 def test_parse_args_defaults_to_dry_run() -> None:
@@ -34,7 +39,9 @@ def test_recursion_limit_budgets_skipped_jobs_too() -> None:
     )
 
     assert _recursion_limit(limited) == 36 + 6
-    assert _recursion_limit(unlimited_skips) == 36
+    # 0 means no skip cap, not "no skip budget"; otherwise a long unmatched scan
+    # would fail on the graph recursion limit instead of running to exhaustion.
+    assert _recursion_limit(unlimited_skips) == 36 + _UNLIMITED_SKIP_BUDGET
 
 
 def test_silences_only_the_closed_pipe_unraisable(monkeypatch) -> None:

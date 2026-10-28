@@ -896,6 +896,40 @@ def test_next_job_stops_at_the_skipped_jobs_cap(monkeypatch) -> None:
     assert result["task8"].stopped_reason == "reached the skipped-jobs cap (1)"
 
 
+def test_next_job_does_not_stop_when_the_skipped_jobs_cap_is_unlimited(
+    monkeypatch,
+) -> None:
+    import src.nodes.apply_loop as apply_loop
+    import src.tools.linkedin_apply_loop as loop
+
+    calls: list[dict] = []
+
+    async def fake_open(*args, **kwargs):
+        calls.append(kwargs)
+        return loop.NextJobResult(
+            opened=True,
+            task2=Task2Outcome(job_title="Backend Engineer", job_selected=True),
+        )
+
+    monkeypatch.setattr(loop, "open_next_job", fake_open)
+    monkeypatch.setattr(
+        apply_loop, "load_settings", lambda: _settings(max_skipped_jobs_per_run=0)
+    )
+    state = ApplyState(
+        dry_run=False,
+        browser_run_id="run-1",
+        status="skipped",
+        task2=Task2Outcome(job_title="Data Analyst"),
+        task16=Task16Outcome(enabled=True, jobs_skipped=1_000),
+    )
+
+    result = asyncio.run(next_job(state))
+
+    assert result["status"] == "applied"
+    assert result["task2"].job_title == "Backend Engineer"
+    assert len(calls) == 1
+
+
 def test_verify_passes_when_strict_mode_skipped_the_remaining_jobs() -> None:
     task3 = _task3_ok()
     task3.selected_path = None

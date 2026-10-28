@@ -12,7 +12,13 @@ as the loop recorded its stop reason and no error was raised.
 
 from __future__ import annotations
 
+from src.date_range import DEFAULT_DATE_RANGE, date_range_label, normalize_date_range
 from src.state import ApplyState, JobDescription
+
+
+def _requested_date_range(state: ApplyState) -> str:
+    """The range the user chose at startup, defaulting to Past 24 hours."""
+    return normalize_date_range(state.get("date_range") or "") or DEFAULT_DATE_RANGE
 
 
 def _task1_succeeded(state: ApplyState) -> bool:
@@ -23,6 +29,7 @@ def _task1_succeeded(state: ApplyState) -> bool:
         and outcome.results_found
         and outcome.easy_apply_filter_selected
         and outcome.date_posted_filter_selected
+        and outcome.date_posted_filter_value == _requested_date_range(state)
     )
 
 
@@ -138,8 +145,9 @@ def verify(state: ApplyState) -> ApplyState:
         and _task5_succeeded(state)
         and _task8_succeeded(state)
     ):
+        range_label = date_range_label(_requested_date_range(state))
         log = [
-            "verify: logged in, search returned results, Easy Apply + Past 24 hours "
+            f"verify: logged in, search returned results, Easy Apply + {range_label} "
             "filters selected, job Easy Apply form opened, best-matching resume "
             "selected, form filled and resume attached (not submitted)"
         ]

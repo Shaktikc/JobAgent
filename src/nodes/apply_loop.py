@@ -18,6 +18,7 @@ mirroring the other nodes.
 from __future__ import annotations
 
 from src.configuration import load_settings
+from src.date_range import normalize_date_range
 from src.state import ApplyState, Task8JobRecord, Task8Outcome
 
 
@@ -98,8 +99,9 @@ async def next_job(state: ApplyState) -> ApplyState:
 
     settings = load_settings()
 
-    # Task 16: a skip is not an application. Stop at the configured skip cap so a
-    # run that matches nothing cannot scan forever.
+    # Task 16: a skip is not an application. Stop only when an optional positive
+    # skip cap is configured; 0 (the default) scans until the date range is
+    # exhausted.
     task16 = state.get("task16")
     skip_cap = settings.session.max_skipped_jobs_per_run
     if task16 is not None and skip_cap and task16.jobs_skipped >= skip_cap:
@@ -112,13 +114,18 @@ async def next_job(state: ApplyState) -> ApplyState:
     skip_title = (previous.job_title if previous else "") or ""
     skipped_titles = list(state.get("skipped_titles") or [])
     skipping = state.get("status") == "skipped"
-    # Task 17: keep scanning the range the previous pass ended on. A week-list
-    # pass must not widen again (or revert to 24 hours).
-    date_range = (previous.date_range_used if previous else "") or ""
+    # Task 17: keep scanning the range the previous pass ended on and tell the
+    # scan which range the user chose at startup. A pass already on the fallback
+    # range must not bounce back to the primary range (or select Past month).
+    preferred_range = normalize_date_range(state.get("date_range") or "")
+    date_range = (previous.date_range_used if previous else "") or preferred_range
 
     # Let a crash propagate: the graph's self-heal guard records it, closes the
     # stale browser, repairs/tests, and retries this same step from the results
     # list (Task 11).
+    scan_kwargs: dict = {}
+    if preferred_range:
+        scan_kwargs["preferred_range"] = preferred_range
     result = await open_next_job(
         run_id,
         settings,
@@ -127,6 +134,7 @@ async def next_job(state: ApplyState) -> ApplyState:
         skip_titles=skipped_titles,
         close_form=skipping,
         date_range=date_range,
+        **scan_kwargs,
     )
 
     task2 = result.task2
@@ -140,6 +148,7 @@ async def next_job(state: ApplyState) -> ApplyState:
         f"applied_skipped={task2.applied_jobs_skipped} "
         f"pages_visited={task2.pages_visited} "
         f"date_range={task2.date_range_used or '(unknown)'} "
+        f"preferred={task2.date_range_preferred or '(unknown)'} "
         f"fallback={task2.date_range_fallback_used} "
         f"week_pages={task2.pages_visited_past_week}",
     ]

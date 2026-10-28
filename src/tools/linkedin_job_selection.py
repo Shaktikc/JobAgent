@@ -276,15 +276,16 @@ async def _task2_on_page(
     capture=None,
     open_form: bool = True,
     date_range: str = "",
+    preferred_range: str = "",
 ) -> Task2Outcome:
     """Run Task 2 steps on the results page left open by Task 1.
 
     Task 6 skips the cards already marked **Applied** and opens the first
     unapplied job. **Task 7** advances the results list while a page yields no
-    openable Easy Apply job. **Task 17** then widens an exhausted **Past 24
-    hours** list to **Past week** (page 1) and keeps scanning; a list already on
-    the week range stays on it. Paginating and switching the range never open or
-    apply to a job by themselves.
+    openable Easy Apply job. **Task 17** then falls back from the range chosen at
+    startup to the other range (Past 24 hours ⇄ Past week, page 1) and keeps
+    scanning; a list already on the fallback range stays on it. Paginating and
+    switching the range never open or apply to a job by themselves.
 
     ``skip_keys`` are job keys (see :func:`_job_key`) to ignore — Task 8 uses this
     to never re-open the job the human just submitted, even if its card has not yet
@@ -301,9 +302,20 @@ async def _task2_on_page(
     ``date_range`` is the range the caller knows the current list uses (Task 8
     passes the previous scan's ``date_range_used``). When empty, the range is
     detected from the results URL/a checked Date posted option.
+
+    ``preferred_range`` is the range the user chose at startup. It makes the
+    fallback direction correct (24 hours ⇄ past week) and prevents a later pass
+    that is already on the fallback range from scanning both ranges again.
     """
     outcome = Task2Outcome()
     emit_step(notify, "Please wait - reading the job results list...")
+    scan_kwargs: dict = {
+        "capture": capture,
+        "open_form": open_form,
+        "date_range": date_range,
+    }
+    if preferred_range:
+        scan_kwargs["preferred_range"] = preferred_range
     await scan_results_pages(
         page,
         settings,
@@ -312,9 +324,7 @@ async def _task2_on_page(
         set(skip_keys or ()),
         set(),
         _scan_page,
-        capture=capture,
-        open_form=open_form,
-        date_range=date_range,
+        **scan_kwargs,
     )
     outcome.page_url = await _safe(page.get_url(), None)
     outcome.page_title = await _safe(page.get_title(), "") or ""

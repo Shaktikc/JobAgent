@@ -230,10 +230,14 @@ class NextJobResult:
 
 def _no_job_reason(task2: Task2Outcome) -> str:
     """Why Task 2 opened no job on this pass (a clear, human-readable note)."""
-    # Task 17: when the scan widened to the week, the 24-hour applied counts no
+    # Task 17: when the scan fell back to the other range, the applied counts no
     # longer describe the whole search; say both ranges were exhausted instead of
     # the misleading "every job is Applied".
     if task2.date_range_fallback_used:
+        if task2.date_range_preferred == PAST_WEEK_VALUE:
+            return task2.notes or (
+                "no unapplied Easy Apply job remains in the past week or the past 24 hours"
+            )
         return task2.notes or (
             "no unapplied Easy Apply job remains in the past 24 hours or the past week"
         )
@@ -252,6 +256,7 @@ async def open_next_job(
     skip_titles: Iterable[str] = (),
     close_form: bool = False,
     date_range: str = "",
+    preferred_range: str = "",
 ) -> NextJobResult:
     """Select the next unapplied Easy Apply job on the open results list.
 
@@ -264,8 +269,10 @@ async def open_next_job(
     their cards have not flipped to **"Applied"**. When nothing can be selected,
     ``reason`` explains why and ``opened`` is ``False``.
 
-    ``date_range`` is the range the previous scan finished on, so a run that is
-    already on Past week keeps scanning that range instead of widening again.
+    ``date_range`` is the range the previous scan finished on. ``preferred_range``
+    is the range the user chose at startup, so the fallback direction stays
+    correct (Past 24 hours ⇄ Past week). A run already on the fallback range keeps
+    scanning that range instead of bouncing back to the primary one.
 
     ``close_form`` closes a form left open by a self-healed retry before re-reading
     the results list. A normal Task 16 skip never opens a form, so this is a no-op
@@ -294,15 +301,15 @@ async def open_next_job(
             task2=Task2Outcome(notes="the Easy Apply form could not be closed"),
             reason="the Easy Apply form could not be closed",
         )
-    task2 = await _task2_on_page(
-        run.page,
-        settings,
-        notify,
-        skip_keys=skip_keys,
-        capture=read_job_description,
-        open_form=False,
-        date_range=date_range,
-    )
+    scan_kwargs: dict = {
+        "skip_keys": skip_keys,
+        "capture": read_job_description,
+        "open_form": False,
+        "date_range": date_range,
+    }
+    if preferred_range:
+        scan_kwargs["preferred_range"] = preferred_range
+    task2 = await _task2_on_page(run.page, settings, notify, **scan_kwargs)
     if task2.job_selected or (task2.easy_apply_clicked and task2.application_form_opened):
         # Task 2 read the description while the job was open (before Easy Apply);
         # only re-read if that produced nothing. The form stays closed until the

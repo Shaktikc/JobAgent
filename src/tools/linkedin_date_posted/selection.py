@@ -12,9 +12,10 @@ hours**) and a **Show results** button. This module owns the interaction:
 * resetting the results page offset when switching ranges (Task 17).
 
 Task 13 uses :func:`select_past_24_hours`; Task 17 calls
-:func:`select_past_week` (or the generic :func:`select_date_range`). The pure
-label/range helpers live in :mod:`src.tools.linkedin_date_posted.labels` and the
-URL helpers in :mod:`src.tools.linkedin_date_posted.urls`.
+:func:`select_date_range_value` to select either the 24-hour or week range, or
+the generic :func:`select_date_range`. The pure label/range helpers live in
+:mod:`src.tools.linkedin_date_posted.labels` and the URL helpers in
+:mod:`src.tools.linkedin_date_posted.urls`.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ import asyncio
 import time
 
 from src.configuration import Settings
+from src.date_range import date_range_option
 from src.tools.browser import (
     _loads,
     _marker_element,
@@ -33,8 +35,9 @@ from src.tools.browser import (
 from src.tools.linkedin_date_posted.labels import (
     PAST_24_HOURS_LABEL,
     PAST_24_HOURS_TPR,
+    PAST_24_HOURS_VALUE,
     PAST_WEEK_LABEL,
-    PAST_WEEK_TPR,
+    PAST_WEEK_VALUE,
     date_range_tpr,
     normalize_label,
     pick_date_posted_filter_index,
@@ -278,15 +281,36 @@ async def select_date_range(
     return False, "; ".join(notes)
 
 
+async def select_date_range_value(
+    page,
+    settings: Settings,
+    value: str,
+    *,
+    reset_start: bool = True,
+) -> tuple[bool, str]:
+    """Select the normalized range ``value``; return ``(selected, note)``.
+
+    ``value`` is ``past_24_hours`` or ``past_week``. Task 17's fallback uses this
+    to select either direction (24 hours ⇄ past week) and always resets the
+    results to page 1 unless the caller explicitly opts out.
+    """
+    label, tpr = date_range_option(value)
+    if not label:
+        return False, f"unsupported date range {value!r}"
+    return await select_date_range(page, settings, label, tpr, reset_start=reset_start)
+
+
 async def select_past_24_hours(page, settings: Settings) -> tuple[bool, str]:
     """Select **Date posted → Past 24 hours**; return ``(selected, note)``."""
-    return await select_date_range(page, settings, PAST_24_HOURS_LABEL, PAST_24_HOURS_TPR)
+    return await select_date_range_value(
+        page, settings, PAST_24_HOURS_VALUE, reset_start=False
+    )
 
 
 async def select_past_week(page, settings: Settings) -> tuple[bool, str]:
     """Select **Date posted → Past week** and start at page 1 (Task 17)."""
-    return await select_date_range(
-        page, settings, PAST_WEEK_LABEL, PAST_WEEK_TPR, reset_start=True
+    return await select_date_range_value(
+        page, settings, PAST_WEEK_VALUE, reset_start=True
     )
 
 
@@ -302,6 +326,7 @@ __all__ = [
     "read_date_controls",
     "read_date_options",
     "select_date_range",
+    "select_date_range_value",
     "select_past_24_hours",
     "select_past_week",
     "wait_for_past_24_hours_option",

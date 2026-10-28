@@ -2,14 +2,20 @@
 
 Runs on an already-open page: waits for the human login gate, performs the
 search (including the optional AI detour), selects the **Easy Apply** filter,
-then selects **Date posted → Past 24 hours** and re-checks Easy Apply because
-the date filter reloads the page. The run stops with a clear note when either
-filter cannot be verified; it never opens a job or submits an application.
+then selects the **Date posted** range the user chose at startup (**Past 24
+hours** or **Past week**) and re-checks Easy Apply because the date filter
+reloads the page. The run stops with a clear note when either filter cannot be
+verified; it never opens a job or submits an application.
 """
 
 from __future__ import annotations
 
 from src.configuration import Settings, load_settings
+from src.date_range import (
+    DEFAULT_DATE_RANGE,
+    date_range_option,
+    normalize_date_range,
+)
 from src.state import Task1Outcome
 from src.tools.browser import (
     _append_note,
@@ -21,11 +27,10 @@ from src.tools.browser import (
     capture_failure_screenshot,
 )
 from src.tools.linkedin_date_posted import (
-    PAST_24_HOURS_VALUE,
-    date_posted_filter_applied,
+    date_range_applied,
     read_date_controls,
     read_date_options,
-    select_past_24_hours,
+    select_date_range_value,
 )
 from src.tools.linkedin_search.ai_search import run_ai_job_search_detour
 from src.tools.linkedin_search.easy_apply_filter import (
@@ -46,8 +51,16 @@ async def _task1_on_page(
     search_query: str,
     settings: Settings,
     notify,
+    date_range: str = DEFAULT_DATE_RANGE,
 ) -> Task1Outcome:
-    """Run Task 1 steps on an already-open page (no session lifecycle)."""
+    """Run Task 1 steps on an already-open page (no session lifecycle).
+
+    ``date_range`` is the range the user chose at startup (``past_24_hours`` or
+    ``past_week``). Task 1 applies exactly that Date posted filter; Task 2 later
+    scans it first and falls back to the other range when it is exhausted.
+    """
+    requested_range = normalize_date_range(date_range) or DEFAULT_DATE_RANGE
+    range_label, range_tpr = date_range_option(requested_range)
     outcome = Task1Outcome(start_url=url, search_query=search_query)
     emit_step(notify, "Please wait - opening LinkedIn and waiting for you to log in...")
     await page.goto(url)
@@ -95,12 +108,14 @@ async def _task1_on_page(
 
             emit_step(
                 notify,
-                "Please wait - selecting the Date posted filter (Past 24 hours)...",
+                f"Please wait - selecting the Date posted filter ({range_label})...",
             )
-            date_selected, date_note = await select_past_24_hours(page, settings)
+            date_selected, date_note = await select_date_range_value(
+                page, settings, requested_range, reset_start=False
+            )
             outcome.date_posted_filter_selected = date_selected
             if date_selected:
-                outcome.date_posted_filter_value = PAST_24_HOURS_VALUE
+                outcome.date_posted_filter_value = requested_range
             else:
                 controls = [
                     control.get("label", "")
@@ -134,23 +149,27 @@ async def _task1_on_page(
                 outcome.easy_apply_filter_selected = selected
                 outcome.notes = _append_note(outcome.notes, note)
 
-                if selected and not await date_posted_filter_applied(page):
-                    date_selected, date_note = await select_past_24_hours(page, settings)
+                if selected and not await date_range_applied(page, range_tpr):
+                    date_selected, date_note = await select_date_range_value(
+                        page, settings, requested_range, reset_start=False
+                    )
                     outcome.date_posted_filter_selected = date_selected
                     outcome.date_posted_filter_value = (
-                        PAST_24_HOURS_VALUE if date_selected else ""
+                        requested_range if date_selected else ""
                     )
                     outcome.notes = _append_note(outcome.notes, date_note)
 
             # Final date check: the range must still be applied to the results
             # (not just checked in a popover) before Task 2 starts.
-            if outcome.date_posted_filter_selected and not await date_posted_filter_applied(
-                page
+            if outcome.date_posted_filter_selected and not await date_range_applied(
+                page, range_tpr
             ):
-                date_selected, date_note = await select_past_24_hours(page, settings)
+                date_selected, date_note = await select_date_range_value(
+                    page, settings, requested_range, reset_start=False
+                )
                 outcome.date_posted_filter_selected = date_selected
                 outcome.date_posted_filter_value = (
-                    PAST_24_HOURS_VALUE if date_selected else ""
+                    requested_range if date_selected else ""
                 )
                 outcome.notes = _append_note(outcome.notes, date_note)
                 if date_selected and not await easy_apply_filter_selected(page):
@@ -170,7 +189,7 @@ async def _task1_on_page(
                 )
                 outcome.easy_apply_filter_selected = selected
                 outcome.notes = _append_note(outcome.notes, note)
-                if selected and not await date_posted_filter_applied(page):
+                if selected and not await date_range_applied(page, range_tpr):
                     outcome.date_posted_filter_selected = False
                     outcome.date_posted_filter_value = ""
                     outcome.notes = _append_note(
@@ -197,6 +216,7 @@ async def run_task1(
     search_query: str,
     settings: Settings | None = None,
     progress=None,
+    date_range: str = DEFAULT_DATE_RANGE,
 ) -> Task1Outcome:
     """Run Task 1 only: log in (waiting for the user if needed), search, filter."""
     settings = settings or load_settings()
@@ -205,7 +225,9 @@ async def run_task1(
     try:
         await session.start()
         page = await session.new_page()
-        outcome = await _task1_on_page(page, url, search_query, settings, notify)
+        outcome = await _task1_on_page(
+            page, url, search_query, settings, notify, date_range=date_range
+        )
         if not _task1_ok(outcome):
             outcome.screenshot_path = await capture_failure_screenshot(session, settings, "task1")
         return outcome

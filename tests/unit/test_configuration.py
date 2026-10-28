@@ -38,9 +38,9 @@ def test_defaults_are_safe() -> None:
     assert settings.session.ask_poll_seconds == 1.0
     assert settings.session.clean_stale_profile is True
     assert settings.session.skip_applied is True
-    # Task 16: strict resume matching is the default, with a skip cap.
+    # Task 16: strict resume matching is the default, with no skip cap.
     assert settings.session.require_resume_match is True
-    assert settings.session.max_skipped_jobs_per_run == 100
+    assert settings.session.max_skipped_jobs_per_run == 0
     assert settings.session.max_jobs_per_run == 35
     assert settings.self_healing.enabled is True
     assert settings.self_healing.max_repair_attempts == 3

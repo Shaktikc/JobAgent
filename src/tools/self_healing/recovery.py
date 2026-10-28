@@ -19,6 +19,7 @@ from pathlib import Path
 from urllib.parse import quote_plus
 
 from src.configuration import PROJECT_ROOT, Settings
+from src.date_range import PAST_24_HOURS_TPR, date_range_tpr_for
 from src.state import DEFAULT_LOGIN_URL, JobDescription, Task2Outcome
 from src.tools.self_healing.models import CapturedFailure, FailureRecord, JobTarget
 
@@ -172,8 +173,12 @@ async def _open_target(
     cards = await find_card_by_title(page, title)
     if cards is None:
         query = quote_plus(target.search_query or title)
+        range_tpr = date_range_tpr_for(target.date_range) or PAST_24_HOURS_TPR
         notify("self-heal: the job was not on the current list; searching again...")
-        u = f"https://www.linkedin.com/jobs/search/?keywords={query}&f_AL=true&f_TPR=r86400"
+        u = (
+            f"https://www.linkedin.com/jobs/search/?keywords={query}"
+            f"&f_AL=true&f_TPR={range_tpr}"
+        )
         await page.goto(u)
         await _wait_for_load(page, settings.session.easy_apply_timeout_seconds)
         deadline = time.monotonic() + settings.session.easy_apply_timeout_seconds
@@ -204,11 +209,15 @@ async def reopen_same_job(
     from src.tools.linkedin_best_matching_resume import read_job_description
 
     notify("self-heal: launching a fresh browser and returning to the same job...")
+    start_kwargs: dict = {}
+    if target.date_range:
+        start_kwargs["date_range"] = target.date_range
     outcome, run_id = await start_tasks(
         target.login_url or DEFAULT_LOGIN_URL,
         target.search_query or "",
         settings,
         notify,
+        **start_kwargs,
     )
     if not run_id:
         reason = outcome.task2.notes or outcome.task1.notes or "browser launch failed"
@@ -250,6 +259,7 @@ def job_target_from_state(state: dict) -> JobTarget:
         company=description.company or "",
         search_query=state.get("search_query") or "",
         login_url=state.get("url") or "",
+        date_range=state.get("date_range") or "",
     )
 
 
