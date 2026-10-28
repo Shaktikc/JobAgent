@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import json
 import sys
+from pathlib import Path
 
 from src.configuration import load_settings
 from src.graph import graph
@@ -64,6 +65,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=(
             "Close leftover AutoJobApply browser processes still holding the profile "
             "(e.g. after an interrupted run) and exit."
+        ),
+    )
+    parser.add_argument(
+        "--describe-new-resumes",
+        action="store_true",
+        help=(
+            "Task 15: describe every resume in the new-resumes folder, then move each "
+            "described file into the existing resumes folder (no browser)."
         ),
     )
     return parser.parse_args(argv)
@@ -196,6 +205,34 @@ def _clean_profile() -> int:
     return 0
 
 
+async def _describe_new_resumes(args: argparse.Namespace) -> int:
+    """Task 15: describe + move the intake resumes without launching a browser."""
+    from src.tools.resume_intake import process_new_resumes  # lazy: keeps the CLI light
+
+    settings = load_settings()
+    resumes_dir = Path(args.resumes_dir) if args.resumes_dir else settings.resumes_dir
+    new_resumes_dir = settings.new_resumes_path or (resumes_dir / "new")
+    outcome = await process_new_resumes(resumes_dir, new_resumes_dir, settings)
+
+    print(f"intake      : {outcome.intake_dir}")
+    print(f"resumes     : {outcome.resumes_dir}")
+    print(f"found       : {outcome.found}")
+    print(f"described   : {outcome.described}")
+    print(f"reused      : {outcome.reused}")
+    print(f"moved       : {outcome.moved}")
+    print(f"failed      : {outcome.failed}")
+    for item in outcome.files:
+        destination = f" -> {item.destination}" if item.destination else ""
+        status = item.status or "failed"
+        reused = " (reused)" if item.description_reused else ""
+        print(f"  {Path(item.source).name}: {status}{reused}{destination}")
+    for error in outcome.errors:
+        print(f"  ! {error}")
+    if not outcome.found:
+        print("new resumes : none")
+    return 0 if outcome.ok else 1
+
+
 def _silence_windows_pipe_noise() -> None:
     """Suppress a harmless Windows shutdown artifact from the browser subprocess.
 
@@ -223,6 +260,12 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     if args.clean_profile:
         return _clean_profile()
+    if args.describe_new_resumes:
+        try:
+            return asyncio.run(_describe_new_resumes(args))
+        except Exception as exc:  # noqa: BLE001 - surface a clean CLI error
+            print(f"error: could not process new resumes: {exc}", file=sys.stderr)
+            return 1
 
     try:
         state = asyncio.run(_run(args))

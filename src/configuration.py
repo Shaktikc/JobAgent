@@ -162,6 +162,9 @@ class Settings(BaseModel):
     self_healing: SelfHealingSettings = Field(default_factory=SelfHealingSettings)
     data_dir: Path = PROJECT_ROOT / "data"
     resumes_dir: Path = PROJECT_ROOT / "resumes"
+    # Task 15: explicit intake-folder override. When unset, the intake folder is
+    # ``<resumes_dir>/new`` (see :attr:`new_resumes_dir`).
+    new_resumes_path: Path | None = None
     answers_path: Path | None = None
     # Task 10.3: cached answers the LLM derived from the store (kept apart from
     # the human-confirmed answers.json).
@@ -180,6 +183,15 @@ class Settings(BaseModel):
     def debug_dir(self) -> Path:
         """Where failure screenshots are written."""
         return self.data_dir / "debug"
+
+    @property
+    def new_resumes_dir(self) -> Path:
+        """Task 15: intake folder for resumes described before they join the pool.
+
+        Defaults to ``<resumes_dir>/new`` so the intake folder moves files into
+        the existing resume pool. An explicit ``AUTOJOB_NEW_RESUMES_DIR`` wins.
+        """
+        return self.new_resumes_path or (self.resumes_dir / "new")
 
     @property
     def answers_file(self) -> Path:
@@ -207,6 +219,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
     _load_env_file(env_file)
     data_dir = _get_str("AUTOJOB_DATA_DIR")
     resumes_dir = _get_str("AUTOJOB_RESUMES_DIR")
+    new_resumes_path = _get_str("AUTOJOB_NEW_RESUMES_DIR")
     answers_path = _get_str("AUTOJOB_ANSWERS_FILE")
     derived_answers_path = _get_str("AUTOJOB_DERIVED_ANSWERS_FILE")
     resume_library_path = _get_str("AUTOJOB_RESUME_LIBRARY")
@@ -263,6 +276,9 @@ def load_settings(env_file: Path | None = None) -> Settings:
         ),
         data_dir=Path(data_dir).expanduser() if data_dir else PROJECT_ROOT / "data",
         resumes_dir=(Path(resumes_dir).expanduser() if resumes_dir else PROJECT_ROOT / "resumes"),
+        new_resumes_path=(
+            Path(new_resumes_path).expanduser() if new_resumes_path else None
+        ),
         answers_path=Path(answers_path).expanduser() if answers_path else None,
         derived_answers_path=(
             Path(derived_answers_path).expanduser() if derived_answers_path else None

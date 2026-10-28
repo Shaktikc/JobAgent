@@ -29,6 +29,7 @@ from src.tools.resume_descriptions import (
     pick_best_resume,
     store_description,
 )
+from src.tools.resume_intake import process_new_resumes
 from src.tools.resume_library import (
     find_reusable_resume,
     load_library,
@@ -49,24 +50,60 @@ async def ensure_resume(
     asker=None,
     describer=None,
     matcher=None,
+    new_resumes_dir: str | Path | None = None,
 ) -> Task3Outcome:
     """Select the best resume, falling back to the human when nothing matches.
 
     Task 3.2: every resume in the pool is described by the **LLM**, then the LLM
-    chooses the single best match (or **none**). Task 3.1: when the LLM answers
-    **none**, reuse a resume already remembered for a similar job; otherwise ask
-    the human for one in the browser, store it in the pool, have the **LLM**
-    describe it, and use it directly. ``asker``/``describer``/``matcher`` are
-    injectable for tests.
+    chooses the single best match (or **none**). Task 15 first describes resumes
+    in the intake folder, moves them into the pool, and then includes them in the
+    match. Task 3.1: when the LLM answers **none**, reuse a resume already
+    remembered for a similar job; otherwise ask the human for one in the browser,
+    store it in the pool, have the **LLM** describe it, and use it directly.
+    ``asker``/``describer``/``matcher`` are injectable for tests.
     """
     notify = notify or (lambda _message: None)
-    files = list_resume_files(resumes_dir)
-    outcome = Task3Outcome(
-        job_description=description,
-        resumes_dir=str(resumes_dir),
-        resumes_found=len(files),
-    )
     store_path = settings.resume_descriptions_file
+    intake_dir = (
+        Path(new_resumes_dir)
+        if new_resumes_dir is not None
+        else (settings.new_resumes_path or Path(resumes_dir) / "new")
+    )
+    outcome = Task3Outcome(job_description=description, resumes_dir=str(resumes_dir))
+
+    async def _describe_intake(path):
+        """Describe one intake resume, showing the Task 9 LLM status lines."""
+        emit_llm(notify, f"summarizing new resume {Path(path).name!r}...")
+        started = time.monotonic()
+        description = await (describer or (lambda item: describe_resume(item, settings)))(path)
+        elapsed = time.monotonic() - started
+        emit_llm(
+            notify,
+            f"described new resume {Path(path).name!r} in {elapsed:.1f}s",
+            description.summary or "(no summary)",
+        )
+        return description
+
+    # Task 15: describe and move the intake resumes before the normal match.
+    intake = await process_new_resumes(
+        Path(resumes_dir),
+        intake_dir,
+        settings,
+        describe=_describe_intake,
+        notify=lambda message: emit_step(notify, message),
+    )
+    outcome.notes = _append_note(outcome.notes, intake.summary)
+    if not intake.ok:
+        first_error = intake.errors[0] if intake.errors else "intake processing failed"
+        outcome.error = f"match: {first_error}"
+        outcome.notes = _append_note(
+            outcome.notes, "could not process the new-resumes folder"
+        )
+        emit_step(notify, f"Task 15: {first_error}")
+        return outcome
+
+    files = list_resume_files(resumes_dir)
+    outcome.resumes_found = len(files)
     job_label = description.title.strip() or "this job"
     emit_step(
         notify,

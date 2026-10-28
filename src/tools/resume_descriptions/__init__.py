@@ -31,6 +31,7 @@ from .store import (
     ensure_descriptions,
     is_fresh,
     load_descriptions,
+    move_description,
     save_descriptions,
     store_description,
 )
@@ -49,6 +50,7 @@ __all__ = [
     "ensure_descriptions",
     "is_fresh",
     "load_descriptions",
+    "move_description",
     "parse_description",
     "parse_match",
     "pick_best_resume",

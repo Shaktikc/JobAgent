@@ -69,6 +69,10 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
    `data/resume_descriptions.json`, then asks the LLM to pick the single
    best-matching resume, or **none**. The LLM is the only matching path — there is
    no deterministic scoring fallback. Resume files are never modified.
+   - **Task 15:** first processes resumes placed in `resumes/new/`: Task 3.2
+     describes each one, then the file is moved into `resumes/` without
+     overwriting an existing resume. The description entry follows the file, and
+     the moved resume joins the matching pool.
    - **Task 3.1:** when the LLM answers **none**, the agent first reuses a resume
      it remembered for a similar job; otherwise it shows a banner with a file
      picker, **pauses for you to upload a resume**, stores it in the folder, has
@@ -270,6 +274,9 @@ cp .env.example .env           # optional; defaults are safe
 ```
 
 Put one or more resumes in `resumes/` (supported: `.pdf`, `.docx`, `.txt`, `.md`).
+To add a resume later, put it in `resumes/new/`; Task 3.2 describes it and moves
+it into `resumes/` on the next matching run (or run
+`uv run autojob --describe-new-resumes` to do it immediately, without a browser).
 
 Task 4.1/10 needs an LLM to classify questions and answer them. Set it in `.env`:
 
@@ -327,6 +334,9 @@ uv run autojob --dry-run
 # reads the job, picks a resume, and fills the form (never submits).
 uv run autojob --no-dry-run
 uv run autojob --no-dry-run --query "software engineer" --resumes-dir ./resumes
+
+# Task 15: describe resumes in resumes/new/, then move them into resumes/
+uv run autojob --describe-new-resumes
 ```
 
 Exit code is `0` only when all acceptance criteria pass. Add `--json` for the raw
@@ -410,12 +420,14 @@ src/
     matching.py      Pure keyword helpers (skills, titles, seniority) for 3.1 profiles
     answers.py       Question -> answer store (read by Task 4.1/10, written by Task 5)
     resume_library.py  Task 3.1: job profiles -> human-provided resumes
+    resume_intake.py   Task 15: describe new resumes, then move them into the pool
     forms.py         Pure Easy Apply form helpers (resume match, next/submit)
     self_healing/    Task 11: failure fingerprint, evidence capture, bug log, bounded
                      close/reopen/resume loop, optional OpenCode repair+test hook
   main.py            CLI entry point
 scripts/             Task 11: self_heal_repair.py hands a failure bundle to OpenCode
 resumes/             Candidate resumes (.pdf, .docx, .txt, .md)
+resumes/new/         Task 15: intake resumes, described then moved into resumes/
 tests/
   unit/              Fast, offline tests
   integration/       Opt-in live browser / real-resume tests
@@ -477,6 +489,9 @@ tests/
   guessed. A checkbox (multi-select) question is answered as one group and keeps
   every option you tick; the agent never unticks a box you selected.
 - Task 3 only **reads** existing resumes — it never renames, moves, or edits them.
+  Task 15 is the one exception for the **intake folder**: after a resume in
+  `resumes/new/` is described, it is moved into `resumes/` without changing its
+  bytes or overwriting an existing file. The description entry follows the file.
 - Task 11 records a structural Easy Apply failure **before** recovery, never
   submits during recovery, and stops after the configured attempt cap instead of
   retrying or patching forever. If no repair command is set, it only reopens the

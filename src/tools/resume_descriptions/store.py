@@ -2,7 +2,8 @@
 
 The store maps a resume's canonical path to its LLM-written profile plus the
 file's mtime/size, so an unchanged resume is never re-extracted or re-summarised.
-Resume files themselves are never modified here.
+Task 15 can move an entry to a new path after the intake resume is moved into the
+main pool. Resume files themselves are never modified here.
 """
 
 from __future__ import annotations
@@ -95,6 +96,28 @@ def description_for(
     return ResumeDescription.model_validate(entry)
 
 
+def move_description(
+    path: str | Path, old_resume: str | Path, new_resume: str | Path
+) -> dict | None:
+    """Move a stored description from one resume path to another (Task 15).
+
+    Used after an intake resume is moved into the main pool; the description
+    follows the file and the old key is removed so no duplicate/stale entry is
+    left behind. Returns the updated entry, or ``None`` when the old path had no
+    description.
+    """
+    entries = load_descriptions(path)
+    old_key = canonical_path(old_resume)
+    entry = entries.pop(old_key, None)
+    if not isinstance(entry, dict):
+        return None
+    description = ResumeDescription.model_validate(entry)
+    updated = _entry_for(new_resume, description)
+    entries[canonical_path(new_resume)] = updated
+    save_descriptions(path, entries)
+    return updated
+
+
 def described_candidates(
     files: Sequence[str | Path], entries: dict[str, dict]
 ) -> list[tuple[str, ResumeDescription]]:
@@ -175,6 +198,7 @@ __all__ = [
     "ensure_descriptions",
     "is_fresh",
     "load_descriptions",
+    "move_description",
     "save_descriptions",
     "store_description",
 ]

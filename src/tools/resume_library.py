@@ -100,6 +100,37 @@ def remember_resume(path: str | Path, description: JobDescription, resume_path: 
     return entry
 
 
+def retarget_resume(path: str | Path, old_resume: str | Path, new_resume: str | Path) -> int:
+    """Point remembered-resume entries at a renamed/moved resume (Task 15).
+
+    Task 15 moves an intake resume into the main pool after describing it. Any
+    library entry that still points at the old path is updated so similar-job
+    reuse keeps working; returns the number of entries changed.
+    """
+    old_path = Path(old_resume)
+    try:
+        old_resolved = old_path.resolve()
+    except OSError:
+        old_resolved = old_path
+    new_value = str(new_resume)
+    entries = load_library(path)
+    changed = 0
+    for entry in entries:
+        stored = str(entry.get("resume") or "")
+        if not stored:
+            continue
+        try:
+            matches = Path(stored).resolve() == old_resolved or stored == str(old_resume)
+        except OSError:
+            matches = stored == str(old_resume)
+        if matches:
+            entry["resume"] = new_value
+            changed += 1
+    if changed:
+        save_library(path, entries)
+    return changed
+
+
 def find_reusable_resume(
     entries: list[dict],
     description: JobDescription,
@@ -164,6 +195,7 @@ __all__ = [
     "load_library",
     "profile_similarity",
     "remember_resume",
+    "retarget_resume",
     "save_library",
     "store_uploaded_resume",
 ]

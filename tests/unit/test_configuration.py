@@ -113,6 +113,19 @@ def test_resumes_dir_default_and_override(monkeypatch: pytest.MonkeyPatch, tmp_p
     assert load_settings().resumes_dir == tmp_path
 
 
+def test_new_resumes_dir_default_and_override(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    settings = load_settings()
+    assert settings.new_resumes_dir == settings.resumes_dir / "new"
+
+    monkeypatch.setenv("AUTOJOB_RESUMES_DIR", str(tmp_path / "pool"))
+    assert load_settings().new_resumes_dir == tmp_path / "pool" / "new"
+
+    monkeypatch.setenv("AUTOJOB_NEW_RESUMES_DIR", str(tmp_path / "intake"))
+    assert load_settings().new_resumes_dir == tmp_path / "intake"
+
+
 def test_answers_file_default_and_override(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     settings = load_settings()
     assert settings.answers_file == settings.data_dir / "answers.json"
