@@ -394,6 +394,10 @@ async def run_repair_and_test(
         "AUTOJOB_FAILURE_FINGERPRINT": captured.fingerprint,
         "AUTOJOB_FAILURE_CATEGORY": captured.category,
         "AUTOJOB_BUG_ID": record.bug_id,
+        # Task 14: the configured self-healing model wins for the spawned
+        # OpenCode session. It is independent of AUTOJOB_LLM_MODEL (the
+        # general-purpose model), which this command must never substitute.
+        "AUTOJOB_SELF_HEAL_REPAIR_MODEL": settings.self_healing.repair_model,
     }
     timeout = settings.self_healing.command_timeout_seconds
 

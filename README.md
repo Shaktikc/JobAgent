@@ -265,10 +265,14 @@ testable slices, adds a regression test, and updates the bug log before the loop
 reopens the job. Its output
 **streams live** to the run console (prefixed `self-heal:`) and is also saved to the
 bundle's `repair.log`/`tests.log`; the session is titled `self-heal <BUG-ID>` so it can
-be watched in the OpenCode TUI. The repair session reuses `AUTOJOB_LLM_MODEL` by
-default (mapped to OpenCode's `openrouter/...` id); set
-`AUTOJOB_SELF_HEAL_REPAIR_MODEL` / `..._AGENT` to override the model/agent, or
-`AUTOJOB_SELF_HEAL_OPENCODE` when the CLI is not on `PATH`.
+be watched in the OpenCode TUI. The repair session uses
+`AUTOJOB_SELF_HEAL_REPAIR_MODEL` (default `deepseek/deepseek-v4.1-flash-1017`,
+mapped to OpenCode's `openrouter/deepseek/deepseek-v4.1-flash-1017`) and never
+reuses `AUTOJOB_LLM_MODEL`; set `..._AGENT` to choose the OpenCode agent, or
+`AUTOJOB_SELF_HEAL_OPENCODE` when the CLI is not on `PATH`. A
+missing/unavailable repair model fails closed: the error stays in `repair.log`,
+the bug remains 🔴 Open, and the bounded loop stops without retrying on the
+general model.
 
 **Task 12 — answer job-specific questions from the job and your resume.** At the
 start of every fill (and every self-healed retry), the agent builds a fresh
@@ -316,12 +320,24 @@ To add a resume later, put it in `resumes/new/`; Task 3.2 describes it and moves
 it into `resumes/` on the next matching run (or run
 `uv run autojob --describe-new-resumes` to do it immediately, without a browser).
 
-Task 4.1/10 needs an LLM to classify questions and answer them. Set it in `.env`:
+Task 4.1/10 needs an LLM to classify questions and answer them. Two independent
+models are configured, one per purpose:
 
 ```bash
-OPENROUTER_API_KEY=sk-or-...          # required for Task 4.1
-AUTOJOB_LLM_MODEL=deepseek/deepseek-v4.1-flash
+OPENROUTER_API_KEY=sk-or-...                                     # shared credential
+AUTOJOB_LLM_MODEL=xiaomi/mimo-v2.6-pro                           # general-purpose
+AUTOJOB_SELF_HEAL_REPAIR_MODEL=deepseek/deepseek-v4.1-flash-1017 # repair agent
 ```
+
+The general model (MiMo-V2.6-Pro) handles resume descriptions, best-resume
+matching, form answers, and job-context answers. The self-healing model
+(DeepSeek V4.1 Flash 1017) is used only by the Task 11 repair agent; it defaults
+to DeepSeek even when the general model is MiMo. Changing one purpose's model
+never changes the other, and there is no cross-purpose fallback. Use the exact
+ids shown: the repair wrapper maps the default bare DeepSeek id to OpenCode's
+`openrouter/...` form, while an explicit override is passed to OpenCode verbatim
+(use a `provider/model` id to select another provider). The startup log names
+both resolved models for every run.
 
 Any OpenAI-compatible endpoint works via `AUTOJOB_LLM_BASE_URL`. Without a key
 and model, no answer is chosen and **every** question is handed to Task 5 (ask

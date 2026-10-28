@@ -5,9 +5,15 @@ from __future__ import annotations
 import sys
 import types
 
-from src.configuration import SessionSettings, Settings
+from src.configuration import (
+    LLMSettings,
+    SelfHealingSettings,
+    SessionSettings,
+    Settings,
+)
 from src.main import (
     _UNLIMITED_SKIP_BUDGET,
+    _log_models,
     _parse_args,
     _recursion_limit,
     _silence_windows_pipe_noise,
@@ -42,6 +48,23 @@ def test_recursion_limit_budgets_skipped_jobs_too() -> None:
     # 0 means no skip cap, not "no skip budget"; otherwise a long unmatched scan
     # would fail on the graph recursion limit instead of running to exhaustion.
     assert _recursion_limit(unlimited_skips) == 36 + _UNLIMITED_SKIP_BUDGET
+
+
+def test_startup_log_names_both_models(capsys) -> None:
+    """Task 14: every run's routing is auditable from the startup log."""
+    settings = Settings(
+        llm=LLMSettings(api_key="k", model="xiaomi/mimo-v2.6-pro"),
+        self_healing=SelfHealingSettings(
+            repair_model="deepseek/deepseek-v4.1-flash-1017"
+        ),
+    )
+
+    _log_models(settings)
+
+    out = capsys.readouterr().out
+    assert "general=xiaomi/mimo-v2.6-pro" in out
+    assert "self-healing=deepseek/deepseek-v4.1-flash-1017" in out
+    assert "opencode=openrouter/deepseek/deepseek-v4.1-flash-1017" in out
 
 
 def test_silences_only_the_closed_pipe_unraisable(monkeypatch) -> None:

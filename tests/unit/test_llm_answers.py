@@ -124,6 +124,21 @@ async def test_chooser_returns_the_stored_answer() -> None:
     assert fake.calls[0]["model"] == "m"
 
 
+async def test_chooser_uses_the_general_model_even_with_self_heal_set(monkeypatch) -> None:
+    """Task 14: the repair model never leaks into the general answer chooser."""
+    monkeypatch.setenv(
+        "AUTOJOB_SELF_HEAL_REPAIR_MODEL", "deepseek/deepseek-v4.1-flash-1017"
+    )
+    settings = LLMSettings(api_key="k", model="xiaomi/mimo-v2.6-pro")
+    chooser = LLMAnswerChooser(settings, dict(_ANSWERS))
+    fake = _FakeClient('{"category": "location", "matched_key": "city", "rationale": "r"}')
+    chooser._client = fake
+
+    await chooser("Which city are you in?", "text", [])
+
+    assert fake.calls[0]["model"] == settings.model == "xiaomi/mimo-v2.6-pro"
+
+
 async def test_chooser_treats_an_error_as_unknown() -> None:
     chooser = LLMAnswerChooser(LLMSettings(api_key="k", model="m"), dict(_ANSWERS))
     chooser._client = _FakeClient(error=RuntimeError("boom"))

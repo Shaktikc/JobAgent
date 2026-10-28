@@ -8,7 +8,7 @@ import json
 import sys
 from pathlib import Path
 
-from src.configuration import load_settings
+from src.configuration import load_settings, resolve_repair_model
 from src.date_range import (
     DEFAULT_DATE_RANGE,
     date_range_label,
@@ -242,8 +242,24 @@ def _recursion_limit(settings) -> int:
     return job_budget + skip_budget
 
 
+def _log_models(settings) -> None:
+    """Print the per-purpose model routing once at startup (Task 14).
+
+    The general model drives every non-healing LLM call; the self-healing model
+    drives the repair wrapper. They are configured independently, so naming both
+    here makes each run's routing auditable without reading the code.
+    """
+    general = settings.llm.model or "(not configured)"
+    repair = settings.self_healing.repair_model
+    print(
+        f"models      : general={general} self-healing={repair} "
+        f"opencode={resolve_repair_model(repair)}"
+    )
+
+
 async def _run(args: argparse.Namespace) -> ApplyState:
     settings = load_settings()
+    _log_models(settings)
     resumes_dir = args.resumes_dir or str(settings.resumes_dir)
     state = new_state(
         args.url,
@@ -278,6 +294,7 @@ async def _describe_new_resumes(args: argparse.Namespace) -> int:
     from src.tools.resume_intake import process_new_resumes  # lazy: keeps the CLI light
 
     settings = load_settings()
+    _log_models(settings)
     resumes_dir = Path(args.resumes_dir) if args.resumes_dir else settings.resumes_dir
     new_resumes_dir = settings.new_resumes_path or (resumes_dir / "new")
     outcome = await process_new_resumes(resumes_dir, new_resumes_dir, settings)

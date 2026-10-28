@@ -3,9 +3,12 @@
 The agent drives a browser (log in, search, select the Easy Apply filter, open a
 job's Easy Apply form, read the job description), matches resumes offline, and
 uses an LLM (Task 4.1/10) to answer questions from the store, so this exposes the
-browser session settings, the LLM settings, the resumes folder, and the data
-directory used for the persistent profile and debug screenshots. Variable names
-follow the flat ``AUTOJOB_*`` scheme documented in ``.env.example``.
+browser session settings, the LLM settings, the self-healing repair model, the
+resumes folder, and the data directory used for the persistent profile and debug
+screenshots. The general-purpose model (``AUTOJOB_LLM_MODEL``) and the
+self-healing model (``AUTOJOB_SELF_HEAL_REPAIR_MODEL``) are configured
+independently; there is no cross-purpose fallback. Variable names follow the flat
+``AUTOJOB_*`` scheme documented in ``.env.example``.
 """
 
 from __future__ import annotations
@@ -18,6 +21,48 @@ from pydantic import BaseModel, Field
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_ENV_FILE = PROJECT_ROOT / ".env"
+
+# Task 14: the self-healing repair agent has its own model, independent of the
+# general-purpose model in ``AUTOJOB_LLM_MODEL``. The Python app talks to
+# OpenRouter with bare ids; the repair wrapper adds the OpenCode provider prefix
+# (``openrouter/deepseek/...``) when it launches the CLI.
+DEFAULT_REPAIR_MODEL = "deepseek/deepseek-v4.1-flash-1017"
+OPENCODE_PROVIDER = "openrouter"
+
+
+def clean_model_id(value: str | None) -> str:
+    """Strip surrounding whitespace and quotes from a configured model id."""
+    return (value or "").strip().strip('"').strip("'").strip()
+
+
+def opencode_model_id(model_id: str | None) -> str:
+    """Return the OpenCode CLI id for an OpenRouter model id.
+
+    ``deepseek/deepseek-v4.1-flash-1017`` becomes
+    ``openrouter/deepseek/deepseek-v4.1-flash-1017``. An id that already names
+    the ``openrouter`` provider is returned unchanged.
+    """
+    value = clean_model_id(model_id)
+    if not value:
+        return ""
+    if value.startswith(f"{OPENCODE_PROVIDER}/"):
+        return value
+    return f"{OPENCODE_PROVIDER}/{value}"
+
+
+def resolve_repair_model(explicit: str | None = None) -> str:
+    """Resolve the self-healing model to the OpenCode CLI id.
+
+    An explicit override is used verbatim so another provider can be selected;
+    only the bare DeepSeek default is normalized to OpenCode's
+    ``openrouter/...`` form. The general-purpose model in
+    ``AUTOJOB_LLM_MODEL`` is never consulted: changing it must not change the
+    repair model, and vice versa.
+    """
+    value = clean_model_id(explicit)
+    if value and value != DEFAULT_REPAIR_MODEL:
+        return value
+    return opencode_model_id(DEFAULT_REPAIR_MODEL)
 
 
 def _load_env_file(env_file: Path | None) -> None:
@@ -33,6 +78,11 @@ def _get_str(name: str, default: str | None = None) -> str | None:
         return default
     value = value.strip()
     return value or default
+
+
+def _get_model(name: str, default: str) -> str:
+    """Read a model id, stripping whitespace/quotes and falling back to ``default``."""
+    return clean_model_id(os.environ.get(name)) or default
 
 
 def _get_int(name: str, default: int) -> int:
@@ -119,12 +169,13 @@ class SessionSettings(BaseModel):
 
 
 class LLMSettings(BaseModel):
-    """OpenRouter (OpenAI-compatible) text model used to answer form questions.
+    """General-purpose OpenRouter (OpenAI-compatible) text model.
 
-    Task 4.1/10 asks this model to classify each form question and answer it from
-    the answer store (copying a stored answer or deriving one the stored entries
-    entail). When it is not configured (no key or model),
-    no answer is chosen and every question is handed to Task 5 instead.
+    Every non-healing LLM path uses ``model`` (``AUTOJOB_LLM_MODEL``): resume
+    descriptions and best-resume matching (Task 3.2), form answers (Task 4.1/10),
+    and job-context answers (Task 12). When it is not configured (no key or
+    model), no answer is chosen and every question is handed to Task 5 instead.
+    The self-healing repair agent has its own model and never uses this one.
     """
 
     api_key: str | None = None
@@ -149,13 +200,21 @@ class SelfHealingSettings(BaseModel):
     """Task 11: bounded recovery when the Easy Apply form changes or crashes.
 
     ``repair_command`` is optional and opt-in. It runs **after** the failed browser
-    is closed, with ``AUTOJOB_FAILURE_BUNDLE`` and ``AUTOJOB_BUG_ID`` in its
-    environment; ``test_command`` then guards reopening. With neither configured,
-    the loop only restarts the browser and retries the same job.
+    is closed, with ``AUTOJOB_FAILURE_BUNDLE``, ``AUTOJOB_BUG_ID``, and the
+    configured ``repair_model`` in its environment; ``test_command`` then guards
+    reopening. With neither configured, the loop only restarts the browser and
+    retries the same job.
+
+    ``repair_model`` (``AUTOJOB_SELF_HEAL_REPAIR_MODEL``) is the **self-healing**
+    model, independent of the general-purpose ``llm.model``. It defaults to
+    DeepSeek V4.1 Flash 1017 for reasoning over code, evidence, and tests; the
+    repair wrapper maps the bare OpenRouter id to OpenCode's
+    ``openrouter/deepseek/...`` form.
     """
 
     enabled: bool = True
     max_repair_attempts: int = Field(default=3, ge=0, le=10)
+    repair_model: str = DEFAULT_REPAIR_MODEL
     repair_command: str | None = None
     test_command: str | None = None
     command_timeout_seconds: float = Field(default=900.0, gt=0)
@@ -277,6 +336,9 @@ def load_settings(env_file: Path | None = None) -> Settings:
         self_healing=SelfHealingSettings(
             enabled=_get_bool("AUTOJOB_SELF_HEAL_ENABLED", True),
             max_repair_attempts=_get_int("AUTOJOB_SELF_HEAL_MAX_ATTEMPTS", 3),
+            repair_model=_get_model(
+                "AUTOJOB_SELF_HEAL_REPAIR_MODEL", DEFAULT_REPAIR_MODEL
+            ),
             repair_command=_get_str("AUTOJOB_SELF_HEAL_REPAIR_COMMAND"),
             test_command=_get_str("AUTOJOB_SELF_HEAL_TEST_COMMAND"),
             command_timeout_seconds=_get_float(

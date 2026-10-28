@@ -25,7 +25,12 @@ from src.tools.self_healing.models import (
     JobTarget,
     SelfHealingOutcome,
 )
-from src.tools.self_healing.recovery import ReopenResult, _run_command, close_run_force
+from src.tools.self_healing.recovery import (
+    ReopenResult,
+    _run_command,
+    close_run_force,
+    run_repair_and_test,
+)
 
 
 async def _value(value):
@@ -371,6 +376,59 @@ async def test_repair_failure_stops_before_reopening(tmp_path: Path) -> None:
     assert commands == ["repair"]
     assert "repair command failed" in result.outcome.stop_reason
     assert (tmp_path / "bundle" / "repair.log").is_file()
+
+
+async def test_repair_command_gets_the_configured_repair_model(tmp_path: Path) -> None:
+    """Task 14: the spawned repair command receives the self-healing model."""
+    seen: list[dict[str, str]] = []
+
+    async def fake_command(command, cwd, env, timeout):
+        seen.append(dict(env))
+        return 0, "ok"
+
+    settings = _settings(
+        tmp_path,
+        repair_command="repair",
+        repair_model="openrouter/deepseek/deepseek-v4.1-flash-1017",
+    )
+
+    ok, detail = await run_repair_and_test(
+        settings,
+        _captured(tmp_path),
+        _record(tmp_path),
+        lambda _message: None,
+        command_fn=fake_command,
+    )
+
+    assert ok is True
+    assert detail == "repair command and tests passed"
+    assert seen
+    assert (
+        seen[0]["AUTOJOB_SELF_HEAL_REPAIR_MODEL"]
+        == "openrouter/deepseek/deepseek-v4.1-flash-1017"
+    )
+
+
+async def test_repair_command_defaults_to_deepseek(tmp_path: Path) -> None:
+    """An unset repair model still uses DeepSeek, never the general model."""
+    seen: list[dict[str, str]] = []
+
+    async def fake_command(command, cwd, env, timeout):
+        seen.append(dict(env))
+        return 0, "ok"
+
+    settings = _settings(tmp_path, repair_command="repair")
+
+    ok, _detail = await run_repair_and_test(
+        settings,
+        _captured(tmp_path),
+        _record(tmp_path),
+        lambda _message: None,
+        command_fn=fake_command,
+    )
+
+    assert ok is True
+    assert seen[0]["AUTOJOB_SELF_HEAL_REPAIR_MODEL"] == "deepseek/deepseek-v4.1-flash-1017"
 
 
 async def test_fill_node_uses_the_healing_result(monkeypatch, tmp_path: Path) -> None:

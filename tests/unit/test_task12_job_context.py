@@ -266,13 +266,43 @@ class _FailingClient:
         raise RuntimeError("boom")
 
 
+async def test_context_chooser_uses_the_general_model_even_with_self_heal_set(
+    monkeypatch,
+) -> None:
+    """Task 14: the repair model never leaks into the job-context answer chooser."""
+    monkeypatch.setenv(
+        "AUTOJOB_SELF_HEAL_REPAIR_MODEL", "deepseek/deepseek-v4.1-flash-1017"
+    )
+    settings = LLMSettings(api_key="k", model="xiaomi/mimo-v2.6-pro")
+    chooser = JobContextChooser(settings, _context())
+    fake = _FakeClient(
+        json.dumps(
+            {
+                "job_specific": True,
+                "answer": "I am drawn to Propeller's mission of making hiring fair.",
+                "sources": ["job_description"],
+                "evidence": [_JOB_EVIDENCE],
+                "rationale": "the mission matches my values",
+            }
+        )
+    )
+    chooser._client = fake
+
+    decision = await chooser(_QUESTION, "textarea", [])
+
+    assert decision.decided is True
+    assert fake.calls[0]["model"] == settings.model == "xiaomi/mimo-v2.6-pro"
+
+
 class _FakeClient:
     def __init__(self, content: str) -> None:
         self.content = content
+        self.calls: list[dict] = []
         self.chat = self
         self.completions = self
 
     async def create(self, **kwargs):
+        self.calls.append(kwargs)
         return SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content=self.content))]
         )

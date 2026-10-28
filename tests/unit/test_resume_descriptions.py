@@ -318,6 +318,31 @@ async def test_pick_best_resume_returns_the_choice(tmp_path) -> None:
     assert fake.calls[0]["model"] == "m"
 
 
+async def test_resume_calls_use_the_general_model_even_with_self_heal_set(
+    tmp_path, monkeypatch
+) -> None:
+    """Task 14: the general model drives both resume calls, never the repair model."""
+    monkeypatch.setenv(
+        "AUTOJOB_SELF_HEAL_REPAIR_MODEL", "deepseek/deepseek-v4.1-flash-1017"
+    )
+    settings = _settings(tmp_path, api_key="k", model="xiaomi/mimo-v2.6-pro")
+
+    resume = tmp_path / "r.txt"
+    resume.write_text("Python, AWS, 8 years", encoding="utf-8")
+    describe_fake = _FakeClient('{"summary": "Backend", "skills": ["Python"]}')
+    await describe_resume(resume, settings, client=describe_fake)
+    assert describe_fake.calls[0]["model"] == settings.llm.model == "xiaomi/mimo-v2.6-pro"
+
+    match_fake = _FakeClient('{"choice": "c1", "rationale": "r"}')
+    await pick_best_resume(
+        JobDescription(title="X", body="Y"),
+        [("a.pdf", ResumeDescription(summary="s"))],
+        settings,
+        client=match_fake,
+    )
+    assert match_fake.calls[0]["model"] == settings.llm.model
+
+
 async def test_pick_best_resume_requires_a_configured_llm(tmp_path) -> None:
     with pytest.raises(ResumeDescriptionError):
         await pick_best_resume(

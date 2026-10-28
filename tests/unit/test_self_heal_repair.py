@@ -13,6 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from scripts.self_heal_repair import (
+    DEFAULT_REPAIR_MODEL,
     SKILL_FILE,
     build_prompt,
     main,
@@ -89,35 +90,41 @@ def test_resolve_opencode_explains_a_missing_cli(monkeypatch) -> None:
         resolve_opencode()
 
 
-def test_resolve_model_reuses_the_agent_llm_model(monkeypatch) -> None:
+def test_resolve_model_defaults_to_deepseek(monkeypatch) -> None:
     monkeypatch.delenv("AUTOJOB_SELF_HEAL_REPAIR_MODEL", raising=False)
-    monkeypatch.setenv("AUTOJOB_LLM_MODEL", "deepseek/deepseek-v4.1-flash")
-    # OpenCode wants the provider prefix the project's LLM uses.
-    assert resolve_model() == "openrouter/deepseek/deepseek-v4.1-flash"
+    monkeypatch.delenv("AUTOJOB_LLM_MODEL", raising=False)
+    assert DEFAULT_REPAIR_MODEL == "deepseek/deepseek-v4.1-flash-1017"
+    assert resolve_model() == "openrouter/deepseek/deepseek-v4.1-flash-1017"
+
+
+def test_resolve_model_ignores_the_general_model(monkeypatch) -> None:
+    """Task 14: AUTOJOB_LLM_MODEL is the general model, never the repair fallback."""
+    monkeypatch.delenv("AUTOJOB_SELF_HEAL_REPAIR_MODEL", raising=False)
+    monkeypatch.setenv("AUTOJOB_LLM_MODEL", "xiaomi/mimo-v2.6-pro")
+    assert resolve_model() == "openrouter/deepseek/deepseek-v4.1-flash-1017"
+
+
+def test_resolve_model_normalizes_the_bare_default(monkeypatch) -> None:
+    """The Python settings inject the bare id; OpenCode needs the provider prefix."""
+    monkeypatch.setenv("AUTOJOB_SELF_HEAL_REPAIR_MODEL", DEFAULT_REPAIR_MODEL)
+    assert resolve_model() == "openrouter/deepseek/deepseek-v4.1-flash-1017"
 
 
 def test_resolve_model_keeps_an_already_qualified_provider(monkeypatch) -> None:
-    monkeypatch.delenv("AUTOJOB_SELF_HEAL_REPAIR_MODEL", raising=False)
-    monkeypatch.setenv("AUTOJOB_LLM_MODEL", "openrouter/deepseek/deepseek-v4.1-flash")
-    assert resolve_model() == "openrouter/deepseek/deepseek-v4.1-flash"
+    monkeypatch.setenv("AUTOJOB_SELF_HEAL_REPAIR_MODEL", "openrouter/deepseek/custom")
+    assert resolve_model() == "openrouter/deepseek/custom"
 
 
-def test_resolve_model_honors_the_explicit_override(monkeypatch) -> None:
+def test_resolve_model_honors_an_explicit_override_verbatim(monkeypatch) -> None:
     monkeypatch.setenv("AUTOJOB_SELF_HEAL_REPAIR_MODEL", "other/provider")
-    monkeypatch.setenv("AUTOJOB_LLM_MODEL", "deepseek/deepseek-v4.1-flash")
+    monkeypatch.setenv("AUTOJOB_LLM_MODEL", "xiaomi/mimo-v2.6-pro")
     assert resolve_model() == "other/provider"
 
 
-def test_resolve_model_is_empty_without_any_model(monkeypatch) -> None:
-    monkeypatch.delenv("AUTOJOB_SELF_HEAL_REPAIR_MODEL", raising=False)
-    monkeypatch.delenv("AUTOJOB_LLM_MODEL", raising=False)
-    assert resolve_model() == ""
-
-
-def test_main_uses_the_agent_llm_model_by_default(monkeypatch, bundle: Path) -> None:
+def test_main_uses_the_self_healing_model_by_default(monkeypatch, bundle: Path) -> None:
     _set_loop_env(monkeypatch, bundle)
     monkeypatch.delenv("AUTOJOB_SELF_HEAL_REPAIR_MODEL", raising=False)
-    monkeypatch.setenv("AUTOJOB_LLM_MODEL", "deepseek/deepseek-v4.1-flash")
+    monkeypatch.setenv("AUTOJOB_LLM_MODEL", "xiaomi/mimo-v2.6-pro")
     captured: dict = {}
 
     def fake_run(argv, **kwargs):
@@ -128,10 +135,10 @@ def test_main_uses_the_agent_llm_model_by_default(monkeypatch, bundle: Path) -> 
 
     assert main() == 0
     argv = captured["argv"]
-    assert argv[argv.index("--model") + 1] == "openrouter/deepseek/deepseek-v4.1-flash"
+    assert argv[argv.index("--model") + 1] == "openrouter/deepseek/deepseek-v4.1-flash-1017"
 
 
-def test_main_builds_the_opencode_argv(monkeypatch, bundle: Path) -> None:
+def test_main_builds_the_opencode_argv(monkeypatch, bundle: Path, capsys) -> None:
     report = _set_loop_env(monkeypatch, bundle)
     monkeypatch.setenv("AUTOJOB_SELF_HEAL_REPAIR_STANDALONE", "true")
     monkeypatch.setenv("AUTOJOB_SELF_HEAL_REPAIR_MODEL", "provider/model")
@@ -159,6 +166,8 @@ def test_main_builds_the_opencode_argv(monkeypatch, bundle: Path) -> None:
     assert "BUG-099" in argv[-1]
     # The wrapper passes argv to the OS; it must never route the prompt through a shell.
     assert captured["kwargs"].get("shell", False) is False
+    # The repair log names the resolved self-healing model explicitly.
+    assert "self-healing model provider/model" in capsys.readouterr().out
 
 
 def test_main_propagates_the_opencode_exit_code(monkeypatch, bundle: Path) -> None:

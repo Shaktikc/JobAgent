@@ -12,8 +12,16 @@ the project root::
 The CLI returns non-zero when the agent fails, so the loop's
 ``AUTOJOB_SELF_HEAL_TEST_COMMAND`` can then guard reopening with the project's tests.
 Nothing here touches the browser or the application; it only asks the agent to fix
-the code. The session reuses ``AUTOJOB_LLM_MODEL`` by default (mapped to OpenCode's
-``openrouter/...`` id); set ``AUTOJOB_SELF_HEAL_REPAIR_MODEL`` to override it,
+the code.
+
+The repair session uses the **self-healing** model
+(``AUTOJOB_SELF_HEAL_REPAIR_MODEL``), which defaults to DeepSeek V4.1 Flash 1017
+(``deepseek/deepseek-v4.1-flash-1017``). It is deliberately independent of the
+general-purpose ``AUTOJOB_LLM_MODEL``: this wrapper never reads that variable.
+The Python app uses bare OpenRouter ids, while the OpenCode CLI expects a
+``provider/model`` id, so the bare DeepSeek default is mapped to
+``openrouter/deepseek/deepseek-v4.1-flash-1017``; an explicit override is used
+verbatim so another provider can be selected. Set
 ``AUTOJOB_SELF_HEAL_REPAIR_AGENT`` to pick an OpenCode agent, and
 ``AUTOJOB_SELF_HEAL_REPAIR_STANDALONE`` to start a private server instead of
 attaching to the background one.
@@ -26,6 +34,9 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+from src.configuration import DEFAULT_REPAIR_MODEL as DEFAULT_REPAIR_MODEL
+from src.configuration import resolve_repair_model
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_REPORT = "report.md"
@@ -106,21 +117,15 @@ def resolve_opencode() -> list[str]:
 
 
 def resolve_model() -> str:
-    """Model id for the repair session, defaulting to the agent's LLM model.
+    """Model id for the repair session, defaulting to DeepSeek V4.1 Flash 1017.
 
-    ``AUTOJOB_SELF_HEAL_REPAIR_MODEL`` wins. Otherwise reuse ``AUTOJOB_LLM_MODEL``
-    so the repair agent thinks with the same model as the rest of the agent; the
-    project answers questions through OpenRouter, so an unqualified id gets the
-    ``openrouter/`` provider prefix OpenCode expects. Set the explicit variable to
-    point at a different provider.
+    Only ``AUTOJOB_SELF_HEAL_REPAIR_MODEL`` is consulted. ``AUTOJOB_LLM_MODEL`` is
+    the general-purpose model and must never be reused here: changing one purpose's
+    model must not silently change the other. An explicit override is used
+    verbatim so another provider can be selected; the bare DeepSeek default gets
+    OpenCode's ``openrouter/`` provider prefix.
     """
-    explicit = _env("AUTOJOB_SELF_HEAL_REPAIR_MODEL")
-    if explicit:
-        return explicit
-    shared = _env("AUTOJOB_LLM_MODEL").strip().strip('"').strip("'")
-    if not shared:
-        return ""
-    return shared if shared.startswith("openrouter/") else f"openrouter/{shared}"
+    return resolve_repair_model(os.environ.get("AUTOJOB_SELF_HEAL_REPAIR_MODEL"))
 
 
 def _bundle_from_env() -> Path:
@@ -196,6 +201,7 @@ def main() -> int:
     print(f"self-heal repair: launching OpenCode for {_env('AUTOJOB_BUG_ID') or 'the failure'}")
     print(f"self-heal repair: bundle {bundle}")
     print(f"self-heal repair: session title {title!r} (watch it in the OpenCode TUI)")
+    print(f"self-heal repair: self-healing model {model or '(none)'}")
     print(f"self-heal repair: command {' '.join(argv[: len(argv) - 1])} <prompt>")
 
     try:

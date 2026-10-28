@@ -6,7 +6,7 @@ import pathlib
 
 import pytest
 
-from src.configuration import SessionSettings, load_settings
+from src.configuration import DEFAULT_REPAIR_MODEL, SessionSettings, load_settings
 
 
 @pytest.fixture(autouse=True)
@@ -44,6 +44,7 @@ def test_defaults_are_safe() -> None:
     assert settings.session.max_jobs_per_run == 35
     assert settings.self_healing.enabled is True
     assert settings.self_healing.max_repair_attempts == 3
+    assert settings.self_healing.repair_model == DEFAULT_REPAIR_MODEL
     assert settings.self_healing.repair_command is None
     assert settings.self_healing.test_command is None
 
@@ -68,6 +69,7 @@ def test_env_overrides_are_read(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AUTOJOB_SESSION_MAX_JOBS", "3")
     monkeypatch.setenv("AUTOJOB_SELF_HEAL_ENABLED", "false")
     monkeypatch.setenv("AUTOJOB_SELF_HEAL_MAX_ATTEMPTS", "2")
+    monkeypatch.setenv("AUTOJOB_SELF_HEAL_REPAIR_MODEL", "custom/repair-model")
     monkeypatch.setenv("AUTOJOB_SELF_HEAL_REPAIR_COMMAND", "repair --bundle")
     monkeypatch.setenv("AUTOJOB_SELF_HEAL_TEST_COMMAND", "pytest")
     monkeypatch.setenv("AUTOJOB_SELF_HEAL_COMMAND_TIMEOUT_SECONDS", "30")
@@ -93,6 +95,7 @@ def test_env_overrides_are_read(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.session.max_jobs_per_run == 3
     assert settings.self_healing.enabled is False
     assert settings.self_healing.max_repair_attempts == 2
+    assert settings.self_healing.repair_model == "custom/repair-model"
     assert settings.self_healing.repair_command == "repair --bundle"
     assert settings.self_healing.test_command == "pytest"
     assert settings.self_healing.command_timeout_seconds == 30.0
@@ -174,6 +177,41 @@ def test_llm_settings_default_and_override(monkeypatch: pytest.MonkeyPatch) -> N
     assert llm.timeout_seconds == 30.0
     assert llm.max_retries == 1
     assert llm.disable_reasoning is False
+
+
+def test_repair_model_is_independent_of_the_general_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Task 14: each purpose's model changes on its own; no cross-fallback."""
+    monkeypatch.setenv("AUTOJOB_LLM_MODEL", "xiaomi/mimo-v2.6-pro")
+    monkeypatch.setenv("AUTOJOB_SELF_HEAL_REPAIR_MODEL", DEFAULT_REPAIR_MODEL)
+
+    settings = load_settings()
+    assert settings.llm.model == "xiaomi/mimo-v2.6-pro"
+    assert settings.self_healing.repair_model == DEFAULT_REPAIR_MODEL
+
+    # Changing the general model must not move the repair model.
+    monkeypatch.setenv("AUTOJOB_LLM_MODEL", "another/general-model")
+    settings = load_settings()
+    assert settings.llm.model == "another/general-model"
+    assert settings.self_healing.repair_model == DEFAULT_REPAIR_MODEL
+
+    # Changing the repair model must not move the general model.
+    monkeypatch.setenv("AUTOJOB_SELF_HEAL_REPAIR_MODEL", "another/repair-model")
+    settings = load_settings()
+    assert settings.llm.model == "another/general-model"
+    assert settings.self_healing.repair_model == "another/repair-model"
+
+
+def test_repair_model_strips_quotes_and_falls_back_when_blank(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AUTOJOB_SELF_HEAL_REPAIR_MODEL", '  "deepseek/custom"  ')
+    assert load_settings().self_healing.repair_model == "deepseek/custom"
+
+    monkeypatch.setenv("AUTOJOB_SELF_HEAL_REPAIR_MODEL", "   ")
+    # A blank value falls back to the DeepSeek default, never to AUTOJOB_LLM_MODEL.
+    assert load_settings().self_healing.repair_model == DEFAULT_REPAIR_MODEL
 
 
 def test_invalid_values_are_rejected() -> None:

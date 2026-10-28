@@ -244,6 +244,26 @@ async def test_chooser_derives_validates_and_caches(tmp_path) -> None:
     assert answers == _STORE
 
 
+async def test_reasoning_chooser_uses_the_general_model_even_with_self_heal_set(
+    tmp_path, monkeypatch
+) -> None:
+    """Task 14: the repair model never leaks into the general reasoning chooser."""
+    monkeypatch.setenv(
+        "AUTOJOB_SELF_HEAL_REPAIR_MODEL", "deepseek/deepseek-v4.1-flash-1017"
+    )
+    settings = LLMSettings(api_key="k", model="xiaomi/mimo-v2.6-pro")
+    chooser = ReasoningAnswerChooser(settings, dict(_STORE), tmp_path / "derived.json")
+    fake = _FakeClient(
+        json.dumps({"category": "experience", "answer": "Yes", "source_keys": [_AI_KEY]})
+    )
+    chooser._client = fake
+
+    decision = await chooser("Experience on AI?", "radio", ["Yes", "No"])
+
+    assert decision.decided is True
+    assert fake.calls[0]["model"] == settings.model == "xiaomi/mimo-v2.6-pro"
+
+
 async def test_chooser_reuses_the_cache_without_an_llm_call(tmp_path) -> None:
     cache_file = tmp_path / "derived_answers.json"
     save_derived_answer(cache_file, "Experience on AI?", "Yes", [_AI_KEY], {_AI_KEY: "5"})

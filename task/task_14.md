@@ -1,6 +1,6 @@
 # Task 14 — Route LLM work per purpose: MiMo-V2.6-Pro for general tasks, DeepSeek V4.1 Flash 1017 for self-healing
 
-**Status:** ⬜ Not started
+**Status:** 🟡 In progress
 
 **Goal:** Give the agent **two independently configured models** instead of one
 shared model:

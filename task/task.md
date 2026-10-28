@@ -15,7 +15,7 @@ Each task lives in its own file. This index links to them.
 - [Self-Healing Loop — record, fix, and resume after a new Easy Apply crash](self_healing_loop.md) — 🟡 In progress
 - [Task 12 — Answer job-specific questions from the selected resume and job description](task_12.md) — ✅ Done
 - [Task 13 — Select the Date posted filter to "Past 24 hours"](task_13.md) — ✅ Done
-- [Task 14 — Route LLM work per purpose: MiMo-V2.6-Pro for general tasks, DeepSeek V4.1 Flash 1017 for self-healing](task_14.md) — ⬜ Not started
+- [Task 14 — Route LLM work per purpose: MiMo-V2.6-Pro for general tasks, DeepSeek V4.1 Flash 1017 for self-healing](task_14.md) — 🟡 In progress
 - [Task 15 — Auto-describe resumes in the new-resumes folder, then move them into resumes/ (Task 3.2)](task_15.md) — ✅ Done
 - [Task 16 — Apply only when an existing resume matches the job; skip unmatched jobs](task_16.md) — ✅ Done
 - [Task 17 — Fall back to "Past week" when the Past 24 hours results are exhausted](task_17.md) — ✅ Done
