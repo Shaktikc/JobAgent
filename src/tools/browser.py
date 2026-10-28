@@ -3,7 +3,9 @@
 Task 1 (log in, search "software engineer", click LinkedIn's optional "Try AI job
 search", and select the **Easy Apply** filter) lives in
 :mod:`src.tools.linkedin_search`; Task 2 (select a job from the results list and
-open its **Easy Apply** form) lives in :mod:`src.tools.linkedin_job_selection`;
+read its description, leaving Easy Apply closed until a resume matches) lives in
+:mod:`src.tools.linkedin_job_selection` (the post-match click is in
+:mod:`src.tools.linkedin_easy_apply_open`);
 Task 3 (read the open job's description and pick the best-matching resume) lives in
 :mod:`src.tools.linkedin_best_matching_resume`; Task 4 (enumerate the open Easy
 Apply form, answer each question via the LLM in Task 4.1/10 — copying a stored
@@ -499,18 +501,27 @@ async def start_tasks(
     search_query: str,
     settings: Settings | None = None,
     progress=None,
+    open_form: bool = True,
 ) -> tuple[AgentOutcome, str | None]:
     """Open one browser session and run Tasks 1-3's interactive steps.
 
     Returns ``(outcome, run_id)``. When Tasks 1-2 succeed the session is **kept
-    open** and registered under ``run_id`` so Task 4 can fill the same Easy Apply
-    form; otherwise ``run_id`` is ``None`` and the browser is still left open (the
-    agent never closes it).
+    open** and registered under ``run_id`` so the resume match and Task 4 can
+    continue in the same page; otherwise ``run_id`` is ``None`` and the browser is
+    still left open (the agent never closes it).
+
+    ``open_form=False`` is Task 16's match-first flow: select the job and read its
+    description but leave Easy Apply closed. The graph then matches a resume and
+    calls :func:`open_easy_apply_form` only on a selected resume.
     """
     # Tasks 1-3 live in their own modules. Imported here (not at module load) so
     # they can share this module's browser primitives without an import cycle.
     from src.tools.linkedin_best_matching_resume import read_job_description
-    from src.tools.linkedin_job_selection import _task2_ok, _task2_on_page
+    from src.tools.linkedin_job_selection import (
+        _task2_ok,
+        _task2_on_page,
+        _task2_selected_ok,
+    )
     from src.tools.linkedin_search import _task1_ok, _task1_on_page
 
     settings = settings or load_settings()
@@ -536,12 +547,19 @@ async def start_tasks(
             task2.notes = "Task 1 did not complete; Tasks 2-4 were skipped."
             task1.screenshot_path = await capture_failure_screenshot(session, settings, "task1")
         else:
-            task2 = await _task2_on_page(page, settings, reporter, capture=read_job_description)
-            if not _task2_ok(task2):
+            task2 = await _task2_on_page(
+                page,
+                settings,
+                reporter,
+                capture=read_job_description,
+                open_form=open_form,
+            )
+            selected = _task2_selected_ok(task2) and (not open_form or _task2_ok(task2))
+            if not selected:
                 task2.screenshot_path = await capture_failure_screenshot(session, settings, "task2")
             else:
-                # Task 2 read the description while the job was open (before Easy
-                # Apply); only re-read if that produced nothing.
+                # Task 2 read the description while the job was open (before any
+                # Easy Apply click); only re-read if that produced nothing.
                 job_description = task2.job_description or JobDescription()
                 if not job_description.is_read:
                     emit_step(reporter, "Please wait - reading the job description...")
@@ -777,17 +795,23 @@ async def run_full_agent(
 ) -> AgentOutcome:
     """Run Tasks 1-4 end-to-end in one browser session (nothing is submitted).
 
-    When Task 4 reaches the terminal step (only **Submit application** remains)
-    the browser is left open and the call waits for the human to close it (see
+    The job is selected and its description read **before** Easy Apply is opened;
+    the form is clicked only after Task 3 selects a resume (Task 16). When Task 4
+    reaches the terminal step (only **Submit application** remains) the browser is
+    left open and the call waits for the human to close it (see
     :func:`release_run`); otherwise the run is released but the browser is left
     open too (the agent never closes it). This is the one-shot helper used by the
     live integration test; the Task 8 submit-and-repeat loop lives in the graph
     (see :mod:`src.nodes.apply_loop`).
     """
     from src.tools.linkedin_best_matching_resume import ensure_resume  # keep light
+    from src.tools.linkedin_easy_apply_open import open_easy_apply_form  # keep light
+    from src.tools.linkedin_resume_gate import record_skip, should_skip_job  # keep light
 
     settings = settings or load_settings()
-    outcome, run_id = await start_tasks(url, search_query, settings, progress)
+    outcome, run_id = await start_tasks(
+        url, search_query, settings, progress, open_form=False
+    )
     if run_id is None:
         return outcome
     # Task 9: reuse the reporter start_tasks created so the on-page panel keeps
@@ -802,7 +826,18 @@ async def run_full_agent(
             page=run.page if run is not None else None,
             notify=reporter,
         )
-        if outcome.task3.selected_path:
+        if should_skip_job(outcome.task3, settings):
+            outcome.task16 = record_skip(None, outcome.task3, outcome.task2)
+        elif outcome.task3.selected_path:
+            opened, outcome.task2 = await open_easy_apply_form(
+                run.page, settings, reporter, outcome.task2
+            )
+            if not opened:
+                outcome.task4 = Task4Outcome(
+                    resume_path=outcome.task3.selected_path,
+                    notes=outcome.task2.notes or "Easy Apply form did not open",
+                )
+                return outcome
             from src.tools.job_context import build_job_context
 
             description = (
@@ -872,6 +907,7 @@ _TASK2_REEXPORTS = frozenset(
         "_first_line",
         "_task2_ok",
         "_task2_on_page",
+        "_task2_selected_ok",
         "find_job_apply_button",
         "read_apply_modal",
         "read_job_cards",

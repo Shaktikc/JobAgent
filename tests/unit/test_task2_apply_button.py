@@ -16,7 +16,9 @@ from __future__ import annotations
 import json
 
 from src.configuration import SessionSettings, Settings
+from src.state import Task2Outcome
 from src.tools import linkedin_job_selection as jobsel
+from src.tools.linkedin_easy_apply_open import open_easy_apply_form
 from src.tools.linkedin_job_apply_button import pane_shows_job
 
 _PANE_JS = "document.title"
@@ -225,6 +227,49 @@ async def test_walk_skips_a_job_whose_pane_really_has_no_easy_apply(tmp_path) ->
     assert outcome.easy_apply_button_found is False
     assert outcome.easy_apply_clicked is False
     assert "still shows" not in outcome.notes
+
+
+async def test_open_easy_apply_form_clicks_after_the_resume_match(tmp_path) -> None:
+    page = _FakePage([], pane_title="Django Developer", easy_jobs={"Django Developer"})
+    outcome = Task2Outcome(
+        job_title="Django Developer", job_selected=True, easy_apply_button_found=True
+    )
+
+    opened, outcome = await open_easy_apply_form(
+        page, _settings(tmp_path), lambda _m: None, outcome
+    )
+
+    assert opened is True
+    assert page.apply_button.clicks == 1
+    assert page.modal_open is True
+    assert outcome.easy_apply_clicked is True
+    assert outcome.application_form_opened is True
+
+
+async def test_open_easy_apply_form_is_a_noop_when_the_form_is_already_open(tmp_path) -> None:
+    page = _FakePage([], pane_title="Django Developer", easy_jobs={"Django Developer"})
+    page.modal_open = True
+
+    opened, outcome = await open_easy_apply_form(
+        page, _settings(tmp_path), lambda _m: None, Task2Outcome(job_selected=True)
+    )
+
+    assert opened is True
+    assert page.apply_button.clicks == 0
+    assert outcome.application_form_opened is True
+
+
+async def test_open_easy_apply_form_never_clicks_an_external_apply_button(tmp_path) -> None:
+    page = _FakePage([], pane_title="Django Developer", easy_jobs=set())
+
+    opened, outcome = await open_easy_apply_form(
+        page, _settings(tmp_path), lambda _m: None, Task2Outcome(job_selected=True)
+    )
+
+    assert opened is False
+    assert page.apply_button.clicks == 0
+    assert page.modal_open is False
+    assert "no Easy Apply" in outcome.notes
 
 
 async def test_open_job_card_reports_the_pane_it_actually_saw(tmp_path) -> None:

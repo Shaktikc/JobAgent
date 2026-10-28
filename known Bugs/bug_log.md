@@ -127,6 +127,7 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | BUG-073 | Task 16 — skip/close | a hidden Easy Apply modal still read as open, so a closed skip looked stuck | 🟢 Fixed | `29c0aff` |
 | BUG-074 | Task 16 — skip identity | a skipped card gained " (Verified job)" and was reopened as a "new" job | 🟢 Fixed | `29c0aff` |
 | BUG-075 | Self-Healing — browse/search | "job search returned no results" from an aborted verification run (empty evidence bundle) | ⚪ Won't fix | (not a product defect) |
+| BUG-076 | Task 16 — skip identity | skip set used the description title, so cards with longer titles were reopened and the loop alternated | 🟢 Fixed | (uncommitted) |
 
 ## Template for new entries
 

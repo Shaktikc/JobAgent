@@ -27,9 +27,18 @@ def _task1_succeeded(state: ApplyState) -> bool:
 
 
 def _task2_succeeded(state: ApplyState) -> bool:
+    """A job that offers Easy Apply was selected (a skip leaves the form closed).
+
+    The match-first flow records ``job_selected`` without clicking; after a
+    selected match the ``open_form`` node records the click and opened form. Both
+    are valid Task 2 outcomes.
+    """
     outcome = state.get("task2")
+    if outcome is None:
+        return False
     return bool(
-        outcome is not None and outcome.easy_apply_clicked and outcome.application_form_opened
+        (outcome.job_selected and outcome.easy_apply_button_found)
+        or (outcome.easy_apply_clicked and outcome.application_form_opened)
     )
 
 

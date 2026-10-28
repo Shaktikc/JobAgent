@@ -8,8 +8,8 @@ Two nodes drive the loop after Task 4 fills a job to its terminal step:
   cap is reached, lets the graph continue.
 * :func:`next_job` — back on the results list, re-read the cards, skip the
   **"Applied"** ones (Task 6), paginate when a whole page is Applied (Task 7), and
-  open the first unapplied **Easy Apply** job (reading its description, Task 3) so
-  ``match`` and ``fill`` can run for it again.
+  select the first unapplied **Easy Apply** job (reading its description, Task 3)
+  so ``match`` can decide whether to open its form and ``fill`` it.
 
 The heavy browser layer is imported lazily (the ``browser`` extra stays optional),
 mirroring the other nodes.
@@ -130,6 +130,7 @@ async def next_job(state: ApplyState) -> ApplyState:
         "next_job: task2 "
         f"jobs_seen={task2.jobs_seen} "
         f"job_index={task2.job_index} "
+        f"job_selected={task2.job_selected} "
         f"easy_apply_clicked={task2.easy_apply_clicked} "
         f"form_opened={task2.application_form_opened} "
         f"applied_skipped={task2.applied_jobs_skipped} "

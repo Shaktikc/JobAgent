@@ -1,13 +1,12 @@
-"""Opt-in live-browser test for Task 16's skipped-form close path.
+"""Opt-in live-browser tests for Task 16's Easy Apply open/close controls.
 
-Task 16 skips a job whose description matches no existing resume. Task 2 has
-already opened the Easy Apply modal, so the agent must close it with a dismiss
-control before it can click the next card — and it must never click **Submit
-application** while doing that.
+The match-first flow selects a job and leaves Easy Apply closed, then
+:func:`open_easy_apply_form` clicks it only after the resume match. A form left
+open by a self-healed retry or a legacy fallback is closed with
+:func:`close_easy_apply_form`. Neither path may click **Submit application**.
 
-This serves a LinkedIn-shaped Easy Apply modal in a real Chromium window and
-drives the real :func:`close_easy_apply_form`. It needs no LinkedIn account and no
-network.
+These tests serve LinkedIn-shaped fixtures in a real Chromium window. They need
+no LinkedIn account and no network.
 
 Enable it (the ``browser`` extra must be installed)::
 
@@ -24,7 +23,9 @@ from pathlib import Path
 import pytest
 
 from src.configuration import SessionSettings, Settings
+from src.state import Task2Outcome
 from src.tools import browser as browser_tools
+from src.tools.linkedin_easy_apply_open import open_easy_apply_form
 from src.tools.linkedin_resume_gate import close_easy_apply_form
 
 pytest.importorskip("browser_use")
@@ -87,6 +88,37 @@ _MODAL_HTML = """<!doctype html>
 </body></html>
 """
 
+_SELECT_HTML = """<!doctype html>
+<html><head><meta charset="utf-8"><title>Jobs</title></head>
+<body>
+<button class="jobs-apply-button" id="apply-btn" type="button"
+        aria-label="Easy Apply to Acme">Easy Apply</button>
+<div class="artdeco-modal jobs-easy-apply-modal" role="dialog" id="apply-modal"
+     style="display:none">
+  <div class="artdeco-modal__content">
+    <h2>Apply to Acme</h2>
+    <label>Phone number <input type="tel" /></label>
+  </div>
+  <footer class="artdeco-modal__actionbar">
+    <button id="next-btn" type="button">Next</button>
+    <button id="submit-btn" type="button">Submit application</button>
+  </footer>
+</div>
+<script>
+  window.__applyClicked = false;
+  window.__submitClicked = false;
+  var modal = document.getElementById('apply-modal');
+  document.getElementById('apply-btn').addEventListener('click', function () {
+    window.__applyClicked = true;
+    modal.style.display = 'block';
+  });
+  document.getElementById('submit-btn').addEventListener('click', function () {
+    window.__submitClicked = true;
+  });
+</script>
+</body></html>
+"""
+
 _MODAL_NO_CONFIRM_HTML = _MODAL_HTML.replace(
     "confirm.style.display = 'block';",
     "hide();",
@@ -133,6 +165,52 @@ async def _flags(page) -> dict:
         "})"
     )
     return json.loads(raw)
+
+
+async def test_easy_apply_is_clicked_only_when_the_match_flow_opens_it(
+    tmp_path: Path,
+) -> None:
+    """Task 16: selecting the job leaves Easy Apply closed until the matcher calls."""
+    settings = _settings(tmp_path)
+    browser, page = await _open_fixture(tmp_path, settings, _SELECT_HTML)
+    try:
+        before = json.loads(
+            await page.evaluate(
+                "() => JSON.stringify({"
+                " clicked: window.__applyClicked,"
+                " visible: (() => { const m = document.getElementById('apply-modal');"
+                "   return m ? m.getClientRects().length > 0 : false; })()"
+                "})"
+            )
+        )
+        opened, outcome = await open_easy_apply_form(
+            page,
+            settings,
+            None,
+            Task2Outcome(
+                job_title="Acme", job_selected=True, easy_apply_button_found=True
+            ),
+        )
+        after = json.loads(
+            await page.evaluate(
+                "() => JSON.stringify({"
+                " clicked: window.__applyClicked,"
+                " submit: window.__submitClicked,"
+                " visible: (() => { const m = document.getElementById('apply-modal');"
+                "   return m ? m.getClientRects().length > 0 : false; })()"
+                "})"
+            )
+        )
+    finally:
+        await browser.kill()
+
+    assert before["clicked"] is False and before["visible"] is False
+    assert opened is True
+    assert after["clicked"] is True
+    assert after["visible"] is True
+    assert after["submit"] is False, "Submit application was clicked!"
+    assert outcome.easy_apply_clicked is True
+    assert outcome.application_form_opened is True
 
 
 async def test_dismiss_closes_the_form_and_never_submits(tmp_path: Path) -> None:

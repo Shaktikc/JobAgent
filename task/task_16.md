@@ -5,16 +5,19 @@
 **Goal:** Add a **strict resume-gated apply** mode. When it is enabled (the default),
 the agent applies to a job **only** when the LLM (Task 3.2) chooses one of the
 resumes already present in `resumes/` as a genuine match for that job. If no
-existing resume matches, the job is **skipped**: close the already-open Easy Apply
-form, record the skip with the LLM's rationale, open the next unapplied job
-(Tasks 6-7), and continue the loop. The agent must **never** ask the human to
+existing resume matches, the job is **skipped**: it is recorded with the LLM's
+rationale, the next unapplied job is selected (Tasks 6-7), and the loop
+continues. The agent must **never** ask the human to
 upload a resume for an unmatched job, never reuse a remembered/unmatched resume as
 a bypass, and never fill or submit an application for a job without a matching
-resume. The application is **never** submitted by this task.
+resume. The Easy Apply form is opened **only after** a strong resume match is
+chosen, so an unmatched job is skipped without clicking Easy Apply at all. The
+application is **never** submitted by this task.
 
 **Preconditions**
-- Tasks 1-8 are complete: the graph opens a job's Easy Apply form, matches a
-  resume, fills the form, waits for the human to submit, and opens the next job.
+- Tasks 1-8 are complete: the graph selects a job, reads its description, matches
+  a resume, opens/fills the form, waits for the human to submit, and moves to the
+  next job.
 - Task 3.2 is implemented (`src/tools/resume_descriptions/`): every resume has an
   LLM-written description and the LLM chooses the best match or **none**.
 - Task 3.1's fallbacks exist today: reuse a resume remembered for a similar job,
@@ -83,22 +86,25 @@ resume. The application is **never** submitted by this task.
      `errors` and do not set `task4`. A missing/unreadable job description is
      still a hard failure, and an LLM/matching error still fails the run.
    - `src/graph.py`: route `match → next_job` when `task3.no_match` and strict
-     mode is on with no errors; keep `match → cleanup` for errors and
-     `match → fill` for a strong match. Make sure the task-level self-heal guard
-     does not treat a deliberate skip as a crash (no error is returned).
-5. **Close the open Easy Apply form safely before moving on.**
-   - Task 2 already opened the form before Task 3 matches, so a skip leaves the
-     modal covering the results list. Add a bounded
-     `close_easy_apply_form(page)` helper (new module, see Notes) that clicks only
-     a dismiss control inside the Easy Apply modal (`X`/`Close`/`Dismiss`; a
-     `Discard` control is acceptable only for this unsubmitted draft) and waits
-     for the modal to disappear. **Never** click **Submit application** or any
-     apply/update-profile control.
-   - Call it at the start of `open_next_job()` (before re-reading cards) so a
-     skipped job never blocks the next click. If the modal cannot be closed after
-     the bounded attempts, stop the loop cleanly with a clear note instead of
-     retrying blindly.
-   - Best effort only: a modal that is already gone is a no-op.
+     mode is on with no errors; keep `match → cleanup` for errors and route a
+     selected match through the new `open_form` node (`match → open_form → fill`)
+     so Easy Apply is clicked only after the match. Make sure the task-level
+     self-heal guard does not treat a deliberate skip as a crash (no error is
+     returned).
+5. **Open Easy Apply only after the match; keep the close helper as a safety net.**
+   - Task 2 selects the job, verifies it offers Easy Apply, and reads its
+     description **without clicking** the Easy Apply button.
+   - `match` decides first. Only a selected strong resume (or a legacy-mode selected
+     resume) reaches the new `open_form` node, which clicks Easy Apply and waits
+     for the form. A skip goes straight to `next_job`, so the unmatched job's Easy
+     Apply button is never clicked.
+   - A self-healed match or a legacy retry can still leave a form open; keep the
+     bounded `close_easy_apply_form(page)` helper (new module, see Notes) that
+     clicks only a dismiss control inside the Easy Apply modal (`X`/`Close`/
+     `Dismiss`; a `Discard` control is acceptable only for this unsubmitted draft)
+     and waits for the modal to disappear. **Never** click **Submit application**
+     or any apply/update-profile control. `open_next_job()` calls it only when the
+     previous job was skipped and a form is actually open; it is a no-op otherwise.
 6. **Accumulate skipped jobs and never re-open them.**
    - Record every skip in a new `Task16Outcome`
      (`src/state.py`): `enabled`, `jobs_skipped`, and
@@ -141,11 +147,13 @@ resume. The application is **never** submitted by this task.
   a chosen resume with `fit="strong"`; that resume is attached by Task 4 as today.
 - When the LLM answers **none**, `fit` is `"partial"`/`"none"`/missing, or the
   resume pool is empty, the job is **skipped**: no human prompt, no
-  remembered-resume reuse, no upload, no fill.
+  remembered-resume reuse, no upload, no Easy Apply click, and no fill.
 - Every skip is recorded with the job title/company/index, `fit`, and the LLM
   rationale in `Task16Outcome` and the run log/status overlay.
-- The open Easy Apply form is closed with a safe dismiss control and the next
-  unapplied job is opened; the agent never clicks **Submit application**.
+- An unmatched job is skipped **without clicking Easy Apply**: the form is never
+  opened, and the next unapplied job is selected. Any form left open by a
+  self-healed retry is closed with a safe dismiss control; the agent never clicks
+  **Submit application**.
 - Previously skipped jobs are not re-opened on later passes of the same run
   (`skipped_titles` is passed into the Task 6/7 selection).
 - The loop stops cleanly when no unapplied job remains or the skip cap is reached;
@@ -161,10 +169,10 @@ resume. The application is **never** submitted by this task.
 - Never click **Submit application**; submission remains a manual human step.
 
 **Notes**
-- **Order stays as-is.** Task 2 opens the Easy Apply form before Task 3 reads the
-  description and matches, so a skip must close that form. Do not move matching
-  before Easy Apply in this task; that is a larger restructure and would change
-  Tasks 2-4. Record that option as a future improvement instead.
+- **Order is match-first.** Task 2 selects the job, verifies Easy Apply is
+  available, and reads the description without opening the form. Task 3 matches;
+  only a selected resume opens Easy Apply (the new `open_form` node), then Task 4
+  fills it. An unmatched job therefore never opens or closes a form.
 - **LLM-only decision.** The strict gate uses the LLM's `fit`; do not add a
   deterministic keyword/score fallback. If the LLM is unavailable or its reply is
   unusable, fail the run rather than skip-scanning every job.
@@ -182,6 +190,7 @@ resume. The application is **never** submitted by this task.
 - **Interrelated updates:** `src/configuration.py`, `.env.example`, `README.md`,
   `src/state.py`, `src/tools/resume_descriptions/{models,messages,client}.py`,
   `src/tools/linkedin_best_matching_resume/selection.py`, `src/nodes/match.py`,
+  `src/nodes/open_form.py`, `src/tools/linkedin_easy_apply_open.py`,
   `src/nodes/apply_loop.py`, `src/tools/linkedin_apply_loop.py`, `src/graph.py`,
   `src/nodes/verify.py`, `src/main.py`, and their tests must change together.
   Document the new gate in `README.md`; do **not** edit the completed Task 3 / 6 /
@@ -193,18 +202,23 @@ resume. The application is **never** submitted by this task.
   - legacy (`allow_fallback=True`) keeps remembered-resume and human-upload paths;
   - `match` returns a clean skip (no `errors`), and the graph routes it to
     `next_job`, never `fill`;
-  - `open_next_job`/`next_job` pass all accumulated skipped titles and do not
-    reopen them;
+  - `open_next_job`/`next_job` pass all accumulated skipped titles, do not
+    reopen them, and leave Easy Apply closed (`open_form=False`);
+  - `open_easy_apply_form` clicks only after the match, is a no-op when the form
+    is already open, and never clicks an external "Apply" button;
   - `close_easy_apply_form` clicks only a dismiss control (never submit) and
     handles an already-closed modal;
-  - `verify` passes for an all-skipped strict run and still fails on errors.
+  - `verify` passes for an all-skipped strict run (Task 2 selected, not clicked)
+    and still fails on errors.
   Add/extend a live-browser test (LinkedIn-shaped fixture and the real-site
-  check) that skips an unmatched job, closes the form, and opens the next job.
+  check) that skips an unmatched job without clicking Easy Apply and selects the
+  next job, plus a matching job that opens the form only after the match.
 - **Live verification required:** run the real flow and confirm in the browser
-  that (a) a job with a clearly matching resume proceeds to Task 4, (b) a job with
-  no matching resume is skipped with the status message, no human resume prompt,
-  no fill, and (c) the next unapplied job opens. Stop before any submit click and
-  leave no stale browser session or profile lock.
+  that (a) a job with a clearly matching resume proceeds to `open_form`/Task 4,
+  (b) a job with no matching resume is skipped with `easy_apply_clicked=False`
+  (no status message prompt, no form/open, no fill), and (c) the next unapplied
+  job is selected. Stop before any submit click and leave no stale browser session
+  or profile lock.
 - **Bug log:** if implementation exposes a new bug, add
   `known Bugs/task_16_bugs.md` and its row in `known Bugs/bug_log.md` with the
   symptom, root cause, fix, status, and evidence, as required by `AGENTS.md`.

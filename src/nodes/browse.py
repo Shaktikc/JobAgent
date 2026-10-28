@@ -1,11 +1,12 @@
-"""Drive the browser: Tasks 1-4's interactive steps in one session.
+"""Drive the browser: select a job and read its description in one session.
 
 The real work is delegated to :func:`src.tools.browser.start_tasks`, which is
 imported lazily so the heavy ``browser`` extra stays optional. That single call
 owns one browser session for the whole flow, including the human login gate; on
 success it is left **open** (registered under an opaque ``browser_run_id``) so
-Task 3's resume selection and Task 4's form filling can continue in the same open
-Easy Apply modal without passing a live session through graph state.
+Task 3's resume selection and Task 4's form filling can continue in the same
+session. The job is selected and its description is read **without clicking Easy
+Apply**; ``open_form`` opens the form only after a resume match (Task 16).
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from src.state import ApplyState
 
 
 async def browse(state: ApplyState) -> ApplyState:
-    """Run the login + search + filter + select-Easy-Apply flow."""
+    """Run the login + search + filter + select-job flow (Easy Apply stays closed)."""
     if state.get("dry_run", True):
         return {
             "status": "dry_run",
@@ -29,6 +30,7 @@ async def browse(state: ApplyState) -> ApplyState:
         state["url"],
         state.get("search_query") or "",
         progress=print,
+        open_form=False,
     )
 
     task1, task2 = result.task1, result.task2
@@ -46,6 +48,7 @@ async def browse(state: ApplyState) -> ApplyState:
         "browse: task2 "
         f"jobs_seen={task2.jobs_seen} "
         f"job_index={task2.job_index} "
+        f"job_selected={task2.job_selected} "
         f"easy_apply_clicked={task2.easy_apply_clicked} "
         f"form_opened={task2.application_form_opened} "
         f"skipped={task2.skipped_jobs} "
@@ -86,10 +89,12 @@ async def browse(state: ApplyState) -> ApplyState:
             "browse: Date posted filter 'Past 24 hours' not selected "
             f"(url={task1.page_url})"
         )
-    elif not task2.easy_apply_clicked:
-        errors.append(f"browse: no job Easy Apply button was clicked (url={task2.page_url})")
-    elif not task2.application_form_opened:
-        errors.append(f"browse: Easy Apply form did not open (url={task2.page_url})")
+    elif not task2.job_selected:
+        errors.append(f"browse: no job was selected (url={task2.page_url})")
+    elif not task2.easy_apply_button_found:
+        errors.append(f"browse: no Easy Apply button was found (url={task2.page_url})")
+    elif not description.is_read:
+        errors.append(f"browse: the job description was not read (url={task2.page_url})")
 
     if errors:
         update["errors"] = errors

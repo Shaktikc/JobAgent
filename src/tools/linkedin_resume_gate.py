@@ -1,4 +1,4 @@
-"""Task 16: strict resume gate and safe closing of a skipped Easy Apply form.
+"""Task 16: strict resume gate and safe closing of an Easy Apply form.
 
 Two responsibilities:
 
@@ -7,9 +7,10 @@ Two responsibilities:
    resume and rated it a **strong** fit. Anything else — **none**, ``partial``, a
    missing rating, an empty pool — is a clean skip, not an error, and never uses
    the Task 3.1 remembered-resume / human-upload fallbacks.
-2. **Closing the skipped job's form.** Task 2 opens the Easy Apply form before
-   Task 3 matches, so a skip must close that modal before the results list can be
-   used again (:func:`close_easy_apply_form`). Only dismiss/close/discard controls
+2. **Closing a form that is open anyway.** The match-first flow opens Easy Apply
+   only after a strong match, so a normal skip has no form to close. A self-healed
+   retry or a legacy fallback can still leave one open; :func:`close_easy_apply_form`
+   closes it before the results list is reused. Only dismiss/close/discard controls
    inside the open form are clicked — never **Submit application**, **Next**, or
    **Update profile**.
 

@@ -14,7 +14,8 @@ unchanged so the graph stops gracefully instead of retrying blindly.
 
 Task coverage:
 
-* Tasks 1-2: ``browse`` — login/search/filter/Easy Apply form failures.
+* Tasks 1-2: ``browse`` — login/search/filter/job-selection failures.
+* Task 2b: ``open_form`` — the Easy Apply click/form-open failure after a match.
 * Task 3: ``match`` — transient description/LLM errors; the human-upload
   fallback is preserved.
 * Task 4: the fill node's existing ``heal_fill_failure`` loop.
@@ -77,10 +78,16 @@ def _browse_reason(update: ApplyState) -> str:
         if not bool(getattr(task1, "date_posted_filter_selected", False)):
             return "browse: Date posted filter not selected"
     if task2 is not None:
-        if not bool(getattr(task2, "easy_apply_clicked", False)):
-            return "browse: no Easy Apply job was opened"
-        if not bool(getattr(task2, "application_form_opened", False)):
-            return "browse: Easy Apply form did not open"
+        clicked_and_open = bool(
+            getattr(task2, "easy_apply_clicked", False)
+            and getattr(task2, "application_form_opened", False)
+        )
+        # Task 16's match-first browse selects the job but deliberately leaves the
+        # form closed; the old one-shot path still counts its opened form.
+        if not (bool(getattr(task2, "job_selected", False)) or clicked_and_open):
+            return "browse: no Easy Apply job was selected"
+        if not bool(getattr(task2, "easy_apply_button_found", False)):
+            return "browse: no Easy Apply button was found"
     if description is not None and not bool(getattr(description, "is_read", False)):
         return "browse: the job description was not read"
     errors = update.get("errors") or []
@@ -105,6 +112,15 @@ def _match_reason(update: ApplyState) -> str:
     if not _text(getattr(task3, "selected_path", "")):
         return "match: no resume could be selected"
     return ""
+
+
+def _open_form_reason(update: ApplyState) -> str:
+    """The hard-stop reason from an ``open_form`` update, or ``""``."""
+    errors = update.get("errors") or []
+    if not errors:
+        return ""
+    error = str(errors[0])
+    return error if error.startswith("open_form:") else f"open_form: {error}"
 
 
 def _next_job_reason(update: ApplyState) -> str:
@@ -134,6 +150,8 @@ def task_failure_reason(stage: str, update: ApplyState) -> str:
         return _browse_reason(update)
     if stage == "match":
         return _match_reason(update)
+    if stage == "open_form":
+        return _open_form_reason(update)
     if stage == "next_job":
         return _next_job_reason(update)
     return ""
@@ -155,6 +173,9 @@ def task_failure_is_recoverable(stage: str, reason: str, update: ApplyState) -> 
     if stage == "match":
         task3 = update.get("task3")
         return bool(task3 is not None and _text(getattr(task3, "error", "")))
+    if stage == "open_form":
+        # A form that failed to open can be retried by reopening the same job.
+        return True
     if stage == "next_job":
         return "pagination" in text
     return False

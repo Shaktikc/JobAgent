@@ -117,8 +117,15 @@ async def match(state: ApplyState) -> ApplyState:
             "status": "skipped",
             "log": log,
         }
-        if title:
-            update["skipped_titles"] = [normalize_title(title)]
+        # The results list identifies a card by its *card* title, which can be
+        # longer than the description heading ("Engineering Team Lead | .NET +
+        # React (Verified job)" vs "Engineering Team Lead"). Prefer the card title
+        # so the skipped card cannot become eligible again under its full title;
+        # fall back to the description title only when Task 2 had none.
+        card_title = (task2.job_title if task2 is not None else "") or ""
+        skip_title = card_title.strip() or title
+        if skip_title:
+            update["skipped_titles"] = [normalize_title(skip_title)]
         return update
 
     if outcome.no_match:

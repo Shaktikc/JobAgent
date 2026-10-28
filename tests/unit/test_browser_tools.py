@@ -702,6 +702,35 @@ async def test_task2_selects_job_and_opens_form(tmp_path) -> None:
     assert outcome.application_form_opened is True
 
 
+async def test_task2_match_first_selects_without_clicking_easy_apply(tmp_path) -> None:
+    """Task 16: an unmatched job is selected and read without opening the form."""
+    from src.tools.linkedin_best_matching_resume import read_job_description
+
+    page = FakePage(
+        results_count=1,
+        details_apply_labels={0: "Easy Apply to Backend Engineer at Acme"},
+    )
+    page.by_selector = {
+        "li.jobs-search-results__list-item": [_job_card(page, 0, "Backend Engineer")]
+    }
+
+    outcome = await browser_tools._task2_on_page(
+        page,
+        _settings(tmp_path, post_click_wait_seconds=0),
+        lambda _m: None,
+        capture=read_job_description,
+        open_form=False,
+    )
+
+    assert outcome.job_selected is True
+    assert outcome.easy_apply_button_found is True
+    assert outcome.easy_apply_clicked is False
+    assert outcome.application_form_opened is False
+    assert page.modal_open is False, "Easy Apply was clicked before the resume match"
+    assert outcome.job_description is not None
+    assert outcome.job_description.is_read is True
+
+
 async def test_task2_captures_the_description_before_easy_apply(tmp_path) -> None:
     """Task 3's description is read while the job view is intact, before Easy Apply.
 

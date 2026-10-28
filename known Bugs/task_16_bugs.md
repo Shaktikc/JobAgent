@@ -11,6 +11,7 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 |----|-----------------|--------|---------------|
 | BUG-073 | a hidden (`display:none`) Easy Apply modal still read as open, so a closed skip looked stuck | 🟢 Fixed | `29c0aff` |
 | BUG-074 | a skipped card gained " (Verified job)" and was reopened as a "new" job | 🟢 Fixed | `29c0aff` |
+| BUG-076 | skip identity used the description title, so cards with longer titles were reopened and the loop alternated | 🟢 Fixed | (uncommitted) |
 
 ---
 
@@ -63,3 +64,32 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   (`test_job_key_ignores_the_verified_job_status_suffix`), and the live run log
   that reproduced the reopen (temp pastry-only resume pool, two skips). Commit
   `29c0aff`.
+
+---
+
+### BUG-076 — skipped jobs were reopened because the skip key used the description title
+
+- **Symptom:** a live strict-mode run skipped
+  `Engineering Team Lead | .NET + React (Verified job)`, then
+  `ServiceNow Developer | Perm (Verified job)`, then reopened
+  `Engineering Team Lead | .NET + React (Verified job)` and `ServiceNow` again.
+  The results list appeared to jump around instead of moving down the list. After
+  several repeats the browser's CDP WebSocket closed unexpectedly.
+- **Root cause:** `match` stored `skipped_titles` from the **description** heading
+  (`Engineering Team Lead`), while Task 2's results card is keyed by its longer
+  **card** title (`Engineering Team Lead | .NET + React (Verified job)`).
+  `_job_key` therefore produced different keys, so after the next skip the earlier
+  card became eligible again. The two jobs alternated, multiplying LLM/browser
+  work until the connection was lost.
+- **Fix:** `match` now records the exact `task2.job_title` (the card identity) in
+  `skipped_titles`, plus the description title as a fallback. `_job_key` still
+  strips the trailing `(Verified job)` badge, and `open_next_job` excludes every
+  accumulated skip key. Selection continues from the top of the list, skipping
+  Applied and previously skipped cards, so it moves forward instead of revisiting.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/nodes/match.py`, `src/tools/linkedin_job_card.py`
+  (`_job_key`), `tests/unit/test_graph.py`
+  (`test_match_records_the_card_title_for_skip_identity`), and a live run with
+  five skips that advanced through unique cards in order (4 → 5 → 7 → 8 → 9,
+  including `PL/SQL Developer (Verified job)` and
+  `Engineering Team Lead | .NET + React`), with no reopened job.

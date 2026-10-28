@@ -50,7 +50,7 @@ def _browse_success() -> dict:
             date_posted_filter_selected=True,
             date_posted_filter_value="past_24_hours",
         ),
-        "task2": Task2Outcome(easy_apply_clicked=True, application_form_opened=True),
+        "task2": Task2Outcome(job_selected=True, easy_apply_button_found=True),
         "job_description": JobDescription(title="Backend Engineer", body="Python"),
         "log": ["browse: recovered"],
     }
@@ -87,6 +87,16 @@ def test_task_failure_reason_reads_match_outcomes() -> None:
             "task16": None,
         },
     ) == ""
+
+
+def test_task_failure_reason_reads_open_form_failures() -> None:
+    reason = task_heal.task_failure_reason(
+        "open_form", {"errors": ["open_form: Easy Apply form did not open"]}
+    )
+
+    assert reason == "open_form: Easy Apply form did not open"
+    assert task_heal.task_failure_is_recoverable("open_form", reason, {}) is True
+    assert task_heal.task_failure_reason("open_form", {}) == ""
 
 
 def test_task_failure_reason_ignores_exception_only_stages() -> None:

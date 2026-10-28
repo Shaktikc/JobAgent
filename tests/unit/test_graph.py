@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,6 +14,7 @@ from src.graph import (
     _route_after_ingest,
     _route_after_match,
     _route_after_next_job,
+    _route_after_open_form,
     _route_after_submit,
     graph,
 )
@@ -20,6 +22,7 @@ from src.nodes.apply_loop import await_submit, next_job
 from src.nodes.cleanup import cleanup
 from src.nodes.fill import fill
 from src.nodes.match import match
+from src.nodes.open_form import open_form
 from src.nodes.verify import verify
 from src.state import (
     DEFAULT_LOGIN_URL,
@@ -60,6 +63,17 @@ def _task2_ok() -> Task2Outcome:
         job_title="Backend Engineer",
         easy_apply_clicked=True,
         application_form_opened=True,
+    )
+
+
+def _task2_selected() -> Task2Outcome:
+    """Task 2's match-first outcome: job selected, Easy Apply still closed."""
+    return Task2Outcome(
+        jobs_seen=25,
+        job_index=0,
+        job_title="Backend Engineer",
+        job_selected=True,
+        easy_apply_button_found=True,
     )
 
 
@@ -151,9 +165,15 @@ def test_route_after_browse() -> None:
 
 def test_route_after_match() -> None:
     assert _route_after_match({"errors": ["match: no resumes"]}) == "cleanup"
-    # Task 16: a strict-mode no-match skips to the next job, never to fill.
+    # Task 16: a strict-mode no-match skips to the next job, never to the form.
     assert _route_after_match({"status": "skipped"}) == "next_job"
-    assert _route_after_match({}) == "fill"
+    # A selected resume opens Easy Apply only now, then fills it.
+    assert _route_after_match({}) == "open_form"
+
+
+def test_route_after_open_form() -> None:
+    assert _route_after_open_form({"errors": ["open_form: boom"]}) == "cleanup"
+    assert _route_after_open_form({}) == "fill"
 
 
 def test_verify_passes_when_all_criteria_are_met() -> None:
@@ -361,11 +381,92 @@ def test_match_node_reports_empty_folder(tmp_path) -> None:
     assert "errors" not in result
 
 
+def test_match_records_the_card_title_for_skip_identity(tmp_path) -> None:
+    """A card's title can be longer than the description heading (Task 16).
+
+    LinkedIn may show ``Engineering Team Lead | .NET + React (Verified job)`` on
+    the results card while the description pane says ``Engineering Team Lead``.
+    The skip set must contain the card title, otherwise the next pass sees the
+    skipped card as new and reopens it (BUG-076).
+    """
+    from src.tools.linkedin_job_selection import _job_key
+
+    state = ApplyState(
+        dry_run=False,
+        resumes_dir=str(tmp_path),
+        job_description=JobDescription(title="Engineering Team Lead", body="Lead engineers"),
+        task2=Task2Outcome(
+            job_title="Engineering Team Lead | .NET + React (Verified job)",
+            job_selected=True,
+        ),
+    )
+
+    result = asyncio.run(match(state))
+    skipped_titles = result["skipped_titles"]
+
+    assert result["status"] == "skipped"
+    assert skipped_titles == ["engineering team lead | .net + react (verified job)"]
+    # The same exact card is excluded by the key used by open_next_job.
+    card_key = _job_key("Engineering Team Lead | .NET + React (Verified job)", 10)
+    assert card_key in {_job_key(title, -1) for title in skipped_titles}
+
+
 def test_match_node_skips_on_dry_run() -> None:
     result = asyncio.run(match(ApplyState(dry_run=True)))
     assert result["status"] == "matched"
     assert "task3" not in result
     assert any("dry-run" in entry for entry in result["log"])
+
+
+def test_open_form_skips_on_dry_run() -> None:
+    result = asyncio.run(open_form(ApplyState(dry_run=True)))
+
+    assert result["status"] == "matched"
+    assert "open_form" in result["log"][0]
+
+
+def test_open_form_fails_without_a_session() -> None:
+    result = asyncio.run(open_form(ApplyState(dry_run=False)))
+
+    assert result["status"] == "failed"
+    assert result["errors"]
+
+
+def test_open_form_clicks_only_the_selected_job(monkeypatch) -> None:
+    """The graph reaches open_form only after a resume match selected the job."""
+    import src.tools.browser as browser_tools
+    import src.tools.linkedin_easy_apply_open as opener
+
+    calls: dict = {}
+
+    monkeypatch.setattr(
+        browser_tools, "get_run", lambda _run_id: SimpleNamespace(page=object())
+    )
+    monkeypatch.setattr(browser_tools, "get_reporter", lambda _run_id: None)
+
+    async def fake_open(page, settings, notify, outcome):
+        calls["clicked"] = True
+        outcome.easy_apply_clicked = True
+        outcome.application_form_opened = True
+        return True, outcome
+
+    monkeypatch.setattr(opener, "open_easy_apply_form", fake_open)
+
+    result = asyncio.run(
+        open_form(
+            ApplyState(
+                dry_run=False,
+                browser_run_id="run-1",
+                task2=_task2_selected(),
+            )
+        )
+    )
+
+    assert calls["clicked"] is True
+    assert result["status"] == "form_open"
+    assert result["task2"].job_selected is True
+    assert result["task2"].application_form_opened is True
+    assert "errors" not in result
 
 
 def test_fill_node_skips_on_dry_run() -> None:
@@ -567,8 +668,10 @@ def test_route_after_next_job() -> None:
 
 def test_graph_has_the_task8_loop() -> None:
     view = graph.get_graph()
-    assert {"await_submit", "next_job"} <= set(view.nodes)
+    assert {"await_submit", "next_job", "open_form"} <= set(view.nodes)
     edges = {(edge.source, edge.target) for edge in view.edges}
+    assert ("match", "open_form") in edges  # click only after the resume match
+    assert ("open_form", "fill") in edges
     assert ("fill", "await_submit") in edges
     assert ("await_submit", "next_job") in edges
     assert ("next_job", "match") in edges  # loops back to matching for the next job
@@ -787,7 +890,8 @@ def test_verify_passes_when_strict_mode_skipped_the_remaining_jobs() -> None:
     state = ApplyState(
         dry_run=False,
         task1=_task1_ok(),
-        task2=_task2_ok(),
+        # The skipped job was selected but its Easy Apply form was never opened.
+        task2=_task2_selected(),
         task3=task3,
         task5=_task5_ok(),
         task8=Task8Outcome(

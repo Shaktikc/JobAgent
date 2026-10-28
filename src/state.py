@@ -156,10 +156,12 @@ class JobAnswerContext(BaseModel):
 class Task2Outcome(BaseModel):
     """What the browser observed while selecting a job's Easy Apply button.
 
-    Task 2 reads the job list left open by Task 1, opens the first job that has
-    an Easy Apply button (skipping external-apply jobs), clicks it, and waits for
-    the Easy Apply application form to appear. The application is never
-    submitted.
+    Task 2 reads the job list left open by Task 1, opens the first job that offers
+    Easy Apply (skipping external-apply jobs), verifies the button, and reads the
+    description. In the match-first flow it stops there (``job_selected``); Task 16
+    opens the form only after a resume match. The older one-shot flow may still
+    click the button and wait for the form (``easy_apply_clicked`` /
+    ``application_form_opened``). The application is never submitted.
     """
 
     jobs_seen: int = 0
@@ -172,6 +174,9 @@ class Task2Outcome(BaseModel):
     # Task 7: how many results pages were visited while looking for an unapplied
     # job (1 = the first page only; >1 = paginated because whole pages were Applied).
     pages_visited: int = 0
+    # Task 16: a job and its Easy Apply button were found and its description was
+    # read, but the form was deliberately not clicked before the resume match.
+    job_selected: bool = False
     easy_apply_button_found: bool = False
     easy_apply_clicked: bool = False
     application_form_opened: bool = False

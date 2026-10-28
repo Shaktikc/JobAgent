@@ -1,21 +1,21 @@
 # AutoJobApply
 
 A [LangGraph](https://langchain-ai.github.io/langgraph/) agent that logs in to
-LinkedIn, searches for jobs, selects the **Easy Apply** filter, opens a job's
-**Easy Apply** application form, picks the best-matching resume, and starts
-filling the form — all through a real browser (via
+LinkedIn, searches for jobs, selects the **Easy Apply** filter, picks the
+best-matching resume, opens the job's **Easy Apply** form only when the resume
+matches, and starts filling it — all through a real browser (via
 [browser-use](https://github.com/browser-use/browser-use)).
 
-> Status: **Tasks 1-11 and 13** — log in, search `"software engineer"`, select the Easy
-> Apply filter and **Date posted → Past 24 hours**, open a job's Easy Apply form, read the job description, select the
-> best-matching resume, fill known fields + attach the resume, and ask you in the
+> Status: **Tasks 1-11, 13, 15, and 16** — log in, search `"software engineer"`, select the Easy
+> Apply filter and **Date posted → Past 24 hours**, read the job description, select the
+> best-matching resume, open Easy Apply only on a match, fill known fields + attach the resume, and ask you in the
 > browser about any question it cannot answer, remembering your answer for next
 > time. For each form question an **LLM (Task 4.1/10)** classifies the question and
 > answers it from the store — copying a stored answer, or **deriving** one the
 > stored entries entail (e.g. a stored "years of experience with AI: 5" answers
 > "Experience on AI? [Yes/No]" as **Yes**), always citing the stored key(s) it used
 > and never inventing an answer. After **you** submit a job, the agent
-> returns to the results list, opens the next unapplied job, and repeats. A live
+> returns to the results list, selects the next unapplied job, and repeats. A live
 > **status panel (Task 9)** on the LinkedIn page shows each step in plain language
 > and exactly what the **LLM** is doing. The graph
 > runs end-to-end in **dry-run** mode (no browser, no network); the browser layer
@@ -45,13 +45,14 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
      results URL (a checked popover option alone is not enough); if the layout
      hides the dropdown, the agent adds that parameter to the current results URL
      while preserving the other filters. The classic jobs search bar is not used.
-   - **Task 2:** reads the job list from those results, opens the first job that
-     offers Easy Apply (skipping external-apply jobs), clicks its **Easy Apply**
-     button, and confirms the application form opened. Before judging that
-     button it checks the details pane really shows the job it clicked (an
-     already-applied job's pane has no Easy Apply button at all), and re-clicks
-     the card once if the pane did not switch — so a swallowed click can no
-     longer look like "no Easy Apply".
+   - **Task 2:** reads the job list from those results, selects the first job that
+     offers Easy Apply (skipping external-apply jobs), and reads its description.
+     The **Easy Apply** button is deliberately **not** clicked yet: Task 16 matches
+     a resume first and only then opens the form. Before judging the button it
+     checks the details pane really shows the job it clicked (an already-applied
+     job's pane has no Easy Apply button at all), and re-clicks the card once if
+     the pane did not switch — so a swallowed click can no longer look like "no
+     Easy Apply".
    - **Task 6:** skips cards already marked **"Applied"** (e.g. "Applied · 5
      months ago") and opens the first unapplied job instead.
    - **Task 7:** when *every* card on the current results page is **"Applied"**,
@@ -76,13 +77,16 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
    - **Task 16 (strict resume matching, default):** the LLM also rates the fit of
      its choice (`strong` / `partial` / `none`). The agent applies **only** to a
      `strong` match against an existing resume. Anything else — `none`, `partial`,
-     a missing rating, or an empty pool — is a **clean skip**: the open Easy Apply
-     form is closed with a dismiss control, the job is recorded with the LLM's
-     rationale, its title is excluded from later passes, and the next unapplied
-     job is opened. No upload prompt, remembered-resume fallback, fill, or submit
-     happens for a skipped job. Set
+     a missing rating, or an empty pool — is a **clean skip**: because the Easy
+     Apply form was never opened, there is no form to close; the job is recorded
+     with the LLM's rationale, its title is excluded from later passes, and the
+     next unapplied job is selected. No upload prompt, remembered-resume fallback,
+     Easy Apply click, fill, or submit happens for a skipped job. Set
      `AUTOJOB_SESSION_REQUIRE_RESUME_MATCH=false` to restore the Task 3.1
      fallbacks below.
+   - **Task 2b (`open_form`):** only after `match` selects a resume does the graph
+     click **Easy Apply** on the already-selected job and wait for the form. A
+     skipped job goes straight to `next_job` and never reaches this node.
    - **Task 3.1 (only when strict matching is off):** when the LLM answers
      **none**, the agent first reuses a resume
      it remembered for a similar job; otherwise it shows a banner with a file
@@ -161,12 +165,13 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
    recorded (title, company, resume) on the Task 8 outcome.
 6. **next_job** — **Task 8 (subtask 8.2):** back on the results list, re-reads the
    cards, skips the **"Applied"** ones (Task 6), paginates when a whole page is
-   Applied (Task 7), and opens the first unapplied **Easy Apply** job, reading its
-   description so `match` and `fill` run for it again. Any leftover post-apply
-   dialog ("Your application was sent..." / "Turn your resume into a profile") is
-   dismissed first so it cannot cover the next card. **Task 16:** a job skipped for
-   having no matching resume is closed and its title is excluded from later passes,
-   so the loop never reopens it; the loop stops at
+   Applied (Task 7), and selects the first unapplied **Easy Apply** job, reading
+   its description so `match` decides whether to open its form and `fill` runs
+   again. Any leftover post-apply dialog ("Your application was sent..." / "Turn
+   your resume into a profile") is dismissed first so it cannot cover the next
+   card. **Task 16:** a job skipped for having no matching resume never had its
+   Easy Apply form opened, and its title is excluded from later passes, so the
+   loop never reopens it; the loop stops at
    `AUTOJOB_SESSION_MAX_SKIPPED_JOBS` (default `100`, `0` = no cap) if nothing
    matches. The loop otherwise repeats until `AUTOJOB_SESSION_MAX_JOBS` jobs have
    been submitted (default `35`; `0` = until no unapplied job remains), every job
@@ -397,12 +402,14 @@ src/
       ai_search.py                optional "Try AI job search" detour
       orchestrator.py             Task 1 step sequence (filters + failure outcome)
     linkedin_date_posted.py       Task 13: Date posted -> "Past 24 hours"
-    linkedin_job_selection.py      Task 2: select a job, open its Easy Apply form
+    linkedin_job_selection.py      Task 2: select a job and read its description
+    linkedin_job_card.py           Task 2: resolve a card + verify the details pane
     linkedin_job_apply_button.py   Task 2: the details pane's job, apply button, modal
+    linkedin_easy_apply_open.py    Task 2b: click Easy Apply only after a resume match
     linkedin_skip_applied.py       Task 6: skip cards already marked "Applied"
     linkedin_pagination.py         Task 7: when a page is all Applied, go to the next page
     linkedin_apply_loop.py         Task 8: detect the human's submit, open the next job
-    linkedin_resume_gate.py        Task 16: strict match gate + close a skipped Easy Apply form
+    linkedin_resume_gate.py        Task 16: strict match gate + safe form-close fallback
     linkedin_status_overlay.py     Task 9: the on-page status panel + status reporter
     linkedin_best_matching_resume/  Task 3: read the job description + LLM match
       __init__.py                   public API (re-exports the submodules below)
@@ -514,11 +521,12 @@ tests/
   `resumes/new/` is described, it is moved into `resumes/` without changing its
   bytes or overwriting an existing file. The description entry follows the file.
 - **Task 16 (default)** applies only when an existing resume is a **strong** match.
-  Otherwise the job is skipped and the loop moves on; the agent never fills or
-  submits an unmatched application, never asks for a resume in strict mode, and
-  never reuses the remembered-resume library for a job the LLM did not match.
-  The skip is recorded in the run summary and the `task16` state, and the
-  skipped title is not reopened this run.
+  Matching happens **before** Easy Apply, so an unmatched job is skipped without
+  ever clicking the form open. The agent never fills or submits an unmatched
+  application, never asks for a resume in strict mode, and never reuses the
+  remembered-resume library for a job the LLM did not match. The skip is recorded
+  in the run summary and the `task16` state, and the skipped title is not reopened
+  this run.
 - Task 11 records a structural Easy Apply failure **before** recovery, never
   submits during recovery, and stops after the configured attempt cap instead of
   retrying or patching forever. If no repair command is set, it only reopens the

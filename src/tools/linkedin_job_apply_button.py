@@ -17,7 +17,7 @@ Why the pane check matters: clicking a card can leave the pane showing the
 Easy Apply control at all, so the walk then wrongly concluded "no Easy Apply for
 this job" and skipped a job that **does** offer Easy Apply. The caller therefore
 verifies the pane before judging the button (see
-:func:`~src.tools.linkedin_job_selection.find_card_by_title`).
+:func:`~src.tools.linkedin_job_card.find_card_by_title`).
 
 The interaction uses browser-use's deterministic CDP actor API (``Page`` /
 ``Element``); no LLM is involved.

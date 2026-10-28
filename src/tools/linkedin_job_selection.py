@@ -1,4 +1,4 @@
-"""Task 2: select a job from the search results and open its Easy Apply form.
+"""Task 2: select a job from the search results and read its description.
 
 This module owns Task 2's interactive browser flow, split out of
 :mod:`src.tools.browser`:
@@ -6,13 +6,16 @@ This module owns Task 2's interactive browser flow, split out of
 1. Read the job cards currently displayed in the search-results list left open by
    Task 1.
 2. Open the first (or next) job that offers **Easy Apply**, skipping jobs already
-   marked "Applied" when ``settings.session.skip_applied`` is set.
-3. Click the details pane's **Easy Apply** button and
-4. Confirm the Easy Apply application form/modal opened.
+   marked "Applied" when ``settings.session.skip_applied`` is set, and read its
+   description.
+3. Leave the form closed in the match-first flow (``open_form=False``); the
+   caller opens it only after a resume match (Task 16). Older one-shot callers can
+   still click the details pane's **Easy Apply** button and confirm the form.
 
 The details pane itself — which job it shows, its apply button, and the Easy Apply
-modal check — lives in :mod:`src.tools.linkedin_job_apply_button`, which this
-module re-exports for back-compat. Before judging the apply button, the walk
+modal check — lives in :mod:`src.tools.linkedin_job_apply_button`; the card/pane
+opening helpers live in :mod:`src.tools.linkedin_job_card`. Both are re-exported
+here for back-compat. Before judging the apply button, the walk
 verifies that the pane actually switched to the clicked job
 (:func:`open_job_card`): a card click that left the pane on the *previous*
 (already-applied) job has no Easy Apply control at all, which used to be reported
@@ -22,7 +25,7 @@ Task 6's applied-job detection (classify a card as **Applied**, record the skip,
 and produce the "no unapplied job" note) lives in
 :mod:`src.tools.linkedin_skip_applied`; this module calls it while scanning.
 Task 7's pagination lives in :mod:`src.tools.linkedin_pagination`: when the
-current page yields **no openable Easy Apply job** (every card Applied, or the
+current page yields **no selectable Easy Apply job** (every card Applied, or the
 remaining unapplied cards have no Easy Apply), this module advances the results
 list to the next page (up to ``_MAX_RESULT_PAGES``) and scans it again.
 The interaction uses browser-use's deterministic CDP actor API (``Page`` /
@@ -32,7 +35,6 @@ The interaction uses browser-use's deterministic CDP actor API (``Page`` /
 from __future__ import annotations
 
 import asyncio
-import re
 import time
 from dataclasses import dataclass
 
@@ -57,9 +59,16 @@ from src.tools.linkedin_job_apply_button import (
     pane_shows_job,
     read_apply_modal,
     read_details_pane_job,
-    wait_for_details_pane_job,
     wait_for_easy_apply_modal,
     wait_for_job_apply_button,
+)
+
+# The card/pane helpers are re-exported here for existing callers.
+from src.tools.linkedin_job_card import (
+    _first_line,
+    _job_key,
+    find_card_by_title,
+    open_job_card,
 )
 from src.tools.linkedin_pagination import _MAX_RESULT_PAGES, go_to_next_page
 from src.tools.linkedin_skip_applied import applied_skip_note, skip_applied_card
@@ -86,28 +95,6 @@ _JOB_CARD_SELECTORS = (
 _MAX_JOB_ATTEMPTS = 40
 
 
-def _first_line(text: str) -> str:
-    """First non-empty line of ``text`` (a job card's title), truncated."""
-    for line in (text or "").splitlines():
-        line = line.strip()
-        if line:
-            return line[:200]
-    return ""
-
-
-# Status badges LinkedIn appends to a card's title line after it is opened (live:
-# "Senior Engineer (Verified job)"). They identify the same posting, so they must
-# not make a skipped job look new (Task 16's skip set) or defeat a card retry.
-_TITLE_STATUS_SUFFIX = re.compile(r"\s*\(\s*verified job\s*\)\s*$", re.IGNORECASE)
-
-
-def _job_key(title: str, index: int) -> str:
-    """Stable identity for a results-list job (its title, or index when blank)."""
-    normalized = re.sub(r"\s+", " ", (title or "").strip().lower())
-    normalized = _TITLE_STATUS_SUFFIX.sub("", normalized).strip()
-    return normalized or f"#{index}"
-
-
 async def read_job_cards(page) -> list:
     """Return the job cards currently shown in the search results list."""
     # Ensure AI/semantic job cards are marked so [data-autojob-card] resolves them.
@@ -119,65 +106,12 @@ async def read_job_cards(page) -> list:
     return []
 
 
-async def find_card_by_title(page, title: str):
-    """Re-resolve the job card whose title matches ``title`` (fresh element handle).
-
-    Used by :func:`open_job_card` to retry a click that did not open the job: the
-    results list re-renders when a card is clicked, so a handle read before the
-    click can go stale (the Task 2 bug behind BUG-019 and BUG-036). The match
-    tolerates small label changes (a re-rendered "Posted 2 days ago" badge), so it
-    compares the titles as well as their normalized form.
-    """
-    wanted = _job_key(title, 0)
-    for index, card in enumerate(await read_job_cards(page)):
-        first = _first_line(await _element_label(card))
-        if not first:
-            continue
-        if _job_key(first, index) == wanted:
-            return card
-        if title.strip() and pane_shows_job(first, title):
-            return card
-    return None
-
-
-async def open_job_card(page, card, title: str, settings: Settings, notify) -> tuple[bool, str]:
-    """Click ``card`` until the details pane shows ``title``; return ``(opened, pane_title)``.
-
-    The pane is checked because a click can leave it showing the *previous* job —
-    an already-applied job's pane has no Easy Apply control at all, which would
-    otherwise be misread as "no Easy Apply" and skip a job that offers it. A
-    mismatch re-clicks the card through a freshly resolved handle (once); if the
-    pane still does not match, the caller reports that instead of guessing.
-    """
-    pane_title = await read_details_pane_job(page)
-    for attempt in range(2):
-        element = card
-        if attempt:
-            element = await find_card_by_title(page, title)
-            if element is None:
-                return False, pane_title
-            notify(f"Task 2: the details pane did not open {title!r}; clicking it again.")
-        await _safe(element.evaluate("() => this.scrollIntoView({block: 'center'})"))
-        try:
-            await element.click()
-        except Exception as exc:  # noqa: BLE001 - try the next job
-            return False, f"click failed: {exc}"
-        if settings.session.post_click_wait_seconds:
-            await asyncio.sleep(settings.session.post_click_wait_seconds)
-        await _pace(settings)
-        pane_title = await wait_for_details_pane_job(
-            page, title, settings.session.pane_switch_timeout_seconds
-        )
-        if pane_shows_job(pane_title, title):
-            return True, pane_title
-    return False, pane_title
-
-
 @dataclass
 class _PageScan:
     """What one pass over a single results page produced (Tasks 2 and 6)."""
 
     opened: bool = False
+    selected: bool = False
     cards_seen: int = 0
     applied_skipped: int = 0
 
@@ -200,6 +134,7 @@ async def _scan_page(
     tried: set[str],
     applied_seen: set[str],
     capture=None,
+    open_form: bool = True,
 ) -> _PageScan:
     """Scan one results page: skip Applied cards and open the first unapplied job.
 
@@ -282,6 +217,7 @@ async def _scan_page(
             continue
 
         outcome.easy_apply_button_found = True
+        outcome.job_selected = True
         # Task 3: read the description now, while the job view is intact. On the
         # newer AI/semantic job view the Easy Apply form is rendered inline and can
         # replace the page, hiding the description, so it is read *before* the click.
@@ -293,6 +229,22 @@ async def _scan_page(
                 outcome.job_description = await capture(page)
             except Exception:  # noqa: BLE001 - best effort; Task 3 re-reads if empty
                 outcome.job_description = None
+        # Task 16: in the match-first flow, stop here. The job and its Easy Apply
+        # button are selected, and the description is read, but the form stays
+        # closed until the resume matcher decides the job is worth applying to.
+        if not open_form:
+            outcome.job_selected = True
+            scan.selected = True
+            notify(
+                f"Task 2: selected job {index + 1}: {title or '(untitled)'}; "
+                "waiting for the resume match before Easy Apply."
+            )
+            emit_step(
+                notify,
+                f"Selected {title or 'this job'} - checking for a matching resume...",
+            )
+            break
+
         await _safe(button.evaluate("() => this.scrollIntoView({block: 'center'})"))
         await _pace(settings)
         try:
@@ -318,7 +270,12 @@ async def _scan_page(
 
 
 async def _task2_on_page(
-    page, settings: Settings, notify, skip_keys: set[str] | None = None, capture=None
+    page,
+    settings: Settings,
+    notify,
+    skip_keys: set[str] | None = None,
+    capture=None,
+    open_form: bool = True,
 ) -> Task2Outcome:
     """Run Task 2 steps on the results page left open by Task 1.
 
@@ -336,6 +293,10 @@ async def _task2_on_page(
     ``capture`` is an optional ``async (page) -> JobDescription`` used by Task 3 to
     read the open job's description while its view is intact (before Easy Apply).
     The result is stored on ``Task2Outcome.job_description``.
+
+    ``open_form=False`` is Task 16's match-first flow: select the first job that
+    offers Easy Apply and read its description, but leave the form closed. The
+    caller opens it only after a resume match (``open_form`` node).
     """
     outcome = Task2Outcome()
     emit_step(notify, "Please wait - reading the job results list...")
@@ -346,11 +307,20 @@ async def _task2_on_page(
 
     for page_index in range(_MAX_RESULT_PAGES):
         pages_visited += 1
-        scan = await _scan_page(page, settings, notify, outcome, tried, applied_seen, capture)
+        scan = await _scan_page(
+            page,
+            settings,
+            notify,
+            outcome,
+            tried,
+            applied_seen,
+            capture,
+            open_form=open_form,
+        )
         outcome.jobs_seen = scan.cards_seen or await results_count(page)
         notify(f"Task 2: {outcome.jobs_seen} job(s) in the list.")
         await _pace(settings)
-        if scan.opened:
+        if scan.opened or scan.selected:
             break
         # Task 7: when this page yielded no openable Easy Apply job, advance. That
         # covers both "every card is Applied" and the live case where a few cards
@@ -378,7 +348,7 @@ async def _task2_on_page(
     outcome.page_url = await _safe(page.get_url(), None)
     outcome.page_title = await _safe(page.get_title(), "") or ""
 
-    if not outcome.easy_apply_clicked:
+    if not outcome.easy_apply_clicked and not outcome.job_selected:
         # Task 6: when every card on this page was skipped as Applied, stop
         # gracefully with a clear note instead of opening (and applying to) one.
         note = applied_skip_note(outcome)
@@ -397,6 +367,11 @@ def _task2_ok(outcome: Task2Outcome) -> bool:
     return bool(outcome.easy_apply_clicked and outcome.application_form_opened)
 
 
+def _task2_selected_ok(outcome: Task2Outcome) -> bool:
+    """True when Task 2 selected a job that offers Easy Apply (form optional)."""
+    return bool(outcome.job_selected and outcome.easy_apply_button_found)
+
+
 # Task 2's public API. The details-pane names are re-exported from
 # :mod:`src.tools.linkedin_job_apply_button` (they are imported above), so
 # ``from src.tools.linkedin_job_selection import ...`` and the lazy re-exports in
@@ -410,6 +385,7 @@ __all__ = [
     "_first_line",
     "_task2_ok",
     "_task2_on_page",
+    "_task2_selected_ok",
     "find_card_by_title",
     "find_job_apply_button",
     "open_job_card",

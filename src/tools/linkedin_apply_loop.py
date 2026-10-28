@@ -14,8 +14,9 @@ Task 8 loop:
    control — **Not now** (or the X / **Done**) — never **Update profile**.
 2. :func:`open_next_job` — back on the results list, re-read the cards, skip the
    ones already marked **"Applied"** (Task 6), paginate when a whole page is
-   Applied (Task 7), and open the first unapplied **Easy Apply** job, reading its
-   description (Task 3) so the loop can match a resume and fill it again.
+   Applied (Task 7), and **select** the first unapplied **Easy Apply** job, reading
+   its description (Task 3) so the loop can match a resume. Easy Apply is clicked
+   only after that match (Task 16).
 
 The graph nodes that drive the loop live in :mod:`src.nodes.apply_loop`; the
 per-job human-submit timeout/poll settings are reused
@@ -241,18 +242,19 @@ async def open_next_job(
     skip_titles: Iterable[str] = (),
     close_form: bool = False,
 ) -> NextJobResult:
-    """Open the next unapplied Easy Apply job on the open results list.
+    """Select the next unapplied Easy Apply job on the open results list.
 
-    Reuses Task 2's selection (which skips **"Applied"** cards, Task 6, and
-    paginates whole Applied pages, Task 7) and Task 3's description read. The jobs
-    named by ``skip_title`` (the one just handled) and every accumulated
-    ``skip_titles`` entry (Task 16 skips) are never re-opened, even if their cards
-    have not flipped to **"Applied"**. When nothing can be opened, ``reason``
-    explains why and ``opened`` is ``False``.
+    Reuses Task 2's match-first selection (which skips **"Applied"** cards, Task 6,
+    and paginates whole Applied pages, Task 7) and Task 3's description read. The
+    Easy Apply button is **not** clicked here; the graph's ``open_form`` node does
+    that only after a resume match. The jobs named by ``skip_title`` (the one just
+    handled) and every accumulated ``skip_titles`` entry (Task 16 skips) are never
+    re-opened, even if their cards have not flipped to **"Applied"**. When nothing
+    can be selected, ``reason`` explains why and ``opened`` is ``False``.
 
-    ``close_form`` closes the Easy Apply form left open by a Task 16 skip before
-    re-reading the results list. After a human submission the form is already
-    gone, so callers leave it off.
+    ``close_form`` closes a form left open by a self-healed retry before re-reading
+    the results list. A normal Task 16 skip never opens a form, so this is a no-op
+    there; after a human submission the form is already gone.
     """
     from src.tools.linkedin_best_matching_resume import read_job_description  # keep light
 
@@ -278,11 +280,17 @@ async def open_next_job(
             reason="the Easy Apply form could not be closed",
         )
     task2 = await _task2_on_page(
-        run.page, settings, notify, skip_keys=skip_keys, capture=read_job_description
+        run.page,
+        settings,
+        notify,
+        skip_keys=skip_keys,
+        capture=read_job_description,
+        open_form=False,
     )
-    if task2.easy_apply_clicked and task2.application_form_opened:
+    if task2.job_selected or (task2.easy_apply_clicked and task2.application_form_opened):
         # Task 2 read the description while the job was open (before Easy Apply);
-        # only re-read if that produced nothing.
+        # only re-read if that produced nothing. The form stays closed until the
+        # resume match selects this job (Task 16's open_form node).
         description = task2.job_description or JobDescription()
         if not description.is_read:
             emit_step(notify, "Please wait - reading the job description...")

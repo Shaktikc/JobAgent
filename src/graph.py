@@ -1,16 +1,19 @@
 """Assemble the LinkedIn agent LangGraph state machine.
 
-    START -> ingest -> browse -> match -> fill -> await_submit -> next_job -> match
-                                                              |                 |
-                                                              +-> cleanup <-----+
-                                                                  (stop)
+    START -> ingest -> browse -> match -> open_form -> fill -> await_submit
+                                      |                    |             |
+                                      +-> next_job <-------+             |
+                                      |     ^                           |
+                                      |     +---------------------------+
+                                      +-> cleanup <---------------------+
     cleanup -> verify -> END
 
 ``browse`` runs the browser steps in one session (Task 1 log in/search/filter,
-Task 2 open Easy Apply, Task 3 read the job description) and keeps that session
-open. ``match`` selects the best resume offline, ``fill`` fills the still-open
-Easy Apply form (Task 4) and, inside it, asks the human in the browser about
-unknown questions and remembers their answers (Task 5).
+Task 2 select the job and read its description **without** clicking Easy Apply,
+Task 3 read the description) and keeps that session open. ``match`` selects the
+best resume offline. Only when a resume was selected does ``open_form`` click
+Easy Apply; ``fill`` then fills that form (Task 4) and, inside it, asks the human
+in the browser about unknown questions and remembers their answers (Task 5).
 
 **Task 8:** when Task 4 stops at the terminal step (only **Submit application**
 remains) the graph waits for the **human** to submit the application
@@ -23,8 +26,10 @@ reached, no unapplied job remains, the human closes the browser, or a step fails
 
 **Task 16:** in strict resume-matching mode a job whose description matches no
 existing resume is skipped cleanly: ``match`` returns ``status="skipped"``, the
-graph goes straight to ``next_job`` (never ``fill``), and the skipped title is
-excluded from later passes until no job (or the skip cap) stops the loop.
+graph goes straight to ``next_job`` (never ``open_form``/``fill``), and the
+skipped title is excluded from later passes until no job (or the skip cap) stops
+the loop. Because matching happens before the click, a skipped job never opens
+the Easy Apply form at all.
 
 Every node is also wrapped by the self-healing guards: uncaught crashes in any
 node are recorded/repaired/retried, and returned Task 1-3 hard stops (login gate
@@ -36,7 +41,17 @@ from __future__ import annotations
 
 from langgraph.graph import END, START, StateGraph
 
-from src.nodes import await_submit, browse, cleanup, fill, ingest, match, next_job, verify
+from src.nodes import (
+    await_submit,
+    browse,
+    cleanup,
+    fill,
+    ingest,
+    match,
+    next_job,
+    open_form,
+    verify,
+)
 from src.nodes.self_heal_guard import guard_node
 from src.nodes.task_self_heal import guard_task_node
 from src.state import ApplyState
@@ -56,11 +71,18 @@ def _route_after_browse(state: ApplyState) -> str:
 
 
 def _route_after_match(state: ApplyState) -> str:
-    """Fill only on a selected resume; Task 16 skips carry on to the next job."""
+    """Open the form only on a selected resume; Task 16 skips go to the next job."""
     if state.get("errors"):
         return "cleanup"
     if state.get("status") == "skipped":
         return "next_job"
+    return "open_form"
+
+
+def _route_after_open_form(state: ApplyState) -> str:
+    """Fill the form that was opened for the selected resume."""
+    if state.get("errors"):
+        return "cleanup"
     return "fill"
 
 
@@ -107,6 +129,11 @@ def build_graph():
     # two nodes also use the task-level guard (BUG-065).
     builder.add_node("browse", guard_task_node("browse", browse, reopen=None))
     builder.add_node("match", guard_task_node("match", match, reopen="job"))
+    # Task 16: the form is clicked only after a resume was selected. A returned
+    # form-open failure is retryable through the same-job reopen path.
+    builder.add_node(
+        "open_form", guard_task_node("open_form", open_form, reopen="job")
+    )
     builder.add_node("fill", guard_node("fill", fill, reopen="job"))
     builder.add_node("await_submit", guard_node("await_submit", await_submit, reopen="job"))
     builder.add_node(
@@ -125,7 +152,12 @@ def build_graph():
     builder.add_conditional_edges(
         "match",
         _route_after_match,
-        {"fill": "fill", "next_job": "next_job", "cleanup": "cleanup"},
+        {"open_form": "open_form", "next_job": "next_job", "cleanup": "cleanup"},
+    )
+    builder.add_conditional_edges(
+        "open_form",
+        _route_after_open_form,
+        {"fill": "fill", "cleanup": "cleanup"},
     )
     builder.add_conditional_edges(
         "fill", _route_after_fill, {"await_submit": "await_submit", "cleanup": "cleanup"}
