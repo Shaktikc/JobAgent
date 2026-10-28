@@ -122,7 +122,7 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | BUG-069 | Self-Healing — next job/pagination | retry still stopped on pagination; self-healing classifier/capture/buglog were not reloaded after repair | 🟡 Fixed (superseded) | (uncommitted) |
 | BUG-070 | Self-Healing — repair agent | autonomous repair asked a file-split approval question, exited 1, and stopped the loop | 🟢 Fixed | (uncommitted) |
 | BUG-071 | Task 13 — Date posted | a checked "Past 24 hours" radio was accepted though the results URL was not filtered | 🟢 Fixed | (uncommitted) |
-| BUG-072 | Task 3 — read | AI/search job view read "Are these results helpful?" + the job list as the job | 🟢 Fixed | (uncommitted) |
+| BUG-072 | Task 3 — read | AI/search job view read "Are these results helpful?" + the job list as the job | 🟢 Fixed | `55a7838` |
 
 ## Template for new entries
 

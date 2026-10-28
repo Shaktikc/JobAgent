@@ -13,7 +13,7 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 | BUG-031 | unread description treated as "no resume matched" | 🟢 Fixed | `7dce47d` |
 | BUG-038 | resume match hung for minutes / "unusable match reply" | 🟢 Fixed | `1ca5311` |
 | BUG-039 | job title read as "0 notifications" → weak resume match | 🟢 Fixed | `1ca5311` |
-| BUG-072 | AI/search view read the survey heading + job list as the job | 🟢 Fixed | (uncommitted) |
+| BUG-072 | AI/search view read the survey heading + job list as the job | 🟢 Fixed | `55a7838` |
 
 ---
 
@@ -126,4 +126,5 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   plus the existing four layouts). Live Chromium check against the real LinkedIn
   page: title `"Software Engineer - AI Legal Risk Systems"`, company
   `"LEAP Legal Software"`, body starts `"About LEAP …"` and contains
-  `"Develop core features and APIs"`, with no survey/footer text.
+  `"Develop core features and APIs"`, with no survey/footer text. Commit
+  `55a7838`.
