@@ -14,6 +14,7 @@ import time
 
 from src.configuration import Settings
 from src.state import Task5Outcome
+from src.tools.answers import answer_echoes_question
 from src.tools.browser import _append_note, _loads, _safe
 from src.tools.linkedin_ask_human.answer_js import (
     _READ_FORM_ANSWER_JS,
@@ -143,6 +144,8 @@ async def ask_human_for_answer(
         )
     )
     pre_answer = str(pre.get("value") or "").strip()
+    if pre_answer and answer_echoes_question(question, pre_answer):
+        pre_answer = ""  # a misread choice/aria-label is not an answer (BUG-082)
     if pre_answer:
         _store_answer(settings, question, pre_answer, human)
         await _finish_question(page, pre_answer)
@@ -175,6 +178,8 @@ async def ask_human_for_answer(
             )
         )
         answer = str(answer_payload.get("value") or "").strip()
+        if answer and answer_echoes_question(question, answer):
+            answer = ""  # never treat the question text as the human's answer
         if answer and answer != last_saved:
             # Persist immediately, before the wait even finishes, so the answer is
             # never lost to a timeout, a skip, or a manual submit.

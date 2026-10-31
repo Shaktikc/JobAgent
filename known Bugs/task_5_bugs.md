@@ -15,6 +15,8 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 | BUG-026 | banner input vs. typing in the real form field | 🟡 Fixed (superseded) | `99265a0` |
 | BUG-037 | a `<select>` prompt ("Select an option") was saved as the answer, then leaked into the next question | 🟢 Fixed | (uncommitted) |
 
+| BUG-082 | a radio option's aria-label (the question) was saved as the answer | 🟢 Fixed | (uncommitted) |
+
 ---
 
 ### BUG-006 — unrecognized required fields dropped from review
@@ -104,3 +106,45 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   "Full working rights - Citizenship or Permanent resident" read it back, and
   reading another question's markers returned `{"value": "", "done": false}` (no
   leak) — all PASS (uncommitted).
+
+### BUG-082 — a radio option's aria-label (the question) was saved as the answer
+
+- **Symptom:** `data/answers.json` stored the question text as the human's
+  answer for several Yes/No screening questions, e.g.
+  `"are you happy coming to the office 2-3 days per week": "Are you happy coming
+  to the office 2-3 days per week?"`. The Task 5 banner also listed
+  `One of: <question>, <question>` instead of `Yes, No`.
+- **Root cause:** LinkedIn's 2026 SDUI radio layout is a native
+  `input[type=radio]` whose associated `label[for]` is empty and whose
+  `aria-label` is the **question**; the visible option text ("Yes"/"No") is in a
+  sibling `<p>` of the next ancestor. The form enumeration's option reader and
+  Task 5's answer watcher/reader fell back to `aria-label`, so the option label
+  became the question. Clicking "Yes" then stored the question text.
+- **Fix:** added `src/tools/choice_option_text.py` with `_autojobOptionText`,
+  which resolves the visible option text from the associated label, the option
+  row (only while it contains this single choice), or a sibling text block, and
+  never falls back to `aria-label`. It is shared by the enumeration, Task 5's
+  watcher/reader, and the checkbox-group scripts. The watcher also resolves a
+  click on the option text to that row's input and accepts a click inside the
+  marked option row. `answers.answer_echoes_question()` plus guards in
+  `save_answer`, `_store_answer`, `_remember_answer`, and the Task 5 wait keep a
+  question echo out of the store. The question-echo entries in
+  `data/answers.json` were removed; the three selections visible on the live form
+  were repaired to `Yes`, and the ambiguous police-check entry was removed so the
+  question is asked again rather than guessed.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/choice_option_text.py`,
+  `src/tools/answers.py` (`answer_echoes_question`, `save_answer` guard),
+  `src/tools/linkedin_ask_human/answer_js.py`,
+  `src/tools/linkedin_ask_human/store.py`,
+  `src/tools/linkedin_ask_human/flow.py`,
+  `src/tools/linkedin_easy_apply_fill/form_queries/scripts.py`,
+  `src/tools/linkedin_easy_apply_fill/checkbox_groups.py`;
+  `tests/unit/test_task5_form_answers.py` (echo + store guards),
+  `tests/integration/test_choice_option_text_live.py` (4 live browser tests).
+  Live read-only check against the open CORTO Easy Apply form over CDP (nothing
+  clicked, nothing submitted): enumeration returned `"option": "Yes"`/`"No"` for
+  all four radio groups, and the reader returned `{"value":"Yes","done":true}`
+  for the three selected groups and `{"value":"","done":false}` for the
+  unanswered AWS group. Existing role-radio, native-radio, and SDUI checkbox live
+  tests also pass. (uncommitted)

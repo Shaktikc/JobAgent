@@ -28,6 +28,7 @@ import time
 from src.configuration import Settings
 from src.state import FormField, Task5Outcome
 from src.tools.browser import _loads, _safe
+from src.tools.choice_option_text import CHOICE_OPTION_TEXT_JS
 from src.tools.forms import answers_match
 from src.tools.job_context_answers import record_decision
 from src.tools.linkedin_ask_human import _remember_answer
@@ -103,31 +104,33 @@ GROUP_QUESTION_JS = r"""const firstTextWithoutControls = (node) => {
 
 # Every option ticked in the group, in form order. A wrapper's checked state may
 # live on a nested ``<input>``, and its visible text on a nested ``<p>``.
-READ_GROUP_TICKS_JS = r"""
+READ_GROUP_TICKS_JS = (
+    r"""
 (markers) => {
   const list = (markers || []).map(String).filter(Boolean);
   const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
-  const optionText = (option) => {
-    if (norm(option.innerText)) return norm(option.innerText);
-    const nested = option.querySelector('input');
-    const own = (option.labels && option.labels[0])
-      || (nested && nested.labels && nested.labels[0]) || null;
-    if (own && norm(own.innerText)) return norm(own.innerText);
-    if (nested && norm(nested.value) && nested.value !== 'on') return norm(nested.value);
-    return '';
+"""
+    + CHOICE_OPTION_TEXT_JS
+    + r"""
+  // A marker may sit on the empty label while the state and text live on the
+  // native input and its option row (BUG-082); resolve both from either one.
+  const isOn = (host) => {
+    const el = _autojobResolveChoice(host);
+    return !!(el.checked || el.getAttribute('aria-checked') === 'true'
+      || (el.querySelector && el.querySelector('input:checked,[aria-checked="true"]'))
+      || (host !== el && host.querySelector && host.querySelector('input:checked')));
   };
-  const isOn = (el) => !!(el.checked || el.getAttribute('aria-checked') === 'true'
-    || (el.querySelector && el.querySelector('input:checked,[aria-checked="true"]')));
   const selected = [];
   for (const marker of list) {
     const host = document.querySelector('[data-autojob-fill="' + marker + '"]');
     if (!host || !isOn(host)) continue;
-    const text = optionText(host);
+    const text = _autojobOptionText(host, '');
     if (text && selected.indexOf(text) === -1) selected.push(text);
   }
   return JSON.stringify({ selected: selected });
 }
 """
+)
 
 # Re-resolve a *radio* group by its stable ``name`` and re-mark the option that
 # matches the answer. React re-renders the wrapper that carried
@@ -135,37 +138,23 @@ READ_GROUP_TICKS_JS = r"""
 # the cached marker goes stale even though the native input keeps its ``name``.
 # The fill uses this to recover the control (BUG-057), mirroring the name-based
 # fallback Task 5's answer reader already relies on.
-REMARK_RADIO_BY_NAME_JS = r"""
+REMARK_RADIO_BY_NAME_JS = (
+    r"""
 (groupName, answer, marker) => {
   const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
   const esc = (s) => (window.CSS && CSS.escape) ? CSS.escape(s) : s;
+"""
+    + CHOICE_OPTION_TEXT_JS
+    + r"""
   const name = norm(groupName);
   if (!name) return JSON.stringify({ ok: false });
   const selector = 'input[type="radio"][name="' + esc(name) + '"],'
     + '[role="radio"][name="' + esc(name) + '"]';
   const controls = Array.from(document.querySelectorAll(selector));
   if (!controls.length) return JSON.stringify({ ok: false });
-  const optionText = (el) => {
-    if (norm(el.innerText)) return norm(el.innerText);
-    const nested = el.querySelector ? el.querySelector('input') : null;
-    const own = (el.labels && el.labels[0])
-      || (nested && nested.labels && nested.labels[0]) || null;
-    if (own && norm(own.innerText)) return norm(own.innerText);
-    if (el.id) {
-      const l = document.querySelector('label[for="' + esc(el.id) + '"]');
-      if (l && norm(l.innerText)) return norm(l.innerText);
-    }
-    const wrap = el.closest('label');
-    if (wrap && norm(wrap.innerText)) return norm(wrap.innerText);
-    const sib = el.nextElementSibling || el.previousElementSibling;
-    if (sib && norm(sib.innerText)) return norm(sib.innerText);
-    if (norm(el.value) && el.value !== 'on') return norm(el.value);
-    if (nested && norm(nested.value) && nested.value !== 'on') return norm(nested.value);
-    return '';
-  };
   const wrapper = (el) => el.closest('[role="radio"]') || el;
   const want = norm(answer).toLowerCase();
-  const labelOf = (el) => norm(optionText(wrapper(el))).toLowerCase();
+  const labelOf = (el) => norm(_autojobOptionText(wrapper(el), '')).toLowerCase();
   const match = controls.find((el) => labelOf(el) === want)
     || controls.find((el) => {
       const text = labelOf(el);
@@ -176,6 +165,7 @@ REMARK_RADIO_BY_NAME_JS = r"""
   return JSON.stringify({ ok: true });
 }
 """
+)
 
 # A group answer may list several options ("A, B"); split on commas/semicolons.
 _SPLIT_RE = re.compile(r"[;,]")

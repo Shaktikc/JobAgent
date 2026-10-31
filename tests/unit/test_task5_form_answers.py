@@ -21,7 +21,7 @@ import json
 
 from src.configuration import SessionSettings, Settings
 from src.state import Task5Outcome
-from src.tools.answers import load_answers
+from src.tools.answers import answer_echoes_question, load_answers, save_answer
 from src.tools.forms import is_prompt_answer, select_is_answered
 from src.tools.linkedin_ask_human import (
     _looks_unlabeled,
@@ -56,6 +56,16 @@ def test_real_select_choices_are_answers() -> None:
     assert select_is_answered("fbc0e5e5", "60,000-70,000") is True
     # "None" is a legitimate answer, unlike a prompt phrase.
     assert select_is_answered("uuid-none", "None") is True
+
+
+def test_answer_echoing_the_question_is_not_an_answer() -> None:
+    # BUG-082: a choice's aria-label is the question, not its option.
+    question = "Are you happy coming to the office 2-3 days per week?"
+    assert answer_echoes_question(question, question) is True
+    assert answer_echoes_question(question, question.rstrip("?")) is True
+    assert answer_echoes_question(question, "Yes") is False
+    assert answer_echoes_question(question, "No") is False
+    assert answer_echoes_question(question, "") is False
 
 
 def test_is_prompt_answer_recognises_prompt_phrases() -> None:
@@ -107,6 +117,48 @@ def test_store_answer_never_persists_a_prompt(tmp_path) -> None:
     assert load_answers(settings.answers_file) == {
         "which of the following statements best describes your right to work": "No working rights"
     }
+
+
+def test_save_answer_rejects_the_question_as_its_own_answer(tmp_path) -> None:
+    path = tmp_path / "answers.json"
+    question = "Are you based in Sydney with unlimited Australian working rights?"
+
+    save_answer(path, question, question)
+    assert load_answers(path) == {}
+
+    save_answer(path, question, "Yes")
+    assert load_answers(path) == {
+        "are you based in sydney with unlimited australian working rights": "Yes"
+    }
+
+
+def test_store_answer_never_persists_the_question_as_its_answer(tmp_path) -> None:
+    settings = _settings(tmp_path)
+    question = "Are you happy coming to the office 2-3 days per week?"
+
+    _store_answer(settings, question, question, Task5Outcome())
+    _store_answer(settings, question, question.rstrip("?"), Task5Outcome())
+    assert load_answers(settings.answers_file) == {}
+
+    _store_answer(settings, question, "Yes", Task5Outcome())
+    assert load_answers(settings.answers_file) == {
+        "are you happy coming to the office 2-3 days per week": "Yes"
+    }
+
+
+def test_remember_answer_never_persists_the_question_as_its_answer(tmp_path) -> None:
+    settings = _settings(tmp_path)
+    answers: dict[str, str] = {}
+    human = Task5Outcome()
+    question = "Do you have 3+ years of commercial experience?"
+
+    _remember_answer(settings, answers, human, question, question)
+    assert answers == {}
+    assert load_answers(settings.answers_file) == {}
+
+    _remember_answer(settings, answers, human, question, "Yes")
+    assert answers == {"do you have 3+ years of commercial experience": "Yes"}
+    assert load_answers(settings.answers_file) == answers
 
 
 def test_remember_answer_never_persists_a_prompt(tmp_path) -> None:

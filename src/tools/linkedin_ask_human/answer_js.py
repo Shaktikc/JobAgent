@@ -12,6 +12,8 @@ A ``<select>``'s prompt option ("Select an option") is never an answer — see
 
 from __future__ import annotations
 
+from src.tools.choice_option_text import CHOICE_OPTION_TEXT_JS
+
 # Task 5: watch the form for the human's answer. The banner has no input, so the
 # human edits the actual form control; this records the edited value on the page
 # and flags when the edit is finished. A single document-level listener is
@@ -24,7 +26,8 @@ from __future__ import annotations
 # is recorded too — after a tick, once the page has set ``aria-checked``. Each
 # recorded control is checked against the marker(s) of the question being asked
 # (``markers``), so editing an unrelated field is never mistaken for the answer.
-_WATCH_FORM_ANSWER_JS = r"""
+_WATCH_FORM_ANSWER_JS = (
+    r"""
 (markers) => {
   const KEY = '__autojobFormAnswer';
   const allowed = (markers || []).map(String);
@@ -40,7 +43,9 @@ _WATCH_FORM_ANSWER_JS = r"""
 
   const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
   const esc = (s) => (window.CSS && CSS.escape) ? CSS.escape(s) : s;
-
+"""
+    + CHOICE_OPTION_TEXT_JS
+    + r"""
   // A <select>'s prompt option ("Select an option") is not an answer. LinkedIn
   // renders it with value="" and disabled; other forms give it a non-empty value
   // but prompt text. Clicking a select to open its dropdown, or clicking away
@@ -60,61 +65,20 @@ _WATCH_FORM_ANSWER_JS = r"""
     const holders = [node, el].filter(Boolean).map(
       (n) => n.closest && n.closest('[data-autojob-fill]')
     ).filter(Boolean);
-    return holders.some(
+    if (holders.some(
       (h) => state.scope.indexOf(h.getAttribute('data-autojob-fill')) !== -1
-    );
+    )) return true;
+    // The marker can sit on the (empty) label while the human clicks the option
+    // text in a sibling block; accept a click inside the same marked option row,
+    // but only when that row belongs to the question being asked.
+    return _autojobSharedRow(el, state.scope);
   };
 
-  const resolveControl = (node) => {
-    if (!node || !node.closest) return null;
-    // A styled choice's wrapper owns the state (``aria-checked``) and the visible
-    // option text; a click lands on its inner input/label, which carries neither
-    // (LinkedIn's label is empty and the option text is a sibling ``<p>``). Resolve
-    // to the wrapper first, or the click would read an empty value (BUG-059).
-    const choice = node.closest('[role="radio"], [role="checkbox"]');
-    if (choice) return choice;
-    const label = node.closest('label');
-    if (label) {
-      if (label.control) return label.control;
-      if (label.htmlFor) {
-        const forEl = document.getElementById(label.htmlFor);
-        if (forEl) return forEl;
-      }
-    }
-    return node.closest('input, textarea, select');
-  };
+  // A click can land on the empty label, the native input, or the option text in
+  // a sibling block. Resolve all of them to the same control (BUG-059/082).
+  const resolveControl = (node) => _autojobControlForNode(node);
 
-  const optionText = (el) => {
-    // A choice's visible option text comes first: LinkedIn sets a role=radio
-    // container's aria-label to the *question*, not the option.
-    if (norm(el.innerText)) return norm(el.innerText);
-    const nested = el.querySelector ? el.querySelector('input') : null;
-    const own = (el.labels && el.labels[0])
-      || (nested && nested.labels && nested.labels[0]) || null;
-    if (own && norm(own.innerText)) return norm(own.innerText);
-    if (el.id) {
-      const l = document.querySelector('label[for="' + esc(el.id) + '"]');
-      if (l && norm(l.innerText)) return norm(l.innerText);
-    }
-    const wrap = el.closest('label');
-    if (wrap && norm(wrap.innerText)) return norm(wrap.innerText);
-    const sib = el.nextElementSibling || el.previousElementSibling;
-    if (sib && norm(sib.innerText)) return norm(sib.innerText);
-    // A bare radio/checkbox with no value attribute reports "on"; never use it.
-    if (norm(el.value) && el.value !== 'on') return norm(el.value);
-    if (nested && norm(nested.value) && nested.value !== 'on') return norm(nested.value);
-    const aria = el.getAttribute('aria-label');
-    if (aria && norm(aria)) return norm(aria);
-    const by = (el.getAttribute('aria-labelledby') || '').trim();
-    if (by) {
-      const parts = by.split(/\s+/).map((id) => {
-        const n = document.getElementById(id);
-        return n ? norm(n.innerText) : '';
-      }).filter(Boolean);
-      if (parts.length) return parts.join(' ');
-    }
-    return '';
-  };
+  const optionText = (el) => _autojobOptionText(el, '');
 
   const readValue = (el) => {
     const tag = el.tagName.toLowerCase();
@@ -159,12 +123,14 @@ _WATCH_FORM_ANSWER_JS = r"""
   return true;
 }
 """
+)
 
 # Read the answer for the current question. It combines the value the watcher
 # recorded from an edit with the *live* value of the question's control(s), so a
 # field the human filled before (or without) a fresh edit event is still captured.
 # ``done`` is true once an edit finished or a choice/select already holds a value.
-_READ_FORM_ANSWER_JS = r"""
+_READ_FORM_ANSWER_JS = (
+    r"""
 (markers, name, question, options) => {
   const list = (markers || []).map(String).filter(Boolean);
   const groupName = name ? String(name) : '';
@@ -172,7 +138,9 @@ _READ_FORM_ANSWER_JS = r"""
   const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
   const esc = (s) => (window.CSS && CSS.escape) ? CSS.escape(s) : s;
   const bare = (s) => norm(s).toLowerCase().replace(/\s*\*\s*$/, '');
-
+"""
+    + CHOICE_OPTION_TEXT_JS
+    + r"""
   // A <select>'s prompt option ("Select an option") is not an answer (BUG-037).
   // Mirrors the watcher's helper: value="" + disabled, or prompt-looking text.
   const isSelectPrompt = (el) => {
@@ -211,57 +179,8 @@ _READ_FORM_ANSWER_JS = r"""
     ) || host;
   };
 
-  const labelText = (el) => {
-    const aria = el.getAttribute('aria-label');
-    if (aria && norm(aria)) return norm(aria);
-    const by = (el.getAttribute('aria-labelledby') || '').trim();
-    if (by) {
-      const parts = by.split(/\s+/).map((id) => {
-        const n = document.getElementById(id);
-        return n ? norm(n.innerText) : '';
-      }).filter(Boolean);
-      if (parts.length) return parts.join(' ');
-    }
-    if (el.labels && el.labels.length && norm(el.labels[0].innerText)) {
-      return norm(el.labels[0].innerText);
-    }
-    if (el.id) {
-      const l = document.querySelector('label[for="' + esc(el.id) + '"]');
-      if (l && norm(l.innerText)) return norm(l.innerText);
-    }
-    const wrap = el.closest('label');
-    if (wrap && norm(wrap.innerText)) return norm(wrap.innerText);
-    if (norm(el.innerText)) return norm(el.innerText);
-    // A styled native input often keeps its option text in a sibling span.
-    const sib = el.nextElementSibling || el.previousElementSibling;
-    if (sib && norm(sib.innerText)) return norm(sib.innerText);
-    if (norm(el.value)) return norm(el.value);
-    return '';
-  };
-
-  const optionText = (el) => {
-    // A role=radio/checkbox container's own visible text is the option; LinkedIn
-    // sets the container's aria-label to the *question*, not the option.
-    if (norm(el.innerText)) return norm(el.innerText);
-    const nested = el.querySelector ? el.querySelector('input') : null;
-    const own = (el.labels && el.labels[0])
-      || (nested && nested.labels && nested.labels[0]) || null;
-    if (own && norm(own.innerText)) return norm(own.innerText);
-    if (el.id) {
-      const l = document.querySelector('label[for="' + esc(el.id) + '"]');
-      if (l && norm(l.innerText)) return norm(l.innerText);
-    }
-    const wrap = el.closest('label');
-    if (wrap && norm(wrap.innerText)) return norm(wrap.innerText);
-    const sib = el.nextElementSibling || el.previousElementSibling;
-    if (sib && norm(sib.innerText)) return norm(sib.innerText);
-    // A bare radio/checkbox with no value attribute reports "on"; never use it.
-    if (norm(el.value) && el.value !== 'on') return norm(el.value);
-    if (nested && norm(nested.value) && nested.value !== 'on') return norm(nested.value);
-    const aria = el.getAttribute('aria-label');
-    if (aria && norm(aria)) return norm(aria);
-    return labelText(el);
-  };
+  // The visible option text, never the aria-label (which is the question).
+  const optionText = (el) => _autojobOptionText(el, question);
 
   const readControl = (el) => {
     if (!el) return { value: '', atomic: false };
@@ -361,3 +280,4 @@ _READ_FORM_ANSWER_JS = r"""
   });
 }
 """
+)

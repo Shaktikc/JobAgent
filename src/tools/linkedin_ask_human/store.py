@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from src.configuration import Settings
 from src.state import Task5Outcome
-from src.tools.answers import normalize_question, save_answer
+from src.tools.answers import answer_echoes_question, normalize_question, save_answer
 from src.tools.browser import _append_note
 from src.tools.forms import is_prompt_answer
 
@@ -25,8 +25,14 @@ def _store_answer(
     human gave is kept even if the run stops before that. It writes silently (no
     duplicate note) and never raises into the wait.
     """
-    if not normalize_question(question) or is_prompt_answer(answer):
-        return  # a <select> prompt ("Select an option") is not an answer (BUG-037)
+    if (
+        not normalize_question(question)
+        or is_prompt_answer(answer)
+        or answer_echoes_question(question, answer)
+    ):
+        # A <select> prompt ("Select an option") is not an answer (BUG-037), and
+        # the question text itself is never an answer (BUG-082).
+        return
     try:
         save_answer(settings.answers_file, question, answer)
     except OSError as exc:  # noqa: BLE001 - a failed early write must not stop the wait
@@ -46,8 +52,10 @@ def _remember_answer(
     An existing mapping is only replaced when the human supplies a new answer here;
     the update is recorded explicitly in the Task 5 notes rather than silently.
     """
-    if is_prompt_answer(answer):
-        return  # never remember a select prompt as the human's answer (BUG-037)
+    if is_prompt_answer(answer) or answer_echoes_question(question, answer):
+        # Never remember a select prompt (BUG-037) or the question itself
+        # (BUG-082) as the human's answer.
+        return
     key = normalize_question(question)
     previous = answers.get(key)
     answers[key] = answer

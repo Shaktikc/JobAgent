@@ -13,6 +13,7 @@ The async readers that wrap these scripts live in
 from __future__ import annotations
 
 from src.tools.browser import FIND_APPLY_ROOT_JS
+from src.tools.choice_option_text import CHOICE_OPTION_TEXT_JS
 from src.tools.forms import REQUIRED_MARKER_JS, STEP_IDENTITY_JS
 from src.tools.linkedin_easy_apply_fill.checkbox_groups import GROUP_QUESTION_JS
 
@@ -203,13 +204,24 @@ _ENUMERATE_FORM_QUERY = r"""
       if (nested) fieldName = nested.getAttribute('name') || '';
     }
     const question = isChoice ? (groupLabel(el) || ownLabel(el)) : ownLabel(el);
+    // The visible option text ("Yes"/"No"), never the control's aria-label:
+    // LinkedIn puts the *question* there (BUG-082).
+    let option = '';
+    if (isChoice) {
+      option = _autojobOptionText(el, question);
+      if (!option) {
+        // The last resort is still screened for a question echo (the label's
+        // aria-label on LinkedIn is the question).
+        option = _autojobCleanOption(ownLabel(el), question);
+      }
+    }
     fields.push({
       marker: marker,
       kind: kind,
       type: type || tag,
       name: fieldName,
       question: question,
-      option: isChoice ? ownLabel(el) : '',
+      option: option,
       required: requiredOf(el, isChoice, question),
       checked: !!el.checked || el.getAttribute('aria-checked') === 'true'
         || !!(el.querySelector && el.querySelector('input:checked,[aria-checked="true"]')),
@@ -391,7 +403,7 @@ def _with_apply_root(query: str) -> str:
     )
     return query.replace(
         _GROUP_QUESTION_PLACEHOLDER,
-        GROUP_QUESTION_JS + REQUIRED_MARKER_JS + STEP_IDENTITY_JS,
+        GROUP_QUESTION_JS + REQUIRED_MARKER_JS + STEP_IDENTITY_JS + CHOICE_OPTION_TEXT_JS,
     )
 
 

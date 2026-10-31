@@ -135,6 +135,7 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 
 | BUG-080 | Self-Healing — match/resume | transient LLM connection error aborted the resume match | 🟢 Fixed | (uncommitted) |
 | BUG-081 | Self-Healing — match/resume | match-stage capture reused the previous job's Task 4 fields/notes | 🟢 Fixed | (uncommitted) |
+| BUG-082 | Task 4/5 — SDUI radio options | a radio's aria-label (the question) was read as the option and saved as the answer | 🟢 Fixed | (uncommitted) |
 
 ## Template for new entries
 
