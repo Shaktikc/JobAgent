@@ -184,6 +184,13 @@ class LLMSettings(BaseModel):
     temperature: float = Field(default=0.0, ge=0, le=2)
     timeout_seconds: float = Field(default=60.0, gt=0)
     max_retries: int = Field(default=3, ge=0)
+    # Task 3.2: the OpenAI client retries some failures itself, but a provider-side
+    # "Connection error." (or a 429/5xx) can still escape and abort a resume match.
+    # Retry those transient transport failures a bounded number of times with a
+    # short exponential backoff before recording the Task 3 error. Deterministic
+    # failures (bad request, unusable reply) are never retried here.
+    transport_retries: int = Field(default=2, ge=0, le=5)
+    transport_retry_backoff_seconds: float = Field(default=1.0, ge=0)
     # Task 3.2: reasoning models can spend thousands of tokens "thinking" before a
     # two-line JSON answer. On OpenRouter the structured description/match calls
     # disable that hidden reasoning by default (much faster, and no empty reply
@@ -331,6 +338,10 @@ def load_settings(env_file: Path | None = None) -> Settings:
             temperature=_get_float("AUTOJOB_LLM_TEMPERATURE", 0.0),
             timeout_seconds=_get_float("AUTOJOB_LLM_TIMEOUT_SECONDS", 60.0),
             max_retries=_get_int("AUTOJOB_LLM_MAX_RETRIES", 3),
+            transport_retries=_get_int("AUTOJOB_LLM_TRANSPORT_RETRIES", 2),
+            transport_retry_backoff_seconds=_get_float(
+                "AUTOJOB_LLM_TRANSPORT_RETRY_BACKOFF_SECONDS", 1.0
+            ),
             disable_reasoning=_get_bool("AUTOJOB_LLM_DISABLE_REASONING", True),
         ),
         self_healing=SelfHealingSettings(

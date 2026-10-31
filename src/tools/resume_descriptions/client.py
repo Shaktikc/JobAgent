@@ -10,6 +10,7 @@ once with a stricter instruction; there is still no deterministic fallback.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -39,6 +40,78 @@ _UNSUPPORTED_WORDS = (
     "not permitted",
     "extra inputs",
 )
+
+# Provider/transport failures that are worth retrying. The OpenRouter API can
+# surface a transient upstream outage as a plain "Connection error." response, and
+# the OpenAI client's own retries do not cover every shape of it. A retry here is
+# what keeps one network blip from stopping the resume match for the whole run.
+_TRANSIENT_STATUS_CODES = frozenset({408, 409, 425, 429})
+_TRANSIENT_NAMES = frozenset(
+    {
+        "APIConnectionError",
+        "APITimeoutError",
+        "ConnectError",
+        "ConnectTimeout",
+        "ConnectionAbortedError",
+        "ConnectionError",
+        "ConnectionResetError",
+        "InternalServerError",
+        "PoolTimeout",
+        "ReadError",
+        "ReadTimeout",
+        "RemoteProtocolError",
+        "TimeoutError",
+        "TimeoutException",
+        "WriteError",
+        "WriteTimeout",
+    }
+)
+_TRANSIENT_MARKERS = (
+    "connection error",
+    "connection reset",
+    "connection aborted",
+    "connection refused",
+    "connection closed",
+    "server disconnected",
+    "remote protocol",
+    "temporarily unavailable",
+    "network error",
+    "bad gateway",
+    "service unavailable",
+    "gateway timeout",
+    "overloaded",
+    "rate limit",
+    "timed out",
+    "timeout",
+)
+
+
+def _status_code(exc: Exception) -> int | None:
+    """The HTTP status on ``exc`` (SDK or httpx style), when there is one."""
+    code = getattr(exc, "status_code", None)
+    if code is None:
+        code = getattr(getattr(exc, "response", None), "status_code", None)
+    try:
+        return int(code)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_transient_error(exc: Exception) -> bool:
+    """True for a network/provider outage that a later attempt may clear."""
+    code = _status_code(exc)
+    if code is not None:
+        return code in _TRANSIENT_STATUS_CODES or code >= 500
+    if type(exc).__name__ in _TRANSIENT_NAMES:
+        return True
+    text = str(exc).lower()
+    return any(marker in text for marker in _TRANSIENT_MARKERS)
+
+
+async def _backoff_sleep(seconds: float) -> None:
+    """Wait between transport retries (kept tiny and injectable for tests)."""
+    if seconds > 0:
+        await asyncio.sleep(seconds)
 
 
 def _extract_text(path: str | Path) -> str:
@@ -88,9 +161,8 @@ def _request_kwargs(
     return kwargs
 
 
-async def _chat(client, settings: LLMSettings, messages: list[dict[str, str]]) -> str:
-    """Send one chat request and return the reply text (empty when there is none)."""
-    kwargs = _request_kwargs(settings, messages)
+async def _chat_once(client, kwargs: dict) -> str:
+    """Send one request, dropping provider-rejected knobs; return the reply text."""
     for _attempt in range(3):
         try:
             response = await client.chat.completions.create(**kwargs)
@@ -110,6 +182,25 @@ async def _chat(client, settings: LLMSettings, messages: list[dict[str, str]]) -
     if not response.choices:
         return ""
     return response.choices[0].message.content or ""
+
+
+async def _chat(client, settings: LLMSettings, messages: list[dict[str, str]]) -> str:
+    """Send one chat request, retrying transient transport failures.
+
+    A fresh request body is built for every attempt so a provider-rejected knob is
+    removed again if needed. Deterministic failures and unusable replies are not
+    retried here: the caller's JSON nudge handles the latter.
+    """
+    retries = max(0, int(getattr(settings, "transport_retries", 0) or 0))
+    backoff = float(getattr(settings, "transport_retry_backoff_seconds", 0.0) or 0.0)
+    for attempt in range(retries + 1):
+        try:
+            return await _chat_once(client, _request_kwargs(settings, messages))
+        except Exception as exc:  # noqa: BLE001 - only transient errors are retried
+            if attempt >= retries or not _is_transient_error(exc):
+                raise
+            await _backoff_sleep(backoff * (2**attempt))
+    return ""  # pragma: no cover - the loop always returns or raises
 
 
 async def _ask_json(client, settings: LLMSettings, messages: list[dict[str, str]], parse):

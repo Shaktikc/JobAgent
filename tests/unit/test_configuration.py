@@ -47,6 +47,9 @@ def test_defaults_are_safe() -> None:
     assert settings.self_healing.repair_model == DEFAULT_REPAIR_MODEL
     assert settings.self_healing.repair_command is None
     assert settings.self_healing.test_command is None
+    # Task 3.2: transient provider/network failures get a bounded retry.
+    assert settings.llm.transport_retries == 2
+    assert settings.llm.transport_retry_backoff_seconds == 1.0
 
 
 def test_env_overrides_are_read(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -166,6 +169,8 @@ def test_llm_settings_default_and_override(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setenv("AUTOJOB_LLM_TEMPERATURE", "0.5")
     monkeypatch.setenv("AUTOJOB_LLM_TIMEOUT_SECONDS", "30")
     monkeypatch.setenv("AUTOJOB_LLM_MAX_RETRIES", "1")
+    monkeypatch.setenv("AUTOJOB_LLM_TRANSPORT_RETRIES", "4")
+    monkeypatch.setenv("AUTOJOB_LLM_TRANSPORT_RETRY_BACKOFF_SECONDS", "0.25")
     monkeypatch.setenv("AUTOJOB_LLM_DISABLE_REASONING", "false")
 
     llm = load_settings().llm
@@ -176,6 +181,8 @@ def test_llm_settings_default_and_override(monkeypatch: pytest.MonkeyPatch) -> N
     assert llm.temperature == 0.5
     assert llm.timeout_seconds == 30.0
     assert llm.max_retries == 1
+    assert llm.transport_retries == 4
+    assert llm.transport_retry_backoff_seconds == 0.25
     assert llm.disable_reasoning is False
 
 

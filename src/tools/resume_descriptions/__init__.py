@@ -25,6 +25,7 @@ from .messages import (
 )
 from .models import ResumeDescription, ResumeDescriptionError, ResumeMatch
 from .store import (
+    PROFILE_VERSION,
     canonical_path,
     described_candidates,
     description_for,
@@ -37,6 +38,7 @@ from .store import (
 )
 
 __all__ = [
+    "PROFILE_VERSION",
     "ResumeDescription",
     "ResumeDescriptionError",
     "ResumeMatch",

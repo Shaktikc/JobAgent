@@ -6,7 +6,7 @@
 browser, on the same LinkedIn page** the agent is automating, that tells the
 human — in plain language — exactly what the code is doing at each moment. Every
 major step is shown as the panel's single current line ("Please wait — searching
-for 'software engineer' jobs…"), replaced on each update, and whenever the
+for '<chosen query>' jobs…"), replaced on each update, and whenever the
 **LLM** is invoked the panel says **exactly what the
 LLM is doing** (which resume it is summarizing, which job it is matching
 against, which form question it is classifying) and then what the LLM decided.

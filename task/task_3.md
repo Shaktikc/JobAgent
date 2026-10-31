@@ -7,6 +7,11 @@ ask an LLM to choose the resume from the `resumes/` folder that best fits that
 description. The LLM is the **only** matching path — there is no deterministic
 scoring fallback.
 
+**Task 16 note:** strict resume matching is the default. Only a candidate the LLM
+rates `strong` proceeds; a no-match is a clean skip and the Subtask 3.1 fallbacks
+below are **not** used. Set `AUTOJOB_SESSION_REQUIRE_RESUME_MATCH=false` to
+restore them. See Task 16 for the gate.
+
 **Implementation order (bottom-up, easy to test):**
 Build and verify the pieces in this order, one slice at a time:
 1. **Subtask 3.1** — Ask the human for a resume when nothing matches, and remember it.
@@ -96,8 +101,9 @@ a later similar job reuses it automatically instead of asking again.
 **Status:** ✅ Done
 
 **Goal:** Keep a short, LLM-written description for every resume in the pool, and
-have the **LLM** choose the best-matching resume for a job directly from those
-descriptions. There is no deterministic scorer anywhere in the match.
+have the **LLM** rate every candidate and choose the strongest match for a job
+directly from those descriptions. There is no deterministic scorer anywhere in the
+match.
 
 **Preconditions**
 - Task 3 is in progress: the job description has been read.
@@ -121,41 +127,57 @@ descriptions. There is no deterministic scorer anywhere in the match.
    matching — there is no fallback description.
 3. Ask the **LLM** for a short, structured description of that resume: a one-line
    summary plus its skills/technologies, likely title(s), seniority, years of
-   experience, and the domain/industry. The model must summarise only what is in
-   the resume — never invent experience or credentials.
+   experience, domain/industry, up to six factual highlights (leadership,
+   architecture, platform/tooling, delivery, production operations), and the AI
+   coding assistants/agents it explicitly names. The model must summarise only
+   what is in the resume — never invent experience or credentials.
 4. If the LLM call fails or returns an unusable reply, record an error and stop; do
-   not substitute a deterministic description.
+   not substitute a deterministic description. Transient provider/network failures
+   (`Connection error.`, 429/5xx) are retried a bounded number of times (default 2
+   extra attempts with exponential backoff) before that error is recorded;
+   parameter/validation failures are not retried.
 5. Map the description to the resume file in the resume-description store, keyed by
    the resume's canonical path; update the entry when the same file is
    re-described so no duplicate entries pile up.
 6. Never rename, move, or modify the resume file — only the sidecar store changes.
-7. Refresh the stored description only when the resume file changed (its mtime or
-   size differs from what was recorded).
+7. Refresh the stored description when the resume file changed (its mtime or size
+   differs from what was recorded) **or** when the stored entry's
+   `profile_version` is older than the current profile schema. A prompt/schema
+   improvement must reach the matcher; bumping `PROFILE_VERSION` re-describes the
+   pool once on the next run.
 8. When matching for a job (Task 3), pass the job description and every resume's
-   stored LLM description to the **LLM** and ask it to choose the single
-   best-matching resume, or **none**. Do **not** call `score_resume` or any other
-   deterministic scorer.
+   stored LLM description to the **LLM** and ask it to **rate every candidate**
+   (`strong`/`partial`/`none`, best first) and then choose the strongest one, or
+   **none**. If the single `choice` is not strong but another candidate is rated
+   `strong`, select that strong candidate rather than skipping the job. Do **not**
+   call `score_resume` or any other deterministic scorer.
 9. Validate the chosen id against the candidate list, record the chosen resume's
-   path and the LLM's rationale, and hand that resume to Task 4 to attach/upload.
+   path, the per-candidate ratings, and the LLM's rationale (including any
+   strong-rating override), and hand that resume to Task 4 to attach/upload.
 
 **Acceptance criteria**
 - A newly added resume gets a short description produced by the LLM, stored and
   mapped to its file.
 - The description is validated/normalised and the LLM summarises only what is in
   the resume (it does not invent skills, titles, or years).
-- On later jobs the stored description is reused, so the resume is not re-extracted
-  or re-summarised to rebuild the description.
-- The **LLM** picks the best-matching resume directly from the job description and
-  the resume descriptions; the deterministic weighted scorer (`score_resume`) is
-  **not** used anywhere in the match.
+- On later jobs the stored description is reused when its file signature and
+  `profile_version` are current, so the resume is not re-extracted or re-summarised
+  to rebuild the description; an older profile version is re-described once.
+- The **LLM** rates every candidate and picks the strongest resume directly from
+  the job description and the resume descriptions; the deterministic weighted
+  scorer (`score_resume`) is **not** used anywhere in the match.
 - Every resume considered for a job has an LLM description; a resume without one is
   an error, not matched from its raw text.
 - Re-describing the same file updates its entry instead of creating a duplicate.
 - If the LLM is not configured, or the call fails or returns an unusable reply, an
   error is recorded and the run stops cleanly — no deterministic fallback is used.
+  Transient provider/network failures are retried a bounded number of times first.
 - Resume files are never modified, renamed, or moved.
-- The chosen resume's path and matching rationale are recorded, and the selected
-  resume is the one Task 4 attaches/uploads.
+- A candidate the LLM rates `strong` is selected even when the model's single
+  `choice` was `partial`/`none`; the job is not skipped while a strong candidate
+  exists.
+- The chosen resume's path, the per-candidate ratings, and the matching rationale
+  are recorded, and the selected resume is the one Task 4 attaches/uploads.
 
 **Notes**
 - The short description is generated by the **LLM** (same configured model as
@@ -168,10 +190,18 @@ descriptions. There is no deterministic scorer anywhere in the match.
   its raw text.
 - The LLM only summarises the resume it is given — it must not add skills, titles,
   or years that are not present in the file.
-- The store maps resume path → description (plus the file's mtime/size) and never
-  contains credentials.
+- The store maps resume path → description (plus the file's mtime/size and the
+  `profile_version`) and never contains credentials.
 - Uploading/attaching the resume is still Task 4's job; this subtask only chooses
   the resume.
+- **Sync note (BUG-078/BUG-079):** the profile also carries factual highlights and
+  named AI coding tools, and the match reply rates every candidate. The cache is
+  versioned (`PROFILE_VERSION`) so profiles written by an older prompt/schema are
+  re-described instead of reused.
+- **Sync note (BUG-080):** transient `Connection error.`/429/5xx responses are
+  retried a bounded number of times before a Task 3.2 error is recorded; a
+  deterministic failure (bad request/API key) and an unusable reply are not
+  retried by this transport retry.
 - Depends on Subtask 3.1: when the human uploads a resume, 3.1 hands it here to be
   LLM-described **before** it is used. Subtask 3.1 then uses that resume directly
   for the current job (no re-match); the stored description is what later jobs
@@ -182,46 +212,62 @@ descriptions. There is no deterministic scorer anywhere in the match.
 **Status:** ✅ Done
 
 **Goal:** The end-to-end path that ties the pieces together: read the open job's
-description, let the LLM choose the best-matching resume using the stored
-descriptions from Subtask 3.2, and hand the chosen resume to Task 4. This is the
-last piece to build, after 3.1 and 3.2 are in place and tested.
+description, let the LLM rate every candidate and choose the strongest resume
+using the stored descriptions from Subtask 3.2, and hand the chosen resume to
+Task 4. This is the last piece to build, after 3.1 and 3.2 are in place and tested.
 
 **Steps**
 1. Read the job description from the open job (title, company, location, and the
    full description body).
 2. List the files in `resumes/`.
 3. If the folder is empty, there is nothing for the LLM to choose: treat the job
-   as a **no match** and hand off to Subtask 3.1, which reuses a remembered resume
-   or asks the human (an empty pool is a no-match, not an error).
+   as a **no match** and, in legacy mode, hand off to Subtask 3.1, which reuses a
+   remembered resume or asks the human (an empty pool is a no-match, not an
+   error). In Task 16 strict mode this is a clean skip.
 4. Build the candidate list from the resumes and their stored LLM descriptions
    (Subtask 3.2). A resume with no stored description is an error, not matched
    from its raw text.
-5. Ask the LLM to **choose the single best-matching resume** from the candidates,
-   or to answer **none** when nothing fits. It returns the chosen candidate id and
-   a short rationale.
-6. Validate the choice: it must reference a real candidate in the list.
-7. Record the selected file path and the LLM's rationale.
-8. If the LLM answers **none** (or returns an invalid choice), treat the job as a
-   **no match** and hand off to Subtask 3.1 (reuse a remembered resume, or ask the
-   human). Do not guess.
+5. Ask the LLM to **rate every candidate** (best first) and **choose the strongest**
+   resume, or to answer **none** when nothing fits. It returns the per-candidate
+   ratings, the chosen candidate id, its fit, and a short rationale. If the single
+   choice is `partial` but another candidate is rated `strong`, use the strong
+   candidate.
+6. Validate the choice: it must reference a real candidate in the list; ratings
+   that reference an unknown id are ignored.
+7. Record the selected file path, the per-candidate ratings, and the LLM's
+   rationale (including a note when a strong rating overrode the single choice).
+8. If **no candidate is rated `strong`** — the LLM answers **none**, returns only
+   `partial`/`none` ratings, or returns an invalid choice with no strong rating —
+   treat the job as a **no match** and hand off to Subtask 3.1 (reuse a remembered
+   resume, or ask the human). Do not guess. In Task 16 strict mode this becomes a
+   clean skip instead.
 
 **Acceptance criteria**
 - The job description is read successfully.
 - Every resume in `resumes/` is considered by the LLM.
 - The LLM is the only resume-matching path — there is **no** deterministic
   keyword/weight scoring fallback.
-- Exactly one resume is selected as the best match (or the LLM answers none).
-- The chosen resume path and the LLM's matching rationale are recorded in the run
-  state/log.
-- An LLM "none" (or an invalid choice) is a no-match handled by Subtask 3.1,
-  never a guessed or deterministic lowest-score pick.
+- Exactly one resume is selected as the best strong match (or no candidate is
+  rated strong).
+- A candidate the LLM rates `strong` is selected even when the model's single
+  choice was `partial`; an all-partial/none reply is the only no-match case.
+- The chosen resume path, the per-candidate ratings, and the LLM's matching
+  rationale are recorded in the run state/log.
+- A reply with no strong candidate (none, all partial/none, or an invalid choice
+  with no strong rating) is a no-match: in legacy mode Subtask 3.1 handles it, in
+  strict mode (Task 16) it is a clean skip — never a guessed or deterministic
+  lowest-score pick.
 
 **Notes**
 - **No fallback:** the deterministic keyword/weight scorer is removed from the
   matching path. The LLM decision is the only path.
 - The LLM may choose **only** among the provided candidates; it must never invent
-  a file name or path.
-- The choice must be explainable: the LLM's rationale is stored.
+  a file name or path. Ratings for unknown ids are ignored.
+- The choice must be explainable: the LLM's rationale and per-candidate ratings
+  are stored. A strong-rating override records which candidate was used and why.
+- **Sync note (BUG-078):** the gate uses the LLM's own per-candidate ratings, so a
+  single partial `choice` cannot discard a different candidate the LLM rated
+  `strong`.
 - Do not rename, move, or modify the resume files.
 - The prompt and stored rationale must not contain credentials or other secrets.
 - Subtask 3.2 supplies the per-resume descriptions the LLM matches against;

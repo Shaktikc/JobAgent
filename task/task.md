@@ -2,7 +2,7 @@
 
 Each task lives in its own file. This index links to them.
 
-- [Task 1 — Log in to LinkedIn, search "software engineer", select Easy Apply](task_1.md) — ✅ Done
+- [Task 1 — Log in to LinkedIn, search the chosen job query, select Easy Apply](task_1.md) — ✅ Done
 - [Task 2 — Select Easy Apply from the job list](task_2.md) — ✅ Done
 - [Task 3 — Read the job description and pick the best-matching resume (LLM)](task_3.md) — ✅ Done
 - [Task 4 — Open Easy Apply and start filling the application form](task_4.md) — ✅ Done
@@ -17,5 +17,6 @@ Each task lives in its own file. This index links to them.
 - [Task 13 — Select the Date posted filter to "Past 24 hours"](task_13.md) — ✅ Done
 - [Task 14 — Route LLM work per purpose: MiMo-V2.6-Pro for general tasks, DeepSeek V4.1 Flash 1017 for self-healing](task_14.md) — 🟡 In progress
 - [Task 15 — Auto-describe resumes in the new-resumes folder, then move them into resumes/ (Task 3.2)](task_15.md) — ✅ Done
-- [Task 16 — Apply only when an existing resume matches the job; skip unmatched jobs](task_16.md) — ✅ Done
+- [Task 16 — Apply only when an existing resume is a strong LLM match; skip unmatched jobs](task_16.md) — ✅ Done
 - [Task 17 — Fall back to "Past week" when the Past 24 hours results are exhausted](task_17.md) — ✅ Done
+- [Task 18 — Ask for the job search query at startup](task_18.md) — ⬜ Not started

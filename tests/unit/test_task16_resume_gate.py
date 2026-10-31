@@ -43,9 +43,19 @@ def _describer(summary: str = "profile"):
     return describe
 
 
-def _picks(path: str | None, fit: str = "strong", rationale: str = "reason"):
+def _picks(
+    path: str | None,
+    fit: str = "strong",
+    rationale: str = "reason",
+    ratings: dict[str, str] | None = None,
+):
     async def pick(_job_description, _candidates):
-        return ResumeMatch(selected_path=path, fit=fit, rationale=rationale)
+        return ResumeMatch(
+            selected_path=path,
+            fit=fit,
+            rationale=rationale,
+            ratings=ratings or {},
+        )
 
     return pick
 
@@ -113,13 +123,18 @@ async def test_strict_mode_selects_a_strong_match(tmp_path) -> None:
         tmp_path,
         _settings(tmp_path),
         describer=_describer(),
-        matcher=_picks(str(tmp_path / "python.txt"), "strong"),
+        matcher=_picks(
+            str(tmp_path / "python.txt"),
+            "strong",
+            ratings={"c1": "strong", "c2": "partial"},
+        ),
     )
 
     assert outcome.error == ""
     assert outcome.no_match is False
     assert outcome.selected_path == str(tmp_path / "python.txt")
     assert outcome.fit == "strong"
+    assert outcome.ratings == {"c1": "strong", "c2": "partial"}
 
 
 async def test_strict_mode_skips_a_partial_match(tmp_path) -> None:
@@ -130,13 +145,19 @@ async def test_strict_mode_skips_a_partial_match(tmp_path) -> None:
         tmp_path,
         _settings(tmp_path),
         describer=_describer(),
-        matcher=_picks(str(tmp_path / "python.txt"), "partial", "not the same role"),
+        matcher=_picks(
+            str(tmp_path / "python.txt"),
+            "partial",
+            "not the same role",
+            ratings={"c1": "partial"},
+        ),
     )
 
     assert outcome.error == ""
     assert outcome.no_match is True
     assert outcome.selected_path is None
     assert outcome.fit == "partial"
+    assert outcome.ratings == {"c1": "partial"}
     assert "not a strong match" in outcome.notes
 
 

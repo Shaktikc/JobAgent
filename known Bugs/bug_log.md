@@ -130,6 +130,11 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | BUG-076 | Task 16 — skip identity | skip set used the description title, so cards with longer titles were reopened and the loop alternated | 🟢 Fixed | `121bffb` |
 
 | BUG-077 | Self-Healing — browse/search | unexpected exception while filling the form: another browser is already using the autojobapply profile c:\users\shakt\on | 🔴 Open | (pending) |
+| BUG-078 | Task 3 — match | a strong candidate was skipped when the LLM's single choice was only partial | 🟢 Fixed | (uncommitted) |
+| BUG-079 | Task 3 — profile | profiles dropped leadership/platform/AI-tool evidence and were reused after prompt changes | 🟢 Fixed | (uncommitted) |
+
+| BUG-080 | Self-Healing — match/resume | transient LLM connection error aborted the resume match | 🟢 Fixed | (uncommitted) |
+| BUG-081 | Self-Healing — match/resume | match-stage capture reused the previous job's Task 4 fields/notes | 🟢 Fixed | (uncommitted) |
 
 ## Template for new entries
 

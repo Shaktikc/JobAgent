@@ -22,11 +22,26 @@ class ResumeDescription(BaseModel):
     seniority: str = ""
     years_experience: int | None = None
     domain: str = ""
+    # Task 3.2: factual evidence the matcher can reason over. A one-line summary
+    # plus a skill list drops the leadership/architecture/platform work that
+    # senior roles are judged on, which caused false "partial" ratings.
+    highlights: list[str] = Field(default_factory=list)
+    # The AI coding assistants/agents the resume names (Claude Code, Cursor,
+    # Copilot, ...). This is a common core requirement, so it is captured
+    # explicitly instead of being buried in the general skill list.
+    ai_coding_tools: list[str] = Field(default_factory=list)
 
     @property
     def usable(self) -> bool:
         """True when the reply actually described the resume (not empty)."""
-        return bool(self.summary.strip() or self.skills or self.titles or self.domain.strip())
+        return bool(
+            self.summary.strip()
+            or self.skills
+            or self.titles
+            or self.domain.strip()
+            or self.highlights
+            or self.ai_coding_tools
+        )
 
 
 class ResumeMatch(BaseModel):
@@ -38,12 +53,18 @@ class ResumeMatch(BaseModel):
     quality rating for the chosen resume (``"strong"``, ``"partial"``, ``"none"``,
     or ``""`` when it did not say). Only a strong match may be applied to when
     strict resume matching is on.
+
+    ``ratings`` records the model's per-candidate ratings (id -> fit). A model can
+    name a thematically closer but weaker candidate as its single ``choice`` while
+    rating another candidate strong; the gate uses these ratings so a strong
+    candidate is not skipped just because the single choice was partial.
     """
 
     selected_path: str | None = None
     fit: str = ""
     rationale: str = ""
     candidate_ids: dict[str, str] = Field(default_factory=dict)
+    ratings: dict[str, str] = Field(default_factory=dict)
 
     @property
     def is_strong(self) -> bool:

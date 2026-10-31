@@ -178,6 +178,9 @@ async def ensure_resume(
         f"the LLM answered in {elapsed:.1f}s",
         f"chosen resume for {job_label!r}",
     )
+    # Task 3.2/16: keep the LLM's full rating map for the run audit; a strong
+    # rating can override the model's single choice inside parse_match.
+    outcome.ratings = dict(result.ratings)
 
     if result.selected_path and (not strict or result.is_strong):
         outcome.selected_path = result.selected_path

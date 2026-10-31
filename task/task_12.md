@@ -35,7 +35,8 @@ submitted by this task.
 **Inputs**
 - `JobDescription`: title, company, location, description body, and page URL.
 - The selected resume path, its extracted text (read-only), and its stored LLM
-  profile (summary, skills, titles, seniority, years of experience, domain).
+  profile (summary, skills, titles, seniority, years of experience, domain,
+  factual highlights, and named AI coding tools).
 - The current form question's context: label, help text, field type, and (for
   choice controls) the allowed options.
 - The answer store (`data/answers.json`) and the Task 10 derived-answer cache,

@@ -13,6 +13,10 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 | BUG-074 | a skipped card gained " (Verified job)" and was reopened as a "new" job | 🟢 Fixed | `29c0aff` |
 | BUG-076 | skip identity used the description title, so cards with longer titles were reopened and the loop alternated | 🟢 Fixed | `121bffb` |
 
+Related Task 3.2 fix consumed by this gate: **BUG-078/BUG-079** in
+[`task_3_bugs.md`](task_3_bugs.md) — per-candidate ratings and richer resume
+profiles. The strict gate now uses the LLM's strong rating from that reply.
+
 ---
 
 ### BUG-073 — a hidden Easy Apply modal was treated as an open form

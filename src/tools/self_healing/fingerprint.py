@@ -25,6 +25,10 @@ CATEGORY_LABELS = {
     "required_field_not_filled": "required field was not filled",
     "submit_clicked": "Submit application was clicked",
     "browser_error": "browser/CDP error",
+    # Task 3.2's LLM could not describe a resume or choose a match because the
+    # provider/network failed. It is not a form-fill failure and the browser is
+    # not the cause (BUG-080).
+    "llm_call_failed": "the LLM call failed (network/provider)",
     "unknown_exception": "unexpected exception while filling the form",
     "unknown": "unclassified Easy Apply failure",
     # Task 1/2 (browse) hard stops. They are returned as outcomes rather than
@@ -54,7 +58,20 @@ _BROWSE_CATEGORIES = frozenset(category for _marker, category in _BROWSE_MARKERS
 
 # Categories whose symptom is already named by their label, so ``symptom_for``
 # must not append the (redundant) raw reason after them.
-_STANDALONE_SYMPTOM_CATEGORIES = _BROWSE_CATEGORIES | {"pagination_failed"}
+_STANDALONE_SYMPTOM_CATEGORIES = _BROWSE_CATEGORIES | {
+    "pagination_failed",
+    "llm_call_failed",
+}
+
+# A stage's LLM failure (Task 3.2) is a provider/network stop. It must never fall
+# through to the fill categories, where a previous job's Task 4 notes made it look
+# like a broken form ("no resume control", BUG-080).
+_LLM_ERROR_MARKERS = (
+    "llm",
+    "connection error",
+    "openrouter",
+    "could not describe the resume pool",
+)
 
 # Categories that are worth reopening the browser for. A required question that
 # the agent genuinely cannot answer is left to Task 5 / the human; restarting the
@@ -80,6 +97,8 @@ _RECOVERABLE = frozenset(
         # A results-pagination click that did not move the list can clear by
         # reopening the results page and clicking the control again (BUG-068).
         "pagination_failed",
+        # A transient provider/network failure can clear on a later attempt.
+        "llm_call_failed",
     }
 )
 
@@ -133,6 +152,13 @@ def classify_failure(
         # not a form-fill exception (BUG-068).
         if "results pagination could not advance" in combined:
             return "pagination_failed"
+        # Task 3.2's LLM/provider failure is not a form-fill exception either
+        # (BUG-080). Only the match stage talks to the LLM in this guard.
+        stage_name = (stage or "").strip().lower()
+        if stage_name == "match" and any(
+            marker in combined for marker in _LLM_ERROR_MARKERS
+        ):
+            return "llm_call_failed"
         # An unrecognised non-fill stop is still not a form-fill exception.
         return "unknown_exception" if error else "unknown"
 

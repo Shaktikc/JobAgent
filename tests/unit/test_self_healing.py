@@ -209,6 +209,26 @@ async def test_capture_writes_the_bundle(tmp_path: Path) -> None:
     assert captured.evidence.screenshot_path.endswith("screenshot.png")
 
 
+async def test_match_capture_ignores_the_previous_jobs_fill_outcome(
+    tmp_path: Path,
+) -> None:
+    """BUG-080: a match failure must not inherit Task 4's fields/notes."""
+    captured = await capture_failure(
+        None,
+        _settings(tmp_path),
+        stage="match",
+        error="match: the LLM call failed: Connection error.",
+        task4=_failed_fill(),  # stale outcome from the previous job
+        target=JobTarget(title="Backend Engineer", company="Acme"),
+    )
+
+    assert captured.category == "llm_call_failed"
+    assert captured.evidence.fields == []
+    assert captured.evidence.notes == ""
+    assert "no resume control" not in captured.symptom.lower()
+    assert "connection error" in captured.evidence.error.lower()
+
+
 def test_buglog_deduplicates_and_updates_the_index(tmp_path: Path) -> None:
     bug_dir = tmp_path / "known Bugs"
     bug_dir.mkdir(parents=True)

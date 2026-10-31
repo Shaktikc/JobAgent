@@ -14,6 +14,8 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 | BUG-038 | resume match hung for minutes / "unusable match reply" | 🟢 Fixed | `1ca5311` |
 | BUG-039 | job title read as "0 notifications" → weak resume match | 🟢 Fixed | `1ca5311` |
 | BUG-072 | AI/search view read the survey heading + job list as the job | 🟢 Fixed | `55a7838` |
+| BUG-078 | a strong candidate was skipped when the LLM's single choice was partial | 🟢 Fixed | (uncommitted) |
+| BUG-079 | profiles dropped leadership/platform/AI-tool evidence and were reused after prompt changes | 🟢 Fixed | (uncommitted) |
 
 ---
 
@@ -128,3 +130,67 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   `"LEAP Legal Software"`, body starts `"About LEAP …"` and contains
   `"Develop core features and APIs"`, with no survey/footer text. Commit
   `55a7838`.
+
+### BUG-078 — a good resume was skipped when the LLM's single choice was only partial
+
+- **Symptom:** intermittently, a job that clearly matched an existing resume was
+  skipped as "no strong resume match" even though another resume in the pool
+  satisfied the job. The gate trusted the LLM's single `choice`; if the model
+  picked a thematically closer but weaker resume (for example an AI-titled resume
+  at an AI company) and rated it `partial`, the job was skipped without
+  considering that the model itself might rate a better resume `strong`.
+  Reproduced deterministically in the parser with
+  `choice=c1 partial` and `ratings={c1: partial, c4: strong}`.
+- **Root cause:** the match reply only contained one chosen id and one fit. The
+  strict Task 16 gate (`should_skip_job`) correctly treats a non-strong choice as
+  a skip, but it had no per-candidate evidence to fall back to.
+- **Fix:** ask the model to rate **every** candidate (best first) in `ratings`,
+  parse both object and list shapes, ignore unknown ids, and accept qualified
+  values such as `"strong fit"`. When the single choice is not strong, select
+  another candidate the LLM rated `strong` (never overriding the chosen id's
+  explicit rating) and record the override in the rationale. The decision remains
+  100% LLM-driven; no keyword scoring was added.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/resume_descriptions/messages.py`,
+  `src/tools/resume_descriptions/models.py`, `src/state.py`
+  (`Task3Outcome.ratings`), `src/tools/linkedin_best_matching_resume/selection.py`,
+  `src/nodes/match.py` (the run log now prints the rating map);
+  `tests/unit/test_resume_descriptions/test_match.py`
+  (`test_parse_match_uses_a_strong_rating_when_the_single_choice_is_partial`,
+  `test_parse_match_accepts_a_list_of_ratings`,
+  `test_parse_match_keeps_a_partial_choice_when_nothing_is_strong`,
+  `test_parse_match_ignores_unknown_rating_ids`), and
+  `tests/unit/test_task16_resume_gate.py` (ratings propagation). Live run against
+  the real Applied Intelligence LinkedIn job: `fit=strong`. Commit (uncommitted).
+
+### BUG-079 — resume profiles dropped senior evidence and were reused after prompt changes
+
+- **Symptom:** senior/platform roles could be rated `partial` because the matcher
+  only saw a one-line summary, skills, titles, seniority, years, and domain. The
+  resume's leadership, architecture, platform/tooling work, and named AI coding
+  tools were dropped, even when the job asked for them. Changing the profile
+  prompt also had no effect on existing resumes: the store was considered fresh
+  whenever the file's mtime and size matched, so old weak profiles were reused
+  forever.
+- **Root cause:** the description schema was lossy for responsibilities and the
+  freshness check had no prompt/schema version.
+- **Fix:** add `highlights` (up to 6 factual achievements/responsibilities,
+  including leadership, architecture, platform/tooling, delivery, and production
+  operations) and `ai_coding_tools` to the profile; include them in the match
+  prompt; and tell the matcher that seniority may come from years/scope rather
+  than the literal word "Senior". Add `PROFILE_VERSION = 2` to every stored entry
+  and require it in `is_fresh`, so an older profile is re-described once on the
+  next run. Existing resume files are still never modified.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/resume_descriptions/models.py`,
+  `src/tools/resume_descriptions/messages.py`,
+  `src/tools/resume_descriptions/store.py`;
+  `tests/unit/test_resume_descriptions/test_describe.py`
+  (`test_parse_description_reads_highlights_and_ai_coding_tools`),
+  `tests/unit/test_resume_descriptions/test_match.py`
+  (`test_build_match_messages_include_the_richer_profile_fields`),
+  `tests/unit/test_resume_descriptions/test_store.py`
+  (`test_is_fresh_rejects_an_old_profile_version`,
+  `test_ensure_descriptions_redescribes_an_old_profile_version`). Live cold-pool
+  run: five profiles stored as version 2 with highlights/AI tools; the real job
+  matched `fit=strong`. Commit (uncommitted).

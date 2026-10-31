@@ -21,10 +21,19 @@ _DESCRIBE_SYSTEM_PROMPT = (
     "Read the resume text and reply with ONE JSON object:\n"
     '{"summary": "<one-line summary>", "skills": ["<technology>", ...], '
     '"titles": ["<job title>", ...], "seniority": "<level or empty>", '
-    '"years_experience": <number or null>, "domain": "<industry/domain>"}\n'
+    '"years_experience": <number or null>, "domain": "<industry/domain>", '
+    '"highlights": ["<factual achievement or responsibility>", ...], '
+    '"ai_coding_tools": ["<AI coding assistant/agent>", ...]}\n'
     "Rules:\n"
     "- Use ONLY information found in the resume. Never invent skills, titles, "
     "seniority, years of experience, or a domain.\n"
+    "- highlights: up to 6 short, factual statements of the candidate's most "
+    "job-relevant achievements or responsibilities, including leadership, "
+    "architecture, platform/tooling building, scale, delivery, and production "
+    "operations. Copy the resume's facts; do not embellish.\n"
+    "- ai_coding_tools: the AI coding assistants/agents the resume explicitly "
+    "names (for example Claude Code, Codex, Cursor, GitHub Copilot, Amp); [] if "
+    "none are named.\n"
     '- Use [] for missing lists, "" for missing text, and null for missing years.\n'
     "- Keep the summary to a single line."
 )
@@ -33,16 +42,25 @@ _MATCH_SYSTEM_PROMPT = (
     "You choose the single best-matching resume for a job. You are given the job "
     "description and candidate resumes as a JSON object of id -> profile.\n"
     "Rules:\n"
-    "- Choose by meaning: compare the job's required skills, title, seniority, and "
-    "domain with each candidate's profile.\n"
+    "- First rate EVERY candidate, best first: \"strong\" when it genuinely "
+    "satisfies the job's core requirements; \"partial\" when it is transferable "
+    "but missing core requirements; \"none\" when it is not a reasonable fit. "
+    "Put those ratings in `ratings`.\n"
+    "- Then choose the strongest candidate. If ANY candidate is strong, your "
+    "`choice` MUST be one of the strong candidates and `fit` MUST be \"strong\". "
+    "Never choose a merely thematic or partial candidate over a strong one.\n"
+    "- Judge by meaning, not exact wording. A candidate with the required stack, "
+    "years, and scope is strong even when its job titles differ from the job "
+    "title. Seniority may come from years of professional experience and the "
+    "scope of the roles, not only from the word \"Senior\".\n"
+    "- Use skills, titles, seniority, years_experience, domain, highlights "
+    "(leadership, architecture, platforms/tooling, delivery), and "
+    "ai_coding_tools when judging fit.\n"
     "- Choose ONLY one of the provided ids. Never invent an id, file name, or path.\n"
-    '- If no candidate is a reasonable fit, answer "none".\n'
-    '- Rate the fit: "strong" only when the chosen resume genuinely satisfies the '
-    "job's core requirements (its skills/technologies, title, seniority, and "
-    'domain); "partial" when it is transferable but does not satisfy those core '
-    'requirements; "none" when nothing is a reasonable fit.\n'
+    '- If no candidate is a reasonable fit, answer "none" with fit "none".\n'
     "Reply with ONE JSON object: "
-    '{"choice": "<id or none>", "fit": "<strong|partial|none>", '
+    '{"ratings": {"<id>": "<strong|partial|none>", ...}, '
+    '"choice": "<id or none>", "fit": "<strong|partial|none>", '
     '"rationale": "<short reason>"}.'
 )
 
@@ -50,9 +68,41 @@ _FIT_VALUES = frozenset({"strong", "partial", "none"})
 
 
 def _normalise_fit(value) -> str:
-    """Normalize the model's fit rating (an unknown/missing value becomes ``""``)."""
+    """Normalize the model's fit rating (an unknown/missing value becomes ``""``).
+
+    Models often add a qualifier (``"strong fit"``, ``"partially matched"``), so a
+    value that starts with a known rating is accepted. Unknown values still fail
+    closed (they are not a strong match).
+    """
     fit = str(value or "").strip().lower()
-    return fit if fit in _FIT_VALUES else ""
+    if fit in _FIT_VALUES:
+        return fit
+    for candidate in ("strong", "partial", "none"):
+        if fit.startswith(candidate):
+            return candidate
+    return ""
+
+
+def _fit_ratings(value, ids: dict[str, str]) -> dict[str, str]:
+    """Read the model's per-candidate ratings (id -> fit), ignoring unknown ids.
+
+    Accepts both shapes models use: an ordered object (``{"c1": "strong"}``) and
+    a list of objects (``[{"id": "c1", "fit": "strong"}]``). Unknown ids are
+    dropped, so a hallucinated candidate can never be selected.
+    """
+    pairs: list[tuple[object, object]] = []
+    if isinstance(value, dict):
+        pairs = list(value.items())
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            if isinstance(item, dict):
+                pairs.append((item.get("id"), item.get("fit")))
+    ratings: dict[str, str] = {}
+    for raw_id, raw_fit in pairs:
+        candidate_id = str(raw_id or "").strip()
+        if candidate_id in ids:
+            ratings[candidate_id] = _normalise_fit(raw_fit)
+    return ratings
 
 
 # --- parsing the model's replies -------------------------------------------
@@ -152,7 +202,16 @@ def parse_description(text: str) -> ResumeDescription:
     """Turn the model's reply into a :class:`ResumeDescription` (empty if unusable)."""
     payload = _json_object(
         text,
-        ("summary", "skills", "titles", "seniority", "years_experience", "domain"),
+        (
+            "summary",
+            "skills",
+            "titles",
+            "seniority",
+            "years_experience",
+            "domain",
+            "highlights",
+            "ai_coding_tools",
+        ),
     )
     if payload is None:
         return ResumeDescription()
@@ -163,6 +222,10 @@ def parse_description(text: str) -> ResumeDescription:
         seniority=str(payload.get("seniority") or "").strip().lower(),
         years_experience=_years(payload.get("years_experience")),
         domain=str(payload.get("domain") or "").strip(),
+        # Cap the evidence lists so a verbose reply cannot bloat every match
+        # prompt; six highlights and ten tool names are plenty for matching.
+        highlights=_string_list(payload.get("highlights"))[:6],
+        ai_coding_tools=_string_list(payload.get("ai_coding_tools"))[:10],
     )
 
 
@@ -201,10 +264,18 @@ def build_match_messages(
     # Compact JSON: the pretty-printed form was several thousand extra characters,
     # which made the model spend longer reading before it answered.
     lines.append(json.dumps(profiles, ensure_ascii=False, separators=(",", ":")))
+    lines.append("")
+    lines.append("Rate every candidate (best first), then choose the strongest.")
     return [
         {"role": "system", "content": _MATCH_SYSTEM_PROMPT},
         {"role": "user", "content": "\n".join(lines)},
     ]
+
+
+def _join_reason(reason: str, extra: str) -> str:
+    """Append an audit note to the model's rationale (without a leading ``;``)."""
+    reason = (reason or "").strip()
+    return f"{reason}; {extra}" if reason else extra
 
 
 def parse_match(text: str, ids: dict[str, str]) -> ResumeMatch:
@@ -213,21 +284,51 @@ def parse_match(text: str, ids: dict[str, str]) -> ResumeMatch:
     A **none** answer or an id that is not one of the candidates is a no-match
     (``selected_path is None``), never a guess. An unparseable reply raises, because
     there is no deterministic fallback.
+
+    The model rates every candidate in ``ratings`` and also names a single
+    ``choice``. If that single choice is only partial but the model rated another
+    candidate strong, the strong candidate is selected: the gate must not skip a
+    job that the LLM itself judged to have a strong resume. The decision is still
+    entirely the LLM's; this only stops a weak single choice from discarding its
+    own stronger rating.
     """
-    payload = _json_object(text, ("choice",))
+    payload = _json_object(text, ("choice", "ratings"))
     if payload is None:
         raise ResumeDescriptionError("the LLM returned an unusable match reply")
     match = ResumeMatch(candidate_ids=dict(ids))
     match.rationale = str(payload.get("rationale") or "").strip()
     match.fit = _normalise_fit(payload.get("fit"))
+    match.ratings = _fit_ratings(payload.get("ratings"), ids)
     choice = str(payload.get("choice") or "").strip()
-    if not choice or choice.lower() == "none":
-        match.fit = match.fit or "none"
+    choice_id = choice if choice in ids else None
+    if choice_id is not None:
+        match.selected_path = ids[choice_id]
+        if not match.fit:
+            match.fit = match.ratings.get(choice_id, "")
+
+    if match.selected_path is not None and match.fit == "strong":
         return match
-    path = ids.get(choice)
-    if path is None:
-        return match  # invalid choice: treat as no match, never guess
-    match.selected_path = path
+
+    # The single choice is partial, missing, or **none**. Use the model's own
+    # per-candidate ratings before giving up on the job. The chosen candidate is
+    # excluded here: an explicit "partial" for it is its considered verdict.
+    previous_fit = match.fit or "unknown"
+    for candidate_id, fit in match.ratings.items():
+        if fit != "strong" or candidate_id == choice_id:
+            continue
+        match.selected_path = ids[candidate_id]
+        match.fit = "strong"
+        match.rationale = _join_reason(
+            match.rationale,
+            f"the LLM rated {candidate_id} strong; its single choice "
+            f"{choice_id or choice or 'none'} was rated {previous_fit}",
+        )
+        return match
+
+    if choice_id is None:
+        match.selected_path = None
+        if not choice or choice.lower() == "none":
+            match.fit = match.fit or "none"
     return match
 
 

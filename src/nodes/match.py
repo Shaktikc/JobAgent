@@ -84,6 +84,7 @@ async def match(state: ApplyState) -> ApplyState:
     log = [
         f"match: resumes_dir={outcome.resumes_dir} found={outcome.resumes_found}",
         f"match: selected={outcome.selected_path} fit={outcome.fit or '(unknown)'}",
+        f"match: ratings={outcome.ratings or '(none)'}",
         f"match: rationale={outcome.rationale or '(none)'}",
     ]
 

@@ -8,8 +8,9 @@ the user has already applied to (their card shows an **"Applied"** status, e.g.
 applied to**.
 
 **Preconditions**
-- Task 1 is complete: "software engineer" jobs are shown with the **Easy Apply**
-  filter selected.
+- Task 1 is complete: jobs for the **chosen search query** (default
+  `"software engineer"`, Task 18) are shown with the **Easy Apply** filter
+  selected.
 - Task 2 selects a job from that list; this task changes *which* job it selects.
 
 **Inputs**

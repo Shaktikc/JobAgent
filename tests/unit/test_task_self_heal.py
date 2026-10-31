@@ -11,6 +11,7 @@ from src.state import (
     Task1Outcome,
     Task2Outcome,
     Task3Outcome,
+    Task4Outcome,
     Task8Outcome,
 )
 from src.tools.self_healing.buglog import _scope_for, record_failure
@@ -396,6 +397,42 @@ def test_next_job_pagination_stop_is_not_a_form_fill_exception() -> None:
     )
     assert is_recoverable("pagination_failed") is True
     assert _scope_for("next_job") == "Self-Healing — next job/pagination"
+
+
+def test_match_llm_failure_is_not_a_form_fill_exception() -> None:
+    """BUG-080: a Task 3.2 provider error is an LLM stop, not a broken form."""
+    error = "match: the LLM call failed: Connection error."
+    assert classify_failure(error, stage="match") == "llm_call_failed"
+    assert symptom_for("llm_call_failed", None, error) == (
+        "the LLM call failed (network/provider)"
+    )
+    assert is_recoverable("llm_call_failed") is True
+
+    # A match stop with no LLM/network signal keeps the generic label.
+    assert classify_failure("match: something unexpected", stage="match") == (
+        "unknown_exception"
+    )
+
+
+def test_match_llm_failure_ignores_the_previous_jobs_fill_notes() -> None:
+    """BUG-080: stale Task 4 notes must not rename a match-stage failure."""
+    stale_fill = Task4Outcome(
+        form_open=True,
+        resume_attached=False,
+        notes="no resume control found on this form step",
+    )
+
+    category = classify_failure(
+        "match: the LLM call failed: Connection error.",
+        stale_fill,
+        stage="match",
+    )
+
+    assert category == "llm_call_failed"
+    symptom = symptom_for(
+        category, stale_fill, "match: the LLM call failed: Connection error."
+    )
+    assert "no resume control" not in symptom
 
 
 def test_fill_classification_is_unchanged_by_the_stage_argument() -> None:

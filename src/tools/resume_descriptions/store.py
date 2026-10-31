@@ -20,6 +20,12 @@ from .models import ResumeDescription, ResumeDescriptionError
 # while still bounding a large folder.
 DESCRIBE_CONCURRENCY = 4
 
+# Bump this whenever the description schema or prompt changes in a way that makes
+# an older stored profile weaker. Entries from an older version are re-described
+# on the next run instead of being reused just because the file is unchanged.
+# v2 adds factual `highlights` and `ai_coding_tools` for the match prompt.
+PROFILE_VERSION = 2
+
 
 def canonical_path(resume_path: str | Path) -> str:
     """The canonical key for a resume file (absolute, resolved)."""
@@ -55,7 +61,14 @@ def save_descriptions(path: str | Path, entries: dict[str, dict]) -> None:
 
 
 def is_fresh(entry: dict, resume_path: str | Path) -> bool:
-    """True when ``entry`` was recorded for the resume's current mtime and size."""
+    """True when ``entry`` is current for the resume and the profile schema.
+
+    The file signature (mtime + size) catches an edited resume; ``profile_version``
+    catches an entry written by an older description prompt/schema, so a prompt
+    improvement actually reaches the matcher instead of reusing weak old profiles.
+    """
+    if entry.get("profile_version") != PROFILE_VERSION:
+        return False
     try:
         mtime, size = _signature(resume_path)
     except OSError:
@@ -64,12 +77,17 @@ def is_fresh(entry: dict, resume_path: str | Path) -> bool:
 
 
 def _entry_for(resume_path: str | Path, description: ResumeDescription) -> dict:
-    """Build the stored entry (profile + the file signature it was built from)."""
+    """Build the stored entry (profile + file signature + schema version)."""
     try:
         mtime, size = _signature(resume_path)
     except OSError:
         mtime, size = 0.0, 0
-    return {**description.model_dump(), "mtime": mtime, "size": size}
+    return {
+        **description.model_dump(),
+        "profile_version": PROFILE_VERSION,
+        "mtime": mtime,
+        "size": size,
+    }
 
 
 def store_description(
@@ -192,6 +210,7 @@ async def ensure_descriptions(
 
 __all__ = [
     "DESCRIBE_CONCURRENCY",
+    "PROFILE_VERSION",
     "canonical_path",
     "described_candidates",
     "description_for",

@@ -6,7 +6,8 @@
 `resumes/new/` — and run **Subtask 3.2** on every supported resume placed there.
 The LLM writes the resume's short profile, the profile is stored in
 `data/resume_descriptions.json` keyed by the resume's canonical path (plus the
-file's mtime/size), and **after the mapping is stored** the resume is moved into
+file's mtime/size and the current `profile_version`), and **after the mapping is
+stored** the resume is moved into
 the existing `resumes/` folder. The file then becomes a normal pool resume with
 the same description, ready for the Task 3 LLM to choose and Task 4 to attach.
 
@@ -77,12 +78,13 @@ deterministic fallback.
    - Run `ensure_descriptions` over the intake files (using Task 3.2's normal
      store and LLM path) before touching the main pool.
    - For each file:
-     - reuse an entry whose recorded mtime/size still match, with **no** LLM
-       call and no text extraction;
+     - reuse an entry whose recorded mtime/size still match **and** whose
+       `profile_version` is current, with **no** LLM call and no text extraction;
      - extract the readable text and ask the LLM for the structured profile
-       when the file is new or changed;
+       when the file is new or changed, or when the stored profile version is
+       older than the current schema;
      - store the profile under the file's canonical intake path together with
-       its current mtime and size;
+       its current mtime, size, and `profile_version`;
      - update the existing entry for the same path instead of adding a
        duplicate when the file is re-described.
    - If the LLM is unconfigured, the file has no readable text, or the call
@@ -104,8 +106,8 @@ deterministic fallback.
    - After the move, re-stat the file and rewrite the description store so the
      profile moves from the old canonical key to the new canonical key:
      - remove the old intake-path entry;
-     - add/update the entry for the new main-pool path with the same profile
-       and the file's current mtime/size;
+     - add/update the entry for the new main-pool path with the same profile,
+       the file's current mtime/size, and the current `profile_version`;
      - leave exactly one entry for the resume and never create a duplicate.
    - If any remembered-resume library entry (`data/resume_library.json`) points
      at the old intake path, update it to the new path so similar-job reuse keeps
@@ -159,7 +161,7 @@ deterministic fallback.
    - A failed description or move is a clear Task 3.2 error, not a silent
      fall-through to "no match", a human upload prompt, or a half-mapped resume.
    - Never write resume text, prompts, or credentials to the description store;
-     it contains only the profile, mtime, and size.
+     it contains only the profile, mtime/size, and `profile_version`.
 
 8. **Update the documentation.**
    - `README.md`: explain that new resumes can be dropped into `resumes/new/`;
@@ -182,10 +184,10 @@ deterministic fallback.
      - after a successful move, the file is in the main folder, the intake
        folder no longer contains it, and the store has exactly one entry keyed
        by its **new main-pool** path (old key removed);
-     - an unchanged intake resume is reused with no additional LLM call before
-       being moved;
-     - a changed intake resume is re-described, moved, and its entry is updated,
-       not duplicated;
+     - an unchanged intake resume with a current profile version is reused with
+       no additional LLM call before being moved;
+     - a changed intake resume (or one whose stored profile version is older) is
+       re-described, moved, and its entry is updated, not duplicated;
      - a name collision does not overwrite the existing main-pool file and uses
        a collision-safe name;
      - a failed description leaves the file in the intake folder with no fake
@@ -223,13 +225,14 @@ deterministic fallback.
   intake folder no longer contains it, and the file's contents are unchanged.
 - The mapping is rewritten to the resume's new canonical path: the old
   intake-path entry is removed, exactly one entry remains, and it records the
-  file's current mtime/size.
+  file's current mtime/size and the current `profile_version`.
 - A name collision never overwrites an existing resume; the moved file gets a
   collision-safe name.
-- Fresh mappings are reused without re-extracting or re-summarising the resume;
-  a changed file is re-described; the same path always has one entry.
-- The store contains the profile plus mtime/size only — no resume text, prompts,
-  or credentials.
+- Fresh mappings (current mtime/size **and** `profile_version`) are reused
+  without re-extracting or re-summarising the resume; a changed file or an older
+  profile version is re-described; the same path always has one entry.
+- The store contains the profile plus mtime/size and `profile_version` only — no
+  resume text, prompts, or credentials.
 - A resume moved from the intake folder is a normal main-pool candidate: the
   LLM can select it and the selected path is handed to Task 4.
 - A resume without a description is still an error, never matched from raw text.
@@ -257,6 +260,9 @@ deterministic fallback.
 - **Mapping key follows the file:** because the description store is keyed by
   canonical path, moving the file must also move its entry. A stale intake-path
   key or a duplicate main-path key is a bug.
+- **Sync note (BUG-079):** description entries carry a `profile_version`. An entry
+  written by an older description prompt/schema is re-described on the next run
+  even when the file's mtime/size are unchanged.
 - **Trigger semantics:** placing a file does not spawn a background daemon. The
   description-and-move step runs (a) when Task 3 prepares to match a job, which
   is the normal automatic path, or (b) immediately when the user runs the
@@ -265,15 +271,18 @@ deterministic fallback.
   the file in the intake folder so a later run can retry. Never delete it and
   never overwrite an existing `resumes/` file to force progress.
 - **Cost:** a new or changed file costs one LLM describe call; an unchanged file
-  costs none. The existing bounded concurrency in `ensure_descriptions` applies.
+  with a current `profile_version` costs none. A file whose stored profile
+  version is older than the current schema is re-described once. The existing
+  bounded concurrency in `ensure_descriptions` applies.
 - **Do not break Task 3.1:** human-uploaded resumes still go directly into the
   main `resumes/` folder and are described there; the intake folder is for
   resumes the user adds manually.
 - **Interrelated updates:** configuration, resume discovery, the description
-  store's key rewrite, the remembered-resume library path rewrite,
-  `ensure_descriptions` callers, matching/selection, the CLI summary/command,
-  README, `.env.example`, and every affected unit/integration test must change
-  together.
+  store's key rewrite and `profile_version`, the remembered-resume library path
+  rewrite, `ensure_descriptions` callers, matching/selection, the CLI
+  summary/command, README, `.env.example`, and every affected unit/integration
+  test must change together.
 - **Task-file rule:** do not edit `task/` files during implementation except to
-  mark this task in progress/done and update `task/task.md`.
+  mark this task in progress/done, update `task/task.md`, and perform the required
+  Task evolution sync (`AGENTS.md`).
 - Never click **Submit application**; submission remains a manual human step.

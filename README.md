@@ -77,10 +77,15 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
    Task 4 can fill the same Easy Apply modal.
 3. **match** — Task 3's offline half: lists every resume in the folder
    (`.pdf`, `.docx`, `.txt`, `.md`), has the **LLM** (Task 3.2) write a short
-   profile for each one (skills, titles, seniority, years, domain) into
-   `data/resume_descriptions.json`, then asks the LLM to pick the single
-   best-matching resume, or **none**. The LLM is the only matching path — there is
-   no deterministic scoring fallback. Resume files are never modified.
+   profile for each one (skills, titles, seniority, years, domain, plus factual
+   highlights and any named AI coding tools) into
+   `data/resume_descriptions.json`, then asks the LLM to rate every candidate and
+   pick the single best-matching resume, or **none**. The LLM is the only matching
+   path — there is no deterministic scoring fallback. The gate uses the LLM's
+   per-candidate ratings, so a strong candidate is still selected when the model's
+   first pick is only `partial`. Stored profiles are versioned: after a profile
+   prompt/schema change, the next run re-describes the pool once instead of reusing
+   weak old profiles. Resume files are never modified.
    - **Task 15:** first processes resumes placed in `resumes/new/`: Task 3.2
      describes each one, then the file is moved into `resumes/` without
      overwriting an existing resume. The description entry follows the file, and
@@ -347,7 +352,11 @@ Task 3.2's structured calls (resume descriptions and the resume match) ask for
 JSON and, on OpenRouter, skip the model's hidden reasoning by default
 (`AUTOJOB_LLM_DISABLE_REASONING=true`). That keeps a warm resume match to a
 couple of seconds and avoids an empty reply when reasoning fills the output
-budget. Set it to `false` if your endpoint needs the model's reasoning.
+budget. Set it to `false` if your endpoint needs the model's reasoning. The
+match reply includes a rating for every candidate as well as the single choice;
+if the choice is only `partial` but another candidate is rated `strong`, the
+strong candidate is used instead of skipping the job. The description store is
+versioned, so changing the profile prompt re-describes the pool on the next run.
 
 To answer form questions automatically, add them to the answer store
 `data/answers.json`. Task 4.1/10's LLM reads it and answers each question —

@@ -255,6 +255,13 @@ async def capture_failure(
 ) -> CapturedFailure:
     """Capture a failure bundle and return its fingerprint and evidence path."""
     target = target or JobTarget()
+    # Task 4's outcome belongs to the fill step. A later stage (match/open_form/
+    # next_job) still sees the *previous* job's fill outcome in graph state; folding
+    # its notes/fields into this bundle mislabeled an LLM/provider error as a form
+    # failure and put stale controls in the evidence (BUG-080). Only the fill stage
+    # may use it.
+    if (stage or "fill").strip().lower() != "fill":
+        task4 = None
     from src.tools.browser import get_run
 
     run = get_run(run_id)

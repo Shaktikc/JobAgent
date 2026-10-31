@@ -552,3 +552,61 @@ same index covers runtime crashes and the recovery machinery itself.
 - **Evidence:** bundle `C:\Users\shakt\OneDrive\Desktop\project\AutoJobApply\data\debug\self_healing\20261028-084613-663916-dc66109cf271`; captured 2026-10-28T08:46:13.664916+00:00
 - **Failure fingerprint:** `dc66109cf2710429d213`
 - **Occurrences:** 1 (first 2026-10-28T08:46:13+00:00)
+
+### BUG-080 — match aborted on a transient LLM connection error
+
+- **Symptom:** `match: the LLM call failed: Connection error.` The resume match for
+  Senior Integration Engineer at Cuscal Limited failed during the Task 3.2
+  describe/pick call, and the run stopped instead of retrying the LLM request.
+- **Root cause:** Task 3.2's `_chat` only retried to strip provider-rejected request
+  knobs. A provider/network failure (`Connection error.`, 429 or 5xx) that escaped
+  the OpenAI client's own retries was wrapped as `ResumeDescriptionError` and
+  surfaced immediately, so one transient blip aborted the whole job. The original
+  auto-title came from stale Task 4 state; that mislabel is BUG-081.
+- **Fix:** `_chat` now retries transient transport failures a bounded number of
+  times (default 2 extra attempts) with exponential backoff before surfacing the
+  Task 3.2 error. The retry count and delay are configurable with
+  `AUTOJOB_LLM_TRANSPORT_RETRIES` and
+  `AUTOJOB_LLM_TRANSPORT_RETRY_BACKOFF_SECONDS`. Deterministic failures (bad
+  request/API key, unusable reply) keep their existing handling.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/resume_descriptions/client.py` (`_is_transient_error`,
+  `_chat`), `src/configuration.py`; tests
+  `tests/unit/test_resume_descriptions/test_client.py`
+  (`test_pick_best_resume_retries_a_transient_connection_error`,
+  `test_pick_best_resume_retries_an_upstream_5xx`,
+  `test_pick_best_resume_does_not_retry_a_deterministic_error`) and
+  `tests/unit/test_resume_descriptions/test_describe.py`
+  (`test_describe_resume_retries_a_transient_connection_error`); full unit suite,
+  live self-healing suite (4/4), and a live OpenRouter describe/match check.
+  Bundle `20261029-040724-547258-ad494459285d`; commit `(uncommitted)`.
+- **Failure fingerprint:** `ad494459285d836efaf9`
+- **Occurrences:** 1 (first 2026-10-29T04:07:25+00:00)
+
+### BUG-081 — match-stage capture reused the previous job's Task 4 outcome
+
+- **Symptom:** the auto-recorded BUG-080 was titled "unexpected exception while
+  filling the form: no resume control found on this form step; reached the last
+  step..." even though the failure was `match: the LLM call failed: Connection
+  error.` The bundle also carried the previous job's email/phone fields, so the
+  report pointed at the wrong step.
+- **Root cause:** the crash guard passes `working["task4"]` to `capture_failure`
+  for every stage, and `capture_failure` folded that stale fill outcome into the
+  notes, fields, and fingerprint. The non-fill classifier had no LLM/provider
+  category either, so the match error inherited the fill label
+  `unknown_exception`.
+- **Fix:** `capture_failure` ignores `task4` for non-fill stages, and
+  `classify_failure` maps match-stage LLM/network errors to the new
+  `llm_call_failed` category. The auto-recorded title now names the real stop.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/self_healing/capture.py`,
+  `src/tools/self_healing/fingerprint.py`; tests
+  `tests/unit/test_self_healing.py`
+  (`test_match_capture_ignores_the_previous_jobs_fill_outcome`) and
+  `tests/unit/test_task_self_heal.py`
+  (`test_match_llm_failure_is_not_a_form_fill_exception`,
+  `test_match_llm_failure_ignores_the_previous_jobs_fill_notes`); full unit suite;
+  commit `(uncommitted)`.
+- **Failure fingerprint:** none of its own — evidence from the same bundle as
+  BUG-080.
+- **Occurrences:** 1 (same capture as BUG-080, 2026-10-29T04:07:25+00:00)

@@ -6,8 +6,9 @@
 button.
 
 **Preconditions**
-- Task 1 is complete: user is logged in, "software engineer" jobs are shown, and
-  the **Easy Apply** filter is selected.
+- Task 1 is complete: user is logged in, jobs for the **chosen search query**
+  (default `"software engineer"`, Task 18) are shown, and the **Easy Apply**
+  filter is selected.
 
 **Inputs**
 - None (uses the job list from Task 1).

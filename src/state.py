@@ -243,6 +243,10 @@ class Task3Outcome(BaseModel):
     # "partial", "none", or "" when the reply did not say). Strict mode applies
     # only to a "strong" match.
     fit: str = ""
+    # Task 3.2: the LLM's per-candidate ratings (candidate id -> fit), kept for
+    # audit next to the selected path and rationale. Empty when the reply did not
+    # include ratings.
+    ratings: dict[str, str] = Field(default_factory=dict)
     notes: str = ""
 
 

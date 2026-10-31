@@ -1,14 +1,16 @@
-# Task 16 — Apply only when an existing resume matches the job; skip unmatched jobs
+# Task 16 — Apply only when an existing resume is a strong match; skip unmatched jobs
 
 **Status:** ✅ Done
 
 **Goal:** Add a **strict resume-gated apply** mode. When it is enabled (the default),
-the agent applies to a job **only** when the LLM (Task 3.2) chooses one of the
-resumes already present in `resumes/` as a genuine match for that job. If no
-existing resume matches, the job is **skipped**: it is recorded with the LLM's
-rationale, the next unapplied job is selected (Tasks 6-7), and the loop
-continues. The agent must **never** ask the human to
-upload a resume for an unmatched job, never reuse a remembered/unmatched resume as
+the agent applies to a job **only** when the LLM's (Task 3.2) per-candidate
+ratings mark one of the resumes already present in `resumes/` as a **strong**
+match for that job. A strong rating for another candidate is used even when the
+model's single `choice` was only `partial`. If no existing resume is strong, the
+job is **skipped**: it is recorded with the LLM's rationale, the next unapplied
+job is selected (Tasks 6-7), and the loop continues. The agent must **never**
+ask the human to upload a resume for an unmatched job, never reuse a
+remembered/unmatched resume as
 a bypass, and never fill or submit an application for a job without a matching
 resume. The Easy Apply form is opened **only after** a strong resume match is
 chosen, so an unmatched job is skipped without clicking Easy Apply at all. The
@@ -19,7 +21,8 @@ application is **never** submitted by this task.
   a resume, opens/fills the form, waits for the human to submit, and moves to the
   next job.
 - Task 3.2 is implemented (`src/tools/resume_descriptions/`): every resume has an
-  LLM-written description and the LLM chooses the best match or **none**.
+  LLM-written profile, and the LLM rates every candidate and chooses the best
+  **strong** match or **none**.
 - Task 3.1's fallbacks exist today: reuse a resume remembered for a similar job,
   or ask the human to upload one in the browser.
 - `settings.llm` is configured. Strict mode **fails loudly** (no skip, no guess)
@@ -33,8 +36,8 @@ application is **never** submitted by this task.
 - The resume pool (`resumes/`) and each resume's stored LLM description
   (Task 3.2). "Already provided" means the files present in the pool when the job
   is matched; strict mode never adds a resume during a run.
-- The LLM match reply: chosen candidate (or **none**), match quality, and
-  rationale.
+- The LLM match reply: per-candidate ratings, the chosen candidate (or **none**),
+  match quality, and rationale.
 - `.env` / process environment:
   - `AUTOJOB_SESSION_REQUIRE_RESUME_MATCH` — strict mode; default `true`.
   - `AUTOJOB_SESSION_MAX_SKIPPED_JOBS` — safety cap on skips per run; default
@@ -54,29 +57,37 @@ application is **never** submitted by this task.
      fallbacks (remembered resume / ask the human) exactly.
 2. **Make the match quality explicit (LLM-only, no deterministic scorer).**
    - Extend `ResumeMatch` (`src/tools/resume_descriptions/models.py`) with
-     `fit: str = ""`, normalised to `"strong"`, `"partial"`, or `"none"`.
+     `fit: str = ""` (normalised to `"strong"`, `"partial"`, or `"none"`) and
+     `ratings: dict[str, str]` (the LLM's per-candidate ratings).
    - Update the match prompt (`messages.py`) to require
-     `{"choice": "<id or none>", "fit": "<strong|partial|none>", "rationale":
-     "<short reason>"}` and to define the bar: **strong** only when the resume
-     genuinely satisfies the job's core requirements (skills/technologies, title,
-     seniority, domain); **partial** for a transferable but incomplete fit;
-     **none** when no candidate is a reasonable fit. Keep the rule that the model
-     may choose only a provided id and never invents a file.
-   - Parse and normalise `fit` forgivingly; an unknown/missing value becomes `""`.
-     The match decision remains an LLM decision — do **not** add keyword scoring.
+     `{"ratings": {"<id>": "<strong|partial|none>", ...}, "choice": "<id or
+     none>", "fit": "<strong|partial|none>", "rationale": "<short reason>"}`.
+     Rate every candidate, best first, and define the bar: **strong** when the
+     resume genuinely satisfies the job's core requirements (skills/technologies,
+     years/scope, domain); **partial** for a transferable but incomplete fit;
+     **none** when no candidate is a reasonable fit. A title does not have to
+     match literally, and seniority can come from years/scope. Keep the rule that
+     the model may choose only a provided id and never invents a file.
+   - Parse and normalise every rating forgivingly; unknown ids are ignored and an
+     unknown/missing fit becomes `""`. If the single `choice` is not strong but
+     another candidate is rated `strong`, select that strong candidate and record
+     the override in the rationale. The match decision remains an LLM decision —
+     do **not** add keyword scoring.
 3. **Gate the match in strict mode.**
    - `src/tools/linkedin_best_matching_resume/selection.py`:
      `ensure_resume(..., allow_fallback: bool | None = None)` reads
      `settings.session.require_resume_match` when `allow_fallback` is `None`.
-   - When strict and the LLM answers **none**, a chosen resume has `fit` other
-     than `"strong"`, or `fit` is missing: set `Task3Outcome.no_match = True`,
-     record the rationale/fit, and **return immediately**. Do not look in the
-     remembered-resume library, do not call `ask_human_for_resume`, do not store
-     or upload anything. A missing `fit` fails closed (skip, never apply).
-   - A `"strong"` selection is used exactly as today: record the path, fit, and
-     rationale, and hand it to Task 4 to attach/upload. The resume files are never
-     modified.
-   - `Task3Outcome` gains `fit: str = ""` so the decision is auditable.
+   - When strict and **no candidate is rated `strong`** — the LLM answers
+     **none**, every rating is `partial`/`none`, or `fit` is missing with no strong
+     rating — set `Task3Outcome.no_match = True`, record the rationale/fit, and
+     **return immediately**. Do not look in the remembered-resume library, do not
+     call `ask_human_for_resume`, do not store or upload anything. A reply with no
+     strong rating fails closed (skip, never apply).
+   - A strong selection (including a per-candidate rating override) is used exactly
+     as today: record the path, fit, ratings, and rationale, and hand it to Task 4
+     to attach/upload. The resume files are never modified.
+   - `Task3Outcome` gains `fit: str = ""` and `ratings: dict[str, str]` so the
+     decision and the LLM's per-candidate ratings are auditable.
    - When `allow_fallback` is true (legacy mode), behaviour is unchanged: a
      non-strong/no-match result goes through the remembered-resume reuse and the
      human-upload fallback as today.
@@ -143,11 +154,16 @@ application is **never** submitted by this task.
      cases so legacy mode keeps its coverage, and new strict-mode cases.
 
 **Acceptance criteria**
-- With strict mode on (default), a job is applied to **only** when the LLM returns
-  a chosen resume with `fit="strong"`; that resume is attached by Task 4 as today.
-- When the LLM answers **none**, `fit` is `"partial"`/`"none"`/missing, or the
-  resume pool is empty, the job is **skipped**: no human prompt, no
-  remembered-resume reuse, no upload, no Easy Apply click, and no fill.
+- With strict mode on (default), a job is applied to **only** when the LLM rates
+  a candidate `strong` (its per-candidate `ratings`); that resume is attached by
+  Task 4 as today.
+- A candidate rated `strong` is selected even when the model's single `choice`
+  was `partial`/`none`; the job is not skipped while a strong candidate exists.
+  The override is recorded in the rationale.
+- When **no candidate is rated `strong`** — the LLM answers **none**, all ratings
+  are `"partial"`/`"none"`, `fit` is missing with no strong rating, or the resume
+  pool is empty — the job is **skipped**: no human prompt, no remembered-resume
+  reuse, no upload, no Easy Apply click, and no fill.
 - Every skip is recorded with the job title/company/index, `fit`, and the LLM
   rationale in `Task16Outcome` and the run log/status overlay.
 - An unmatched job is skipped **without clicking Easy Apply**: the form is never
@@ -173,12 +189,21 @@ application is **never** submitted by this task.
   available, and reads the description without opening the form. Task 3 matches;
   only a selected resume opens Easy Apply (the new `open_form` node), then Task 4
   fills it. An unmatched job therefore never opens or closes a form.
-- **LLM-only decision.** The strict gate uses the LLM's `fit`; do not add a
-  deterministic keyword/score fallback. If the LLM is unavailable or its reply is
-  unusable, fail the run rather than skip-scanning every job.
-- **Fail closed on missing fit.** A reply without `fit` is not a strong match;
-  skipping is safer than applying on an ambiguous answer. The prompt must ask for
-  `fit` explicitly so this is rare.
+- **LLM-only decision.** The strict gate uses the LLM's per-candidate `ratings`;
+  do not add a deterministic keyword/score fallback. If the LLM is unavailable or
+  its reply is unusable, fail the run rather than skip-scanning every job.
+- **Use the LLM's own stronger rating.** A single `choice` of `partial` is not a
+  reason to skip when the model rated another candidate `strong`; select that
+  candidate and record the override. This is still the LLM's decision, not a
+  keyword score.
+- **Sync note (BUG-078/BUG-079):** Task 3.2 now rates every candidate, and the
+  profile also carries factual highlights and named AI coding tools. The strict
+  gate consumes the strong rating; the root-cause fix is recorded in
+  `known Bugs/task_3_bugs.md`.
+- **Fail closed on a missing strong rating.** A reply with no candidate rated
+  `strong` is not a match; skipping is safer than applying on an ambiguous answer.
+  `fit` is filled from the chosen candidate's rating when the top-level `fit` is
+  missing. The prompt asks for ratings explicitly so this is rare.
 - **"Already provided" = the existing pool.** Strict mode never asks for or stores
   a new resume. The remembered-resume library (`data/resume_library.json`) is a
   Task 3.1 fallback and must not be consulted in strict mode.
@@ -193,8 +218,9 @@ application is **never** submitted by this task.
   `src/nodes/open_form.py`, `src/tools/linkedin_easy_apply_open.py`,
   `src/nodes/apply_loop.py`, `src/tools/linkedin_apply_loop.py`, `src/graph.py`,
   `src/nodes/verify.py`, `src/main.py`, and their tests must change together.
-  Document the new gate in `README.md`; do **not** edit the completed Task 3 / 6 /
-  8 files beyond their status lines (the task-file rule in `AGENTS.md`).
+  Document the new gate in `README.md`. Task-file edits are limited to status
+  updates and the required Task evolution sync (`AGENTS.md`); do not rewrite
+  unrelated scope or implementation records.
 - **Tests:** add `tests/unit/test_task16_resume_gate.py` covering:
   - strict + LLM `none` → no fallback, no human ask, `no_match=True`;
   - strict + `fit="partial"`/`fit=""` → skip;
