@@ -14,6 +14,11 @@ from collections.abc import Sequence
 
 from src.state import JobDescription
 
+from .experience_policy import (
+    neutralize_experience_requirements,
+    profile_for_match,
+)
+from .match_policy import choose_rated_candidate
 from .models import ResumeDescription, ResumeDescriptionError, ResumeMatch
 
 _DESCRIBE_SYSTEM_PROMPT = (
@@ -49,11 +54,21 @@ _MATCH_SYSTEM_PROMPT = (
     "- Then choose the strongest candidate. If ANY candidate is strong, your "
     "`choice` MUST be one of the strong candidates and `fit` MUST be \"strong\". "
     "Never choose a merely thematic or partial candidate over a strong one.\n"
-    "- Judge by meaning, not exact wording. A candidate with the required stack, "
-    "years, and scope is strong even when its job titles differ from the job "
-    "title. Seniority may come from years of professional experience and the "
-    "scope of the roles, not only from the word \"Senior\".\n"
-    "- Use skills, titles, seniority, years_experience, domain, highlights "
+    "- If none is strong but ANY candidate is partial, choose the best partial "
+    "candidate with fit \"partial\". Both strong and partial matches are eligible "
+    "for Easy Apply. Answer \"none\" only when neither rating is available.\n"
+    "- Judge by meaning, not exact wording. A candidate with the required stack "
+    "and scope is strong even when its job titles differ from the job "
+    "title. Seniority may come from the scope of the roles, not only from the "
+    "word \"Senior\".\n"
+    "- Years-of-experience requirements are NON-BLOCKING. Never compare the "
+    "candidate's years of experience with a requested minimum or range, and "
+    "never rate a candidate \"partial\" or \"none\" because of a years "
+    "shortfall. If the candidate satisfies the core skills/technologies, "
+    "domain, and scope/responsibilities, rate it \"strong\" even when the job "
+    "asks for more years. Any years figure left in the job text (for example "
+    "in company history) is not a fit criterion.\n"
+    "- Use skills, titles, seniority, domain, highlights "
     "(leadership, architecture, platforms/tooling, delivery), and "
     "ai_coding_tools when judging fit.\n"
     "- Choose ONLY one of the provided ids. Never invent an id, file name, or path.\n"
@@ -72,7 +87,7 @@ def _normalise_fit(value) -> str:
 
     Models often add a qualifier (``"strong fit"``, ``"partially matched"``), so a
     value that starts with a known rating is accepted. Unknown values still fail
-    closed (they are not a strong match).
+    closed (they are not an eligible match).
     """
     fit = str(value or "").strip().lower()
     if fit in _FIT_VALUES:
@@ -254,11 +269,15 @@ def build_match_messages(
     if job_description.location:
         lines.append(f"Location: {job_description.location}")
     lines.append("Job description:")
-    lines.append(job_description.body.strip() or "(no description provided)")
+    lines.append(
+        neutralize_experience_requirements(
+            job_description.body.strip() or "(no description provided)"
+        )
+    )
     lines.append("")
     lines.append("Candidate resumes (id -> profile):")
     profiles = {
-        f"c{index}": description.model_dump()
+        f"c{index}": profile_for_match(description)
         for index, (_path, description) in enumerate(candidates, start=1)
     }
     # Compact JSON: the pretty-printed form was several thousand extra characters,
@@ -281,54 +300,42 @@ def _join_reason(reason: str, extra: str) -> str:
 def parse_match(text: str, ids: dict[str, str]) -> ResumeMatch:
     """Turn the model's reply into a :class:`ResumeMatch`.
 
-    A **none** answer or an id that is not one of the candidates is a no-match
-    (``selected_path is None``), never a guess. An unparseable reply raises, because
-    there is no deterministic fallback.
-
-    The model rates every candidate in ``ratings`` and also names a single
-    ``choice``. If that single choice is only partial but the model rated another
-    candidate strong, the strong candidate is selected: the gate must not skip a
-    job that the LLM itself judged to have a strong resume. The decision is still
-    entirely the LLM's; this only stops a weak single choice from discarding its
-    own stronger rating.
+    Per-candidate ratings decide eligibility: prefer strong, then partial. The
+    top-level fit cannot promote an unrated candidate or override its rating.
+    Unknown ids are ignored. No eligible rating is a no-match; a reply without
+    a decision structure raises instead of silently skipping the job.
     """
     payload = _json_object(text, ("choice", "ratings"))
-    if payload is None:
+    if payload is None or not (
+        isinstance(payload.get("choice"), str)
+        or isinstance(payload.get("ratings"), (dict, list))
+    ):
         raise ResumeDescriptionError("the LLM returned an unusable match reply")
     match = ResumeMatch(candidate_ids=dict(ids))
     match.rationale = str(payload.get("rationale") or "").strip()
-    match.fit = _normalise_fit(payload.get("fit"))
+    reported_fit = _normalise_fit(payload.get("fit"))
     match.ratings = _fit_ratings(payload.get("ratings"), ids)
     choice = str(payload.get("choice") or "").strip()
     choice_id = choice if choice in ids else None
-    if choice_id is not None:
-        match.selected_path = ids[choice_id]
-        if not match.fit:
-            match.fit = match.ratings.get(choice_id, "")
-
-    if match.selected_path is not None and match.fit == "strong":
+    match.fit = match.ratings.get(choice_id, "") if choice_id else "none"
+    selected_id = choose_rated_candidate(choice_id, match.ratings)
+    if selected_id is None:
         return match
-
-    # The single choice is partial, missing, or **none**. Use the model's own
-    # per-candidate ratings before giving up on the job. The chosen candidate is
-    # excluded here: an explicit "partial" for it is its considered verdict.
-    previous_fit = match.fit or "unknown"
-    for candidate_id, fit in match.ratings.items():
-        if fit != "strong" or candidate_id == choice_id:
-            continue
-        match.selected_path = ids[candidate_id]
-        match.fit = "strong"
+    previous_fit = match.fit or reported_fit or "unknown"
+    match.selected_path = ids[selected_id]
+    match.fit = match.ratings[selected_id]
+    if selected_id != choice_id:
         match.rationale = _join_reason(
             match.rationale,
-            f"the LLM rated {candidate_id} strong; its single choice "
+            f"the LLM rated {selected_id} {match.fit}; its single choice "
             f"{choice_id or choice or 'none'} was rated {previous_fit}",
         )
-        return match
-
-    if choice_id is None:
-        match.selected_path = None
-        if not choice or choice.lower() == "none":
-            match.fit = match.fit or "none"
+    elif reported_fit and reported_fit != match.fit:
+        match.rationale = _join_reason(
+            match.rationale,
+            f"the LLM's {selected_id} rating {match.fit} overrides its "
+            f"single-choice fit {reported_fit}",
+        )
     return match
 
 

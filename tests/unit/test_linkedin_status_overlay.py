@@ -150,6 +150,20 @@ class _FakeInput:
         self.calls.append(("text", session_id))
 
 
+class _SlowCommandInput(_FakeInput):
+    """An Input client whose mouse dispatch blocks until the test releases it."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def dispatchMouseEvent(self, params, session_id=None):
+        self.calls.append(("mouse", session_id))
+        self.started.set()
+        await self.release.wait()
+
+
 class _FakeSend:
     def __init__(self, input_client) -> None:
         self.Input = input_client
@@ -172,6 +186,27 @@ class _LockPage:
 
     async def evaluate(self, js: str, *args):
         return False
+
+
+class _SlowInspectPage(_LockPage):
+    """A page whose ``_on_login_page`` probe blocks until the test releases it."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.inspect_started = asyncio.Event()
+        self.inspect_release = asyncio.Event()
+
+    async def evaluate(self, js, *args):
+        self.inspect_started.set()
+        await self.inspect_release.wait()
+        return False
+
+
+class _SlowCommandPage(_LockPage):
+    def __init__(self) -> None:
+        super().__init__()
+        self.input = _SlowCommandInput()
+        self._client = _FakeClient(self.input)
 
 
 async def test_interaction_lock_blocks_physical_input_but_not_automation() -> None:
@@ -217,3 +252,98 @@ async def test_emit_llm_uses_the_reporter_panel() -> None:
     assert emitted == ["LLM: answered 'City' - 'Sydney' (location)"]
     _js, args = page.calls[0]
     assert args[0] == "llm"
+
+
+async def _stop_watcher(lock) -> None:
+    """Stop the automatic watch task so a test can drive one tick by hand."""
+    if lock._task is not None:
+        lock._task.cancel()
+        await asyncio.gather(lock._task, return_exceptions=True)
+        lock._task = None
+
+
+async def test_watch_tick_in_flight_cannot_re_lock_a_human_turn() -> None:
+    """BUG-083: a tick that probed the page before the human turn began.
+
+    The old tick applied ``ignore=true`` after ``begin_human_turn`` had already
+    unlocked the page, leaving the human unable to type for the whole turn.
+    """
+    page = _SlowInspectPage()
+    lock = await status.ensure_interaction_lock(page)
+    assert lock is not None
+    await _stop_watcher(lock)
+
+    tick = asyncio.create_task(lock._refresh())
+    await asyncio.wait_for(page.inspect_started.wait(), 1)
+
+    await status.begin_human_turn(page)
+    assert page.input.calls[-1] == ("ignore", False, "session-1")
+
+    page.inspect_release.set()
+    await tick
+
+    assert page.input.calls[-1] == ("ignore", False, "session-1")
+    await status.release_interaction_lock(page)
+
+
+async def test_watch_tick_does_not_probe_the_page_during_a_human_turn() -> None:
+    page = _SlowInspectPage()
+    lock = await status.ensure_interaction_lock(page)
+    assert lock is not None
+    await _stop_watcher(lock)
+
+    await status.begin_human_turn(page)
+    page.inspect_started.clear()
+    await lock._refresh()
+
+    assert not page.inspect_started.is_set()
+    await status.release_interaction_lock(page)
+
+
+async def test_automation_command_tail_cannot_re_lock_a_human_turn() -> None:
+    """BUG-083: a human turn starting mid-command must win over the command tail."""
+    page = _SlowCommandPage()
+    lock = await status.ensure_interaction_lock(page)
+    assert lock is not None
+    await _stop_watcher(lock)
+
+    command = asyncio.create_task(
+        page._client.send.Input.dispatchMouseEvent({"x": 1}, session_id="session-1")
+    )
+    await asyncio.wait_for(page.input.started.wait(), 1)
+
+    await status.begin_human_turn(page)
+    page.input.release.set()
+    await command
+
+    assert page.input.calls[-1] == ("ignore", False, "session-1")
+    await status.release_interaction_lock(page)
+
+
+async def test_apply_true_during_a_human_turn_keeps_the_page_interactive() -> None:
+    page = _LockPage()
+    lock = await status.ensure_interaction_lock(page)
+    assert lock is not None
+    await _stop_watcher(lock)
+
+    await status.begin_human_turn(page)
+    await lock._apply(True)  # any late "lock" request while the human owns it
+
+    assert page.input.calls[-1] == ("ignore", False, "session-1")
+    await status.release_interaction_lock(page)
+
+
+async def test_nested_human_turns_stay_unlocked_until_the_last_one_ends() -> None:
+    page = _LockPage()
+    lock = await status.ensure_interaction_lock(page)
+    assert lock is not None
+    await _stop_watcher(lock)
+
+    await status.begin_human_turn(page)
+    await status.begin_human_turn(page)
+    await status.end_human_turn(page)
+    assert page.input.calls[-1] == ("ignore", False, "session-1")
+
+    await status.end_human_turn(page)
+    assert page.input.calls[-1] == ("ignore", True, "session-1")
+    await status.release_interaction_lock(page)

@@ -129,8 +129,9 @@ fails.
 - Unit tests cover the reporter's message shape and error-swallowing.
 
 **Notes**
-- Proposed new module file: `src/tools/linkedin_status_overlay.py` (ask the
-  human before creating the file name). Proposed test file:
+- Module: `src/tools/linkedin_status_overlay/` (originally a single
+  `linkedin_status_overlay.py`, split into a package in BUG-083 so each file
+  stays under the 415-line limit). Test file:
   `tests/unit/test_linkedin_status_overlay.py`.
 - The panel keeps **only the current line** (no history): each update replaces
   the previous message.

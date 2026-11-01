@@ -17,6 +17,7 @@ Each task lives in its own file. This index links to them.
 - [Task 13 — Select the Date posted filter to "Past 24 hours"](task_13.md) — ✅ Done
 - [Task 14 — Route LLM work per purpose: MiMo-V2.6-Pro for general tasks, DeepSeek V4.1 Flash 1017 for self-healing](task_14.md) — 🟡 In progress
 - [Task 15 — Auto-describe resumes in the new-resumes folder, then move them into resumes/ (Task 3.2)](task_15.md) — ✅ Done
-- [Task 16 — Apply only when an existing resume is a strong LLM match; skip unmatched jobs](task_16.md) — ✅ Done
-- [Task 17 — Fall back to "Past week" when the Past 24 hours results are exhausted](task_17.md) — ✅ Done
+- [Task 16 — Apply only when an existing resume is a strong LLM match; skip unmatched jobs](task_16.md) — 🟡 In progress
+- [Task 17 — Fall back to "Past week" when the Past 24 hours results are exhausted; skips uncapped by default](task_17.md) — ✅ Done
 - [Task 18 — Ask for the job search query at startup](task_18.md) — ⬜ Not started
+- [Task 19 — Ignore years-of-experience requirements when matching a job](task_19.md) — ✅ Done

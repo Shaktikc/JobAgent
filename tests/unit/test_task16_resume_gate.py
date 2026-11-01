@@ -137,7 +137,7 @@ async def test_strict_mode_selects_a_strong_match(tmp_path) -> None:
     assert outcome.ratings == {"c1": "strong", "c2": "partial"}
 
 
-async def test_strict_mode_skips_a_partial_match(tmp_path) -> None:
+async def test_strict_mode_selects_a_partial_match(tmp_path) -> None:
     (tmp_path / "python.txt").write_text("Python AWS", encoding="utf-8")
 
     outcome = await ensure_resume(
@@ -154,11 +154,11 @@ async def test_strict_mode_skips_a_partial_match(tmp_path) -> None:
     )
 
     assert outcome.error == ""
-    assert outcome.no_match is True
-    assert outcome.selected_path is None
+    assert outcome.no_match is False
+    assert outcome.selected_path == str(tmp_path / "python.txt")
     assert outcome.fit == "partial"
     assert outcome.ratings == {"c1": "partial"}
-    assert "not a strong match" in outcome.notes
+    assert outcome.asked_human is False and outcome.reused_from_library == ""
 
 
 async def test_strict_mode_skips_when_the_fit_is_missing(tmp_path) -> None:
@@ -199,7 +199,7 @@ async def test_strict_mode_never_asks_or_reuses_a_remembered_resume(tmp_path) ->
         page=object(),
         asker=asker,
         describer=_describer(),
-        matcher=_picks(str(tmp_path / "pastry.txt"), "partial"),
+        matcher=_picks(str(tmp_path / "pastry.txt"), "none"),
     )
 
     assert outcome.no_match is True
@@ -207,7 +207,7 @@ async def test_strict_mode_never_asks_or_reuses_a_remembered_resume(tmp_path) ->
     assert outcome.asked_human is False
     assert outcome.reused_from_library == ""
     assert asked == []
-    assert "not a strong match" in outcome.notes
+    assert "not an eligible match" in outcome.notes
 
 
 async def test_legacy_mode_still_reuses_a_remembered_resume(tmp_path) -> None:

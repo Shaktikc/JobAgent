@@ -77,7 +77,7 @@ same index covers runtime crashes and the recovery machinery itself.
 - **Fix:** accept `http://`, `https://`, and `file:` URLs; the card/title search
   remains the fallback.
 - **Status:** 🟢 Fixed
-- **Evidence:** `src/tools/self_healing/recovery.py`;
+- **Evidence:** `src/tools/self_healing/recovery/reopen.py`;
   `test_reopen_same_job_opens_the_recorded_url`; commit `(uncommitted)`.
 
 ### BUG-047 — a failed reopen left the new browser holding the profile
@@ -88,7 +88,7 @@ same index covers runtime crashes and the recovery machinery itself.
   CDP handle and leaves Chromium open.
 - **Fix:** use `close_run_force` on both reopen failure and exception paths.
 - **Status:** 🟢 Fixed
-- **Evidence:** `src/tools/self_healing/recovery.py`; live self-healing test;
+- **Evidence:** `src/tools/self_healing/recovery/reopen.py`; live self-healing test;
   commit `(uncommitted)`.
 
 ### BUG-048 — one swallowed Next click made the walk stop as "form did not advance"
@@ -108,7 +108,7 @@ same index covers runtime crashes and the recovery machinery itself.
   click), and classify a stuck step ahead of the soft "no resume control" note.
 - **Status:** 🟢 Fixed
 - **Evidence:** `src/tools/linkedin_easy_apply_fill/form_walk.py`; unit
-  `test_task4_retries_a_swallowed_next_click_once`; `src/tools/linkedin_status_overlay.py`;
+  `test_task4_retries_a_swallowed_next_click_once`; `src/tools/linkedin_status_overlay/panel_js.py`;
   unit `test_panel_never_intercepts_clicks`; live
   `test_status_panel_does_not_swallow_the_next_click`; same job re-run advanced to
   3/3 pages; original bundle
@@ -519,7 +519,7 @@ same index covers runtime crashes and the recovery machinery itself.
     retry.
 - **Evidence:** `src/tools/linkedin_pagination.py` (`_click_control_dom`,
   `_navigate_to_next_page`, `next_page_url`),
-  `src/tools/self_healing/recovery.py` (`_RUNTIME_MODULES`);
+  `src/tools/self_healing/recovery/repair.py` (`_RUNTIME_MODULES`);
   `tests/unit/test_linkedin_pagination.py`
   (`test_go_to_next_page_falls_back_to_url_navigation`),
   `tests/unit/test_task_self_heal.py`
@@ -610,3 +610,33 @@ same index covers runtime crashes and the recovery machinery itself.
 - **Failure fingerprint:** none of its own — evidence from the same bundle as
   BUG-080.
 - **Occurrences:** 1 (same capture as BUG-080, 2026-10-29T04:07:25+00:00)
+
+### BUG-084 — unexpected exception while filling the form: another browser is already using the autojobapply profile c:\users\shakt\onedrive\desktop\project\autojobapply\data
+
+- **Symptom:** another browser is already using the AutoJobApply profile C:\Users\shakt\OneDrive\Desktop\project\AutoJobApply\data\profile (process id(s): 7136, 680, 12900, 23240, 24732, 13384, 5840, 14392, 16256, 24572, 23184, 20448, 22376, 16652, 21740). Close that window (or wait for the other run to finish), then retry; to force-close it run `autojob --clean-profile`.
+- **Root cause:** Auto-classified as `unknown_exception` during `browse`; see the bundle for the failing step/DOM. A source-level root cause is still pending.
+- **Fix:** Pending. Recorded before any repair attempt.
+- **Status:** 🔴 Open
+- **Evidence:** bundle `C:\Users\shakt\OneDrive\Desktop\project\AutoJobApply\data\debug\self_healing\20261031-095239-879180-d86f01b44362`; captured 2026-10-31T09:52:39.879180+00:00
+- **Failure fingerprint:** `d86f01b44362b95f1e8a`
+- **Occurrences:** 1 (first 2026-10-31T09:52:39+00:00)
+
+### BUG-085 — form did not advance to a new step: no resume control found on this form step; form did not advance to a new step; stopping before submit
+
+- **Symptom:** fill: form did not advance to a new step
+- **Root cause:** Auto-classified as `form_did_not_advance` during `fill`; see the bundle for the failing step/DOM. A source-level root cause is still pending.
+- **Fix:** Pending. Recorded before any repair attempt.
+- **Status:** 🔴 Open
+- **Evidence:** bundle `C:\Users\shakt\OneDrive\Desktop\project\AutoJobApply\data\debug\self_healing\20261031-100549-988503-78f4f0ed5dbd`; captured 2026-10-31T10:05:50.338233+00:00
+- **Failure fingerprint:** `78f4f0ed5dbdf082c971`
+- **Occurrences:** 1 (first 2026-10-31T10:05:50+00:00)
+
+### BUG-090 — form did not advance to a new step: no resume control found on this form step; form did not advance to a new step; stopping before submit
+
+- **Symptom:** fill: form did not advance to a new step
+- **Root cause:** Auto-classified as `form_did_not_advance` during `fill`; see the bundle for the failing step/DOM. A source-level root cause is still pending.
+- **Fix:** Pending. Recorded before any repair attempt.
+- **Status:** 🔴 Open
+- **Evidence:** bundle `C:\Users\shakt\OneDrive\Desktop\project\AutoJobApply\data\debug\self_healing\20261101-222000-372226-fb16d860087d`; captured 2026-11-01T22:20:00.798290+00:00
+- **Failure fingerprint:** `fb16d860087dee37429e`
+- **Occurrences:** 1 (first 2026-11-01T22:20:01+00:00)

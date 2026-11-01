@@ -64,8 +64,8 @@ async def ensure_resume(
     directly. ``asker``/``describer``/``matcher`` are injectable for tests.
 
     Task 16: when strict resume matching is on (``allow_fallback`` defaults to the
-    inverse of ``settings.session.require_resume_match``), only a **strong** LLM
-    match is selected. Anything else is a clean no-match: the remembered-resume
+    inverse of ``settings.session.require_resume_match``), a **strong** or
+    **partial** LLM match is selected. Anything else is a clean no-match: the remembered-resume
     and human-upload fallbacks are **not** used, so the caller can skip the job.
     """
     notify = notify or (lambda _message: None)
@@ -79,6 +79,10 @@ async def ensure_resume(
         else (settings.new_resumes_path or Path(resumes_dir) / "new")
     )
     outcome = Task3Outcome(job_description=description, resumes_dir=str(resumes_dir))
+    outcome.notes = _append_note(
+        outcome.notes,
+        "years-of-experience requirements are ignored for matching (Task 19)",
+    )
 
     async def _describe_intake(path):
         """Describe one intake resume, showing the Task 9 LLM status lines."""
@@ -182,7 +186,7 @@ async def ensure_resume(
     # rating can override the model's single choice inside parse_match.
     outcome.ratings = dict(result.ratings)
 
-    if result.selected_path and (not strict or result.is_strong):
+    if result.selected_path and (not strict or result.is_eligible):
         outcome.selected_path = result.selected_path
         outcome.fit = result.fit
         outcome.rationale = result.rationale or "the LLM chose the best-matching resume"
@@ -194,26 +198,26 @@ async def ensure_resume(
         )
         return outcome
 
-    # Task 16: strict mode does not use a partially matching resume.
+    # Task 16: strict mode skips none/unknown ratings, without using fallbacks.
     if result.selected_path:
         outcome.no_match = True
         outcome.fit = result.fit
         outcome.rationale = result.rationale or (
-            f"the LLM rated the best resume {result.fit or 'unknown'}, not strong"
+            f"the LLM rated the best resume {result.fit or 'unknown'}, not partial or strong"
         )
         outcome.notes = _append_note(
             outcome.notes,
-            "strict resume matching: the best resume was not a strong match",
+            "strict resume matching: the best resume was not an eligible match",
         )
         emit_llm(
             notify,
-            f"no strong resume match for {job_label!r} "
+            f"no eligible resume match for {job_label!r} "
             f"(fit={result.fit or 'unknown'}); skipping the job",
             result.rationale,
         )
         emit_step(
             notify,
-            f"Task 16: no existing resume is a strong match for {job_label!r}; "
+            f"Task 16: no existing resume is a partial or strong match for {job_label!r}; "
             "skipping this job.",
         )
         return outcome
@@ -230,7 +234,7 @@ async def ensure_resume(
         )
         emit_step(
             notify,
-            f"Task 16: no existing resume is a strong match for {job_label!r}; "
+            f"Task 16: no existing resume is a partial or strong match for {job_label!r}; "
             "skipping this job.",
         )
         return outcome

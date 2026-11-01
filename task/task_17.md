@@ -15,6 +15,10 @@ range keeps scanning that range and does not bounce back to the primary range.
 The week list includes the 24-hour jobs, so applied/skipped keys carry over and
 those jobs are never reopened. The agent **never** clicks **Submit application**.
 
+**Task evolution sync:** Task 17 also changed Task 16's default skipped-jobs
+cap from `100` to `0` (uncapped), so scanning can exhaust the selected ranges.
+`AUTOJOB_SESSION_MAX_SKIPPED_JOBS` still accepts a positive optional cap.
+
 **Preconditions**
 - The CLI startup step asks for the range unless `--date-range` was supplied.
   Accepted values are `24h`/`past_24_hours` and `week`/`past_week`. A
@@ -140,7 +144,7 @@ those jobs are never reopened. The agent **never** clicks **Submit application**
   `src/tools/linkedin_job_selection.py`,
   `src/tools/linkedin_apply_loop.py`,
   `src/tools/self_healing/models.py`,
-  `src/tools/self_healing/recovery.py`, `src/main.py`, `README.md`, and their
+  `src/tools/self_healing/recovery/`, `src/main.py`, `README.md`, and their
   tests.
 - **Tests:** `tests/unit/test_task17_date_range_fallback.py`,
   `tests/unit/test_date_range_choice.py`,

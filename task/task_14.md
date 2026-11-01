@@ -89,7 +89,7 @@ other. The application is **never** submitted by this task.
    - Keep the OpenCode CLI format mapping: a bare OpenRouter id becomes
      `openrouter/deepseek/deepseek-v4.1-flash-1017`; an already qualified
      `openrouter/...` id is preserved.
-   - In `src/tools/self_healing/recovery.py`, inject
+   - In `src/tools/self_healing/recovery/repair.py`, inject
      `AUTOJOB_SELF_HEAL_REPAIR_MODEL=<settings.self_healing.repair_model>` into
      the repair command environment (alongside `AUTOJOB_FAILURE_BUNDLE`,
      `AUTOJOB_BUG_ID`, etc.) so the configured self-healing model wins for the

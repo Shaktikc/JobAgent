@@ -12,6 +12,12 @@ rates `strong` proceeds; a no-match is a clean skip and the Subtask 3.1 fallback
 below are **not** used. Set `AUTOJOB_SESSION_REQUIRE_RESUME_MATCH=false` to
 restore them. See Task 16 for the gate.
 
+**Task 19 note:** the LLM match ignores the job's years-of-experience
+requirement. A resume with fewer years than requested (for example 7 years
+against a `10+ years` requirement) is still eligible and can be rated `strong`;
+years never cause a `partial`/`none` rating or a skip. The stored profile still
+keeps `years_experience` for Task 12 and form questions. See Task 19.
+
 **Implementation order (bottom-up, easy to test):**
 Build and verify the pieces in this order, one slice at a time:
 1. **Subtask 3.1** — Ask the human for a resume when nothing matches, and remember it.
@@ -145,12 +151,16 @@ match.
    `profile_version` is older than the current profile schema. A prompt/schema
    improvement must reach the matcher; bumping `PROFILE_VERSION` re-describes the
    pool once on the next run.
-8. When matching for a job (Task 3), pass the job description and every resume's
-   stored LLM description to the **LLM** and ask it to **rate every candidate**
-   (`strong`/`partial`/`none`, best first) and then choose the strongest one, or
-   **none**. If the single `choice` is not strong but another candidate is rated
-   `strong`, select that strong candidate rather than skipping the job. Do **not**
-   call `score_resume` or any other deterministic scorer.
+8. When matching for a job (Task 3), build the match input with Task 19's
+   experience-neutral view: omit `years_experience` from the profile objects and
+   neutralise explicit years-of-experience requirements in the job text while
+   preserving the other requirement words. Then pass the job description and
+   every resume's stored LLM description to the **LLM** and ask it to **rate
+   every candidate** (`strong`/`partial`/`none`, best first) and then choose the
+   strongest one, or **none**. If the single `choice` is not strong but another
+   candidate is rated `strong`, select that strong candidate rather than
+   skipping the job. Do **not** call `score_resume` or any other deterministic
+   scorer.
 9. Validate the chosen id against the candidate list, record the chosen resume's
    path, the per-candidate ratings, and the LLM's rationale (including any
    strong-rating override), and hand that resume to Task 4 to attach/upload.
@@ -166,6 +176,10 @@ match.
 - The **LLM** rates every candidate and picks the strongest resume directly from
   the job description and the resume descriptions; the deterministic weighted
   scorer (`score_resume`) is **not** used anywhere in the match.
+- Years of experience never gate the match: the LLM is given an
+  experience-neutral job view (no `years_experience` profile field and no
+  numeric years-of-experience requirements), so a candidate with fewer years
+  than requested can still be rated `strong` (Task 19).
 - Every resume considered for a job has an LLM description; a resume without one is
   an error, not matched from its raw text.
 - Re-describing the same file updates its entry instead of creating a duplicate.
@@ -202,6 +216,11 @@ match.
   retried a bounded number of times before a Task 3.2 error is recorded; a
   deterministic failure (bad request/API key) and an unusable reply are not
   retried by this transport retry.
+- **Sync note (Task 19):** the match uses an experience-neutral view —
+  `years_experience` is omitted from the profiles sent to the matcher and
+  numeric years-of-experience requirements are neutralised in the job text, so
+  a years shortfall cannot lower the rating. The profile still stores years for
+  Task 12; form questions about years are unaffected.
 - Depends on Subtask 3.1: when the human uploads a resume, 3.1 hands it here to be
   LLM-described **before** it is used. Subtask 3.1 then uses that resume directly
   for the current job (no re-match); the stored description is what later jobs

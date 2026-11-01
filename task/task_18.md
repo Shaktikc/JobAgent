@@ -116,7 +116,7 @@ application**.
   `src/tools/linkedin_search/orchestrator.py`,
   `src/tools/linkedin_search/search_box.py`,
   `src/tools/self_healing/models.py`,
-  `src/tools/self_healing/recovery.py`, `README.md`, and their tests. Existing
+  `src/tools/self_healing/recovery/`, `README.md`, and their tests. Existing
   callers that omit the query must keep working with the default.
 - **No query mutation.** Keep the human's query in logs/state; do not rewrite it
   into a different role (for example do not map "SWE" to "software engineer").

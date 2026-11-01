@@ -43,7 +43,8 @@ def test_build_match_messages_list_the_job_and_candidates() -> None:
 def test_parse_match_chooses_a_candidate() -> None:
     ids = {"c1": "a.pdf", "c2": "b.pdf"}
     match = parse_match(
-        '{"choice": "c2", "fit": "strong", "rationale": "best fit"}', ids
+        '{"choice":"c2","fit":"strong","ratings":{"c2":"strong"},'
+        '"rationale":"best fit"}', ids
     )
 
     assert match.selected_path == "b.pdf"
@@ -55,9 +56,9 @@ def test_parse_match_chooses_a_candidate() -> None:
 
 def test_parse_match_normalises_the_fit_rating() -> None:
     ids = {"c1": "a.pdf"}
-    assert parse_match('{"choice": "c1", "fit": "PARTIAL"}', ids).fit == "partial"
-    assert parse_match('{"choice": "c1", "fit": " Strong "}', ids).fit == "strong"
-    # An unknown/missing rating fails closed (it is not a strong match).
+    assert parse_match('{"choice":"c1","ratings":{"c1":"PARTIAL"}}', ids).fit == "partial"
+    assert parse_match('{"choice":"c1","ratings":{"c1":" Strong "}}', ids).fit == "strong"
+    # An unknown/missing candidate rating fails closed.
     assert parse_match('{"choice": "c1", "fit": "excellent"}', ids).fit == ""
     assert parse_match('{"choice": "c1"}', ids).is_strong is False
 
@@ -119,8 +120,8 @@ def test_parse_match_ignores_unknown_rating_ids() -> None:
         ids,
     )
 
-    assert match.selected_path == "a.pdf"
-    assert match.fit == "partial"
+    assert match.selected_path is None
+    assert match.fit == ""
     assert match.ratings == {}
 
 
@@ -160,7 +161,8 @@ def test_parse_match_rejects_an_unusable_reply() -> None:
 def test_parse_match_finds_the_answer_after_an_example_object() -> None:
     # The old greedy ``{.*}`` regex swallowed both objects and failed to parse.
     ids = {"c1": "a.pdf"}
-    text = 'Example {"choice": "c9"}.\nFinal: {"choice": "c1", "rationale": "fits {stack}"}.'
+    text = ('Example {"choice":"c9"}.\nFinal: '
+            '{"choice":"c1","ratings":{"c1":"partial"},"rationale":"fits {stack}"}.')
     match = parse_match(text, ids)
 
     assert match.selected_path == "a.pdf"

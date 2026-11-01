@@ -1,6 +1,6 @@
-# Task 16 — Apply only when an existing resume is a strong match; skip unmatched jobs
+# Task 16 — Apply only when an existing resume is a strong/partial match; skip unmatched jobs
 
-**Status:** ✅ Done
+**Status:** 🟡 In progress
 
 **Goal:** Add a **strict resume-gated apply** mode. When it is enabled (the default),
 the agent applies to a job **only** when the LLM's (Task 3.2) per-candidate
@@ -40,17 +40,18 @@ application is **never** submitted by this task.
   match quality, and rationale.
 - `.env` / process environment:
   - `AUTOJOB_SESSION_REQUIRE_RESUME_MATCH` — strict mode; default `true`.
-  - `AUTOJOB_SESSION_MAX_SKIPPED_JOBS` — safety cap on skips per run; default
-    `100`, `0` = no cap. A skip is **not** an application and does not count
-    toward `max_jobs_per_run` (Task 8).
+  - `AUTOJOB_SESSION_MAX_SKIPPED_JOBS` — optional safety cap on skips per run;
+    default `0` = no cap (superseded by Task 17). A skip is **not** an application
+    and does not count toward `max_jobs_per_run` (Task 8).
 - The results-list job identity used to avoid re-opening a skipped job.
 
 **Steps**
 1. **Add the strict-mode setting.**
    - Add `SessionSettings.require_resume_match: bool = True` (env
      `AUTOJOB_SESSION_REQUIRE_RESUME_MATCH`) and
-     `SessionSettings.max_skipped_jobs_per_run: int = 100, ge=0` (env
+     `SessionSettings.max_skipped_jobs_per_run: int = 0, ge=0` (env
      `AUTOJOB_SESSION_MAX_SKIPPED_JOBS`).
+     Task 17 superseded the original default of `100` with `0` (uncapped).
    - Document both in `.env.example` and `README.md` next to the existing Task 6
      `AUTOJOB_SESSION_SKIP_APPLIED` setting. Setting
      `AUTOJOB_SESSION_REQUIRE_RESUME_MATCH=false` restores today's Task 3.1
@@ -63,11 +64,14 @@ application is **never** submitted by this task.
      `{"ratings": {"<id>": "<strong|partial|none>", ...}, "choice": "<id or
      none>", "fit": "<strong|partial|none>", "rationale": "<short reason>"}`.
      Rate every candidate, best first, and define the bar: **strong** when the
-     resume genuinely satisfies the job's core requirements (skills/technologies,
-     years/scope, domain); **partial** for a transferable but incomplete fit;
-     **none** when no candidate is a reasonable fit. A title does not have to
-     match literally, and seniority can come from years/scope. Keep the rule that
-     the model may choose only a provided id and never invents a file.
+     resume genuinely satisfies the job's core requirements
+     (skills/technologies, domain, and scope/responsibilities); **partial** for
+     a transferable but incomplete fit; **none** when no candidate is a
+     reasonable fit. Years-of-experience requirements are **ignored**
+     (Task 19): do not compare them with the candidate's years and never
+     downgrade a resume because of a years shortfall. A title does not have to
+     match literally. Keep the rule that the model may choose only a provided
+     id and never invents a file.
    - Parse and normalise every rating forgivingly; unknown ids are ignored and an
      unknown/missing fit becomes `""`. If the single `choice` is not strong but
      another candidate is rated `strong`, select that strong candidate and record
@@ -170,6 +174,10 @@ application is **never** submitted by this task.
   opened, and the next unapplied job is selected. Any form left open by a
   self-healed retry is closed with a safe dismiss control; the agent never clicks
   **Submit application**.
+- Years-of-experience requirements are **non-blocking** (Task 19): a resume with
+  fewer years than the job requests can still be rated `strong` and applied to.
+  A skip is still required when a genuine core skill/technology/domain gap
+  exists.
 - Previously skipped jobs are not re-opened on later passes of the same run
   (`skipped_titles` is passed into the Task 6/7 selection).
 - The loop stops cleanly when no unapplied job remains or the skip cap is reached;
@@ -196,6 +204,10 @@ application is **never** submitted by this task.
   reason to skip when the model rated another candidate `strong`; select that
   candidate and record the override. This is still the LLM's decision, not a
   keyword score.
+- **Sync note (Task 19):** the hard-coded years-of-experience bar in this task
+  was removed. The matcher receives an experience-neutral job view and a years
+  shortfall is never a skip reason; the `strong` gate still applies to every
+  other core requirement. See Task 19.
 - **Sync note (BUG-078/BUG-079):** Task 3.2 now rates every candidate, and the
   profile also carries factual highlights and named AI coding tools. The strict
   gate consumes the strong rating; the root-cause fix is recorded in

@@ -83,7 +83,9 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
    pick the single best-matching resume, or **none**. The LLM is the only matching
    path — there is no deterministic scoring fallback. The gate uses the LLM's
    per-candidate ratings, so a strong candidate is still selected when the model's
-   first pick is only `partial`. Stored profiles are versioned: after a profile
+   first pick is only `partial`. Years-of-experience requirements are ignored
+   when matching, so a candidate with fewer years than requested can still be
+   rated `strong` (Task 19). Stored profiles are versioned: after a profile
    prompt/schema change, the next run re-describes the pool once instead of reusing
    weak old profiles. Resume files are never modified.
    - **Task 15:** first processes resumes placed in `resumes/new/`: Task 3.2
@@ -466,7 +468,11 @@ src/
     linkedin_pagination.py         Task 7: when a page is all Applied, go to the next page
     linkedin_apply_loop.py         Task 8: detect the human's submit, open the next job
     linkedin_resume_gate.py        Task 16: strict match gate + safe form-close fallback
-    linkedin_status_overlay.py     Task 9: the on-page status panel + status reporter
+    linkedin_status_overlay/      Task 9: the on-page status panel + input lock
+      __init__.py                   public API (re-exports the submodules below)
+      panel_js.py                   the status panel's DOM scripts
+      status_reporter.py            CLI + panel reporter, emit_step/emit_llm
+      interaction_lock.py           BUG-067 input lock + human-turn unlock
     linkedin_best_matching_resume/  Task 3: read the job description + LLM match
       __init__.py                   public API (re-exports the submodules below)
       description_reader.py         deterministic job read (title scoped to the pane)
@@ -477,6 +483,7 @@ src/
       __init__.py                   public API (re-exports the submodules below)
       models.py                     ResumeDescription / ResumeMatch / error type
       messages.py                   prompts + tolerant balanced-JSON parsing
+      experience_policy.py          Task 19: experience-neutral match view
       store.py                      description store + parallel ensure_descriptions
       client.py                     JSON-mode LLM calls (reasoning off, retry)
     linkedin_easy_apply_fill/      Task 4: fill the Easy Apply form, attach the resume
@@ -582,7 +589,9 @@ tests/
   application, never asks for a resume in strict mode, and never reuses the
   remembered-resume library for a job the LLM did not match. The skip is recorded
   in the run summary and the `task16` state, and the skipped title is not reopened
-  this run.
+  this run. **Task 19:** the matcher ignores the job's years-of-experience
+  requirement; a resume with fewer years than requested is still eligible and can
+  be rated `strong`, while genuine skill/domain gaps still cause a skip.
 - **Task 17 (default)** asks at startup whether to scan **Past 24 hours** or
   **Past week** first. When that range is exhausted it falls back once to the
   other range (24 hours ⇄ past week). It resets the results to page 1, preserves

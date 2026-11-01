@@ -6,7 +6,7 @@ working unchanged:
 
 - :class:`Task8JobRecord` / :class:`Task8Outcome` — what Task 8's loop did.
 - :class:`SkippedJobRecord` / :class:`Task16Outcome` — jobs skipped by Task 16
-  because no existing resume was a strong match.
+  because no existing resume was a partial or strong match.
 """
 
 from __future__ import annotations
@@ -62,7 +62,7 @@ class Task16Outcome(BaseModel):
     """What the strict resume gate did across a run (Task 16).
 
     ``enabled`` mirrors ``AUTOJOB_SESSION_REQUIRE_RESUME_MATCH``. A job is skipped
-    when the LLM does not rate an existing resume a strong match; skipped jobs are
+    when the LLM rates no existing resume partial or strong; skipped jobs are
     never filled and never count toward ``Task8Outcome.jobs_applied``.
     """
 

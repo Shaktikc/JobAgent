@@ -14,9 +14,11 @@ from src.tools.resume_descriptions import (
 
 from .helpers import FakeClient, make_settings
 
+_MATCH_REPLY = '{"choice":"c1","ratings":{"c1":"strong"},"rationale":"r"}'
+
 
 async def test_pick_best_resume_returns_the_choice(tmp_path) -> None:
-    fake = FakeClient('{"choice": "c1", "rationale": "r"}')
+    fake = FakeClient(_MATCH_REPLY)
 
     match = await pick_best_resume(
         JobDescription(title="X", body="Y"),
@@ -44,7 +46,7 @@ async def test_resume_calls_use_the_general_model_even_with_self_heal_set(
     await describe_resume(resume, settings, client=describe_fake)
     assert describe_fake.calls[0]["model"] == settings.llm.model == "xiaomi/mimo-v2.6-pro"
 
-    match_fake = FakeClient('{"choice": "c1", "rationale": "r"}')
+    match_fake = FakeClient(_MATCH_REPLY)
     await pick_best_resume(
         JobDescription(title="X", body="Y"),
         [("a.pdf", ResumeDescription(summary="s"))],
@@ -81,7 +83,7 @@ async def test_pick_best_resume_raises_on_a_call_error(tmp_path) -> None:
 
 
 async def test_pick_best_resume_requests_json_and_no_reasoning(tmp_path) -> None:
-    fake = FakeClient('{"choice": "c1", "rationale": "r"}')
+    fake = FakeClient(_MATCH_REPLY)
 
     await pick_best_resume(
         JobDescription(title="X", body="Y"),
@@ -98,7 +100,7 @@ async def test_pick_best_resume_requests_json_and_no_reasoning(tmp_path) -> None
 async def test_pick_best_resume_retries_an_empty_reply(tmp_path) -> None:
     # A reasoning model can return finish_reason=length with empty content; the
     # match retries once instead of failing the whole job.
-    fake = FakeClient(["", '{"choice": "c1", "rationale": "r"}'])
+    fake = FakeClient(["", _MATCH_REPLY])
 
     match = await pick_best_resume(
         JobDescription(title="X", body="Y"),
@@ -114,7 +116,7 @@ async def test_pick_best_resume_retries_an_empty_reply(tmp_path) -> None:
 async def test_pick_best_resume_retries_a_transient_connection_error(tmp_path) -> None:
     """BUG-080: one provider "Connection error." must not abort the whole match."""
     fake = FakeClient(
-        '{"choice": "c1", "rationale": "r"}',
+        _MATCH_REPLY,
         errors=[RuntimeError("Connection error."), None],
     )
 
@@ -139,7 +141,7 @@ async def test_pick_best_resume_retries_an_upstream_5xx(tmp_path) -> None:
         status_code = 503
 
     fake = FakeClient(
-        '{"choice": "c1", "rationale": "r"}',
+        _MATCH_REPLY,
         errors=[UpstreamUnavailable("provider unavailable"), None],
     )
 

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from .match_policy import is_eligible_fit
+
 
 class ResumeDescription(BaseModel):
     """A short, LLM-written profile of one resume (Task 3.2).
@@ -51,8 +53,8 @@ class ResumeMatch(BaseModel):
     that is not one of the candidates; ``candidate_ids`` records the id -> path
     map so the decision stays explainable. Task 16 adds ``fit``: the model's
     quality rating for the chosen resume (``"strong"``, ``"partial"``, ``"none"``,
-    or ``""`` when it did not say). Only a strong match may be applied to when
-    strict resume matching is on.
+    or ``""`` when it did not say). Strong and partial matches may proceed to
+    Easy Apply; strong candidates are preferred.
 
     ``ratings`` records the model's per-candidate ratings (id -> fit). A model can
     name a thematically closer but weaker candidate as its single ``choice`` while
@@ -70,6 +72,11 @@ class ResumeMatch(BaseModel):
     def is_strong(self) -> bool:
         """True when a resume was chosen and the LLM rated it a strong fit."""
         return bool(self.selected_path and self.fit == "strong")
+
+    @property
+    def is_eligible(self) -> bool:
+        """True when a selected resume has a strong or partial resolved rating."""
+        return bool(self.selected_path and is_eligible_fit(self.fit))
 
 
 class ResumeDescriptionError(RuntimeError):

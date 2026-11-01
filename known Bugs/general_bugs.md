@@ -141,7 +141,7 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   by hiding and re-showing its popover (`hidePopover()` → `showPopover()`), so it
   stays in front of the modal like the Task 5 banner. Both calls run in the same
   synchronous JS task, so there is no visible flicker.
-- **Evidence:** `src/tools/linkedin_status_overlay.py` (`_UPDATE_STATUS_JS`); live
+- **Evidence:** `src/tools/linkedin_status_overlay/panel_js.py` (`_UPDATE_STATUS_JS`); live
   Chromium A/B check with a dark `dialog::backdrop` (panel crisp in front, a plain
   popover dimmed behind). Status: 🟢 Fixed. Commit: (uncommitted).
 
@@ -336,9 +336,9 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   Task 5 answer banners, and Task 8 submit waits, and is released on cleanup or a
   failed browse.
 - **Status:** 🟢 Fixed
-- **Evidence:** `src/tools/linkedin_status_overlay.py` (`InteractionLock`,
-  `begin_human_turn`, `end_human_turn`, `release_interaction_lock`),
-  `src/tools/linkedin_ask_human/__init__.py`,
+- **Evidence:** `src/tools/linkedin_status_overlay/` (`InteractionLock`,
+  `begin_human_turn`, `end_human_turn`, `release_interaction_lock` in
+  `interaction_lock.py`), `src/tools/linkedin_ask_human/__init__.py`,
   `src/tools/linkedin_best_matching_resume/selection.py`,
   `src/tools/linkedin_apply_loop.py`, `src/nodes/browse.py`;
   `tests/unit/test_linkedin_status_overlay.py`; live Chromium check: after the
@@ -365,3 +365,45 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 - **Evidence:** `scripts/self_heal_repair.py` (`build_prompt`),
   `tests/unit/test_self_heal_repair.py` (non-interactive prompt assertion);
   `src/tools/linkedin_pagination.py`; full unit suite passes; uncommitted.
+
+### BUG-083 - the human could not type while the run waited for an answer
+
+- **Symptom:** during a real Easy Apply run the Task 5 banner asked *"How many
+  years of work experience do you have with GraphQL?"* and the status panel said
+  *"Waiting for you - I do not know ... answer it in the form on the page."*, but
+  the human could not click or type on the LinkedIn page at all. The fields the
+  automation had already filled (Next.js = `7`, .NET Framework = `5`) were there;
+  the field that needed a human answer stayed empty.
+- **Root cause:** the BUG-067 `InteractionLock` had two ways to send
+  `Input.setIgnoreInputEvents(true)` *after* `begin_human_turn` had sent
+  `ignore=false`:
+  1. the 0.6 s watch loop checked `_human_depth`, then awaited `_on_login_page()`
+     (two CDP round trips) before applying its now-stale decision — a human turn
+     that began inside that window was re-locked for its whole duration;
+  2. the wrapped CDP input command's `finally` re-locked unconditionally when a
+     human turn started while the command was still in flight.
+
+  Nothing re-unlocked afterwards because the watch loop skips while a human turn
+  is open, so the page stayed deaf until the turn ended.
+- **Fix:** all `setIgnoreInputEvents` writes are serialized behind one lock and
+  re-check `_human_depth` at write time, so a human turn always wins; the watch
+  tick re-checks after its page probe; the automation wrapper ends with the same
+  guarded apply instead of a raw re-lock. The watch loop was split into a
+  `_refresh()` tick so the race is testable deterministically. While touching the
+  415-line module it was split into the `src/tools/linkedin_status_overlay/`
+  package (`panel_js`, `status_reporter`, `interaction_lock`).
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/linkedin_status_overlay/interaction_lock.py`
+  (`_ignore_lock`, `_apply`, `_refresh`, the wrapped input command),
+  `src/tools/self_healing/recovery/repair.py` (`_RUNTIME_MODULES` reloads the new
+  submodules); `tests/unit/test_linkedin_status_overlay.py`
+  (`test_watch_tick_in_flight_cannot_re_lock_a_human_turn`,
+  `test_automation_command_tail_cannot_re_lock_a_human_turn`,
+  `test_apply_true_during_a_human_turn_keeps_the_page_interactive`,
+  `test_watch_tick_does_not_probe_the_page_during_a_human_turn`,
+  `test_nested_human_turns_stay_unlocked_until_the_last_one_ends`; the first
+  three fail against the pre-fix code);
+  `tests/integration/test_human_turn_unlock_live.py`; live Chromium check on the
+  real paused application: install → watch tick in flight → `begin_human_turn` →
+  the last write stayed `ignore=false` after the tick, and a native
+  (Windows `SendInput`) Shift keydown reached the page. Uncommitted.

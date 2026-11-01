@@ -144,8 +144,8 @@ class SessionSettings(BaseModel):
     # unapplied job instead. Set false to ignore the Applied status (open the
     # first Easy Apply card regardless).
     skip_applied: bool = True
-    # Task 16: apply only when the LLM rates an existing resume a **strong** match
-    # for the job. With no strong match the job is skipped (the human is not asked
+    # Task 16: apply when the LLM rates an existing resume partial or strong
+    # for the job. With no eligible match the job is skipped (the human is not asked
     # for a resume and the remembered-resume fallback is not used). Set false to
     # restore Task 3.1's fallbacks.
     require_resume_match: bool = True

@@ -4,11 +4,11 @@ Two responsibilities:
 
 1. **The gate.** Strict resume matching (``AUTOJOB_SESSION_REQUIRE_RESUME_MATCH``,
    on by default) applies to a job only when the Task 3.2 LLM chose an existing
-   resume and rated it a **strong** fit. Anything else — **none**, ``partial``, a
+   resume and rated it a **strong** or **partial** fit. Anything else — **none**, a
    missing rating, an empty pool — is a clean skip, not an error, and never uses
    the Task 3.1 remembered-resume / human-upload fallbacks.
 2. **Closing a form that is open anyway.** The match-first flow opens Easy Apply
-   only after a strong match, so a normal skip has no form to close. A self-healed
+   only after an eligible match, so a normal skip has no form to close. A self-healed
    retry or a legacy fallback can still leave one open; :func:`close_easy_apply_form`
    closes it before the results list is reused. Only dismiss/close/discard controls
    inside the open form are clicked — never **Submit application**, **Next**, or
@@ -32,6 +32,7 @@ from src.state import (
     Task16Outcome,
 )
 from src.tools.browser import _element_label, _query_elements, _safe
+from src.tools.resume_descriptions.match_policy import is_eligible_fit
 
 # Buttons inside the open Easy Apply surface. The label filter below is what makes
 # the scan safe: the form's own Next/Review/Submit buttons never match.
@@ -57,7 +58,7 @@ _CLOSE_POLL_SECONDS = 0.5
 
 
 def is_strict_resume_match(settings: Settings) -> bool:
-    """True when only a strong existing-resume match may be applied to."""
+    """True when only a partial or strong existing-resume match may proceed."""
     return bool(settings.session.require_resume_match)
 
 
@@ -71,7 +72,7 @@ def should_skip_job(outcome: Task3Outcome | None, settings: Settings) -> bool:
         return False
     if outcome.error:
         return False
-    return not (outcome.selected_path and outcome.fit == "strong")
+    return not (outcome.selected_path and is_eligible_fit(outcome.fit))
 
 
 def skip_record(

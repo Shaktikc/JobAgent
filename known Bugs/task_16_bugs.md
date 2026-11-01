@@ -12,6 +12,10 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 | BUG-073 | a hidden (`display:none`) Easy Apply modal still read as open, so a closed skip looked stuck | 🟢 Fixed | `29c0aff` |
 | BUG-074 | a skipped card gained " (Verified job)" and was reopened as a "new" job | 🟢 Fixed | `29c0aff` |
 | BUG-076 | skip identity used the description title, so cards with longer titles were reopened and the loop alternated | 🟢 Fixed | `121bffb` |
+| BUG-089 | top-level fit overrides per-candidate ratings, admitting weak resumes or skipping strong ones | 🔴 Open | (pending) |
+| BUG-086 | JSON without match fields becomes a clean skip instead of a matching failure | 🔴 Open | (pending) |
+| BUG-087 | legacy mode selects a partial resume before trying the documented fallback | 🔴 Open | (pending) |
+| BUG-088 | Task 16 still documented a 100-skip default after Task 17 changed it to 0 | 🟢 Fixed | (uncommitted documentation sync) |
 
 Related Task 3.2 fix consumed by this gate: **BUG-078/BUG-079** in
 [`task_3_bugs.md`](task_3_bugs.md) — per-candidate ratings and richer resume
@@ -97,3 +101,85 @@ profiles. The strict gate now uses the LLM's strong rating from that reply.
   five skips that advanced through unique cards in order (4 → 5 → 7 → 8 → 9,
   including `PL/SQL Developer (Verified job)` and
   `Engineering Team Lead | .NET + React`), with no reopened job.
+
+---
+
+### BUG-089 — per-candidate ratings do not actually control the strict gate
+
+- **Symptom:** a reply with `choice=c1`, `fit=strong`, and `ratings.c1=partial`
+  selects c1 and routes to `open_form`, even when no candidate is rated strong.
+  The same happens when ratings are absent. Conversely, `fit=partial` with
+  `ratings.c1=strong` skips the job when c1 is the only strong candidate. A
+  top-level strong fit can also retain a partial c1 instead of a strong c2.
+- **Root cause:** `parse_match` returns early on the top-level strong fit and
+  excludes the chosen id from the ratings override. `ResumeMatch.is_strong`
+  and `should_skip_job` trust that fit rather than the candidate rating.
+- **Fix:** pending. Make the chosen candidate's rating authoritative and select
+  from the provided candidates rated strong, including the original choice.
+- **Status:** 🔴 Open
+- **Evidence:** `src/tools/resume_descriptions/messages.py` (`parse_match`),
+  `models.py` (`ResumeMatch.is_strong`), `src/tools/linkedin_resume_gate.py`,
+  and `src/tools/linkedin_best_matching_resume/selection.py`.
+  `data/debug/task16_verification_20261031/contract_results.json` reproduces
+  four failures using production parsing, selection, gating, and routing:
+  `contradictory_strong_fit`, `missing_ratings`,
+  `same_candidate_strong_rating`, and `wrong_strong_choice`.
+  Audited working tree at `bc67d87d8af84b2a26a04547fb6942b95f84090b`;
+  no fix commit. Existing focused tests passed despite these gaps.
+
+---
+
+### BUG-086 — a JSON object with no match decision silently skips the job
+
+- **Symptom:** the reply `{"error":"upstream unavailable"}` is accepted as
+  no-match and routes to `next_job` with no error. Task 16 requires unusable
+  replies to fail the run, rather than silently skip-scanning jobs.
+- **Root cause:** `_json_object` accepts any JSON object, and `parse_match`
+  defaults absent choice/ratings to none without checking that the object
+  contains a match decision. The client's unusable-reply retry is not triggered.
+- **Fix:** pending. Validate the reply's decision structure before interpreting
+  missing fit or ratings, preserving supported explicit no-match replies.
+- **Status:** 🔴 Open
+- **Evidence:** `src/tools/resume_descriptions/messages.py` (`_json_object`,
+  `parse_match`), `src/tools/resume_descriptions/client.py` (`_ask_json`),
+  and `contract_results.json` case `json_without_match_fields` under
+  `data/debug/task16_verification_20261031/`.
+  Audited working tree at `bc67d87d8af84b2a26a04547fb6942b95f84090b`;
+  no fix commit.
+
+---
+
+### BUG-087 — legacy mode bypasses the documented fallback for a partial choice
+
+- **Symptom:** with `allow_fallback=True`, a partial c1 is selected directly,
+  even when c2 is remembered for the same job. No remembered-resume lookup or
+  upload fallback runs. Task 16 step 3 explicitly routes non-strong/no-match
+  legacy results through those fallbacks.
+- **Root cause:** `ensure_resume` returns any selected path when strict mode
+  is disabled, before considering its fit or the fallback branches.
+- **Fix:** pending. Reconcile the legacy selection branch with the documented
+  non-strong fallback behavior and cover partial choices, not only `none`.
+- **Status:** 🔴 Open
+- **Evidence:** `src/tools/linkedin_best_matching_resume/selection.py`,
+  `task/task_16.md` step 3, and `contract_results.json` case
+  `legacy_partial_uses_fallback` under
+  `data/debug/task16_verification_20261031/`.
+  Audited working tree at `bc67d87d8af84b2a26a04547fb6942b95f84090b`;
+  no fix commit.
+
+---
+
+### BUG-088 — the Task 16 default skip cap was not synchronized with Task 17
+
+- **Symptom:** Task 16 specified a default cap of 100 while configuration,
+  `.env.example`, README, and tests all used 0 (unlimited skips).
+- **Root cause:** Task 17 commit `b91c783` deliberately changed the default to
+  0, but the older Task 16 specification retained 100.
+- **Fix:** synchronized Task 16's inputs and settings with default 0; cited
+  Task 17 as the superseding task and synchronized Task 17 and the task index.
+- **Status:** 🟢 Fixed
+- **Evidence:** `git show b91c783 -- src/configuration.py .env.example`,
+  `SessionSettings().max_skipped_jobs_per_run == 0`, and the passing
+  configuration tests in the full verification run (656 passed, 62 skipped).
+  `task/task_16.md`, `task/task_17.md`, and `task/task.md` now agree.
+  Documentation fix is uncommitted; no production code changed.

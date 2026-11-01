@@ -136,6 +136,18 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | BUG-080 | Self-Healing — match/resume | transient LLM connection error aborted the resume match | 🟢 Fixed | (uncommitted) |
 | BUG-081 | Self-Healing — match/resume | match-stage capture reused the previous job's Task 4 fields/notes | 🟢 Fixed | (uncommitted) |
 | BUG-082 | Task 4/5 — SDUI radio options | a radio's aria-label (the question) was read as the option and saved as the answer | 🟢 Fixed | (uncommitted) |
+| BUG-083 | Task 5/9 — input lock | a watch tick or command tail re-locked the page during a human turn, so the human could not answer | 🟢 Fixed | (uncommitted) |
+
+| BUG-084 | Self-Healing — browse/search | unexpected exception while filling the form: another browser is already using the autojobapply profile c:\users\shakt\on | 🔴 Open | (pending) |
+
+| BUG-085 | Self-Healing — fill | form did not advance to a new step: no resume control found on this form step; form did not advance to a new step; stopp | 🔴 Open | (pending) |
+
+| BUG-089 | Task 16 — strict gate | top-level fit overrides candidate ratings, admitting weak resumes or skipping strong ones | 🔴 Open | (pending) |
+| BUG-086 | Task 16 — malformed match | JSON without a match decision is silently treated as no-match | 🔴 Open | (pending) |
+| BUG-087 | Task 16 — legacy fallback | a partial selection bypasses remembered-resume and upload fallbacks | 🔴 Open | (pending) |
+| BUG-088 | Task 16/17 — spec sync | Task 16 retained the old 100-skip default after Task 17 changed it to 0 | 🟢 Fixed | (uncommitted documentation sync) |
+
+| BUG-090 | Self-Healing — fill | form did not advance to a new step: no resume control found on this form step; form did not advance to a new step; stopp | 🔴 Open | (pending) |
 
 ## Template for new entries
 

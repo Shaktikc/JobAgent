@@ -16,6 +16,10 @@ working unchanged. It never touches the browser and never modifies a resume file
 from __future__ import annotations
 
 from .client import describe_resume, pick_best_resume
+from .experience_policy import (
+    neutralize_experience_requirements,
+    profile_for_match,
+)
 from .messages import (
     build_describe_messages,
     build_match_messages,
@@ -53,9 +57,11 @@ __all__ = [
     "is_fresh",
     "load_descriptions",
     "move_description",
+    "neutralize_experience_requirements",
     "parse_description",
     "parse_match",
     "pick_best_resume",
+    "profile_for_match",
     "save_descriptions",
     "store_description",
 ]
