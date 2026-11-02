@@ -3,15 +3,19 @@
 - Do not commit or push code unless explicitly told to do so.
 - Do not edit anything in the task files (the `task/` folder: the `task/task.md`
   index and each `task/task_N.md`) except for status updates (**🟡 In progress**
-  and **✅ Done**) and the required **task-evolution sync** below, unless the
-  user has reviewed another change and given explicit approval.
+  and **✅ Done**)  unless the user has reviewed another change and given explicit approval.
 - **Task tracking (required):** each task lives in its own file, `task/task_N.md`,
   listed in the `task/task.md` index. **When you start working on a task, mark it
-  🟡 In progress** in its `task/task_N.md` file and in `task/task.md`. **Always,
-  immediately after a task is implemented and verified, mark it ✅ Done** in both
-  files — in the same change as the finished work. Never leave a task marked
-  "Not started" while it is being worked on, and never leave a completed task
-  marked "Not started" or "In progress".
+  🟡 In progress** in its `task/task_N.md` file and in `task/task.md`.
+- **Marking a task ✅ Done requires user verification (required):** after
+  implementing and testing a task, leave it marked **🟡 In progress** and ask the
+  user to verify it. Mark the task **✅ Done** in both `task/task_N.md` and
+  `task/task.md` **only after the user has explicitly confirmed the task works**
+  (for example "verified", "it works", "mark it done"). Never mark a task ✅ Done
+  on your own — not after passing tests, not after a successful live-browser
+  check, and not "in the same change as the finished work". Never leave a task
+  marked "Not started" while it is being worked on, and never leave a
+  user-verified completed task marked "Not started" or "In progress".
 - **Interrelated code sync (important — never skip):** whenever you change code
   for any task (for example a bug fix), also update any interrelated code that
   the change could affect, including code used by other tasks. Do not leave
@@ -20,7 +24,8 @@
   config that depends on it has been reviewed and updated or confirmed
   unaffected.
 - Always verify that changed code works by testing it (run the relevant tests,
-  build, or a manual check) before declaring the task complete.
+  build, or a manual check) before reporting it as ready for user verification.
+  Your own testing never makes a task done — only the user's confirmation does.
 - **Bug log (important — never skip):** whenever you find and fix a bug, always
   record it in the bug log under `known Bugs/`. A fix with no log entry is **not
   complete**. See [Bug log](#bug-log-required) below.
@@ -51,7 +56,10 @@
 - Repeat this loop — test in the browser, diagnose the cause, fix the code, and
   re-test — until the given task genuinely works.
 - After changing automation code, actually run it against the real site and
-  confirm the expected behavior. Never mark a task done on an untested assumption.
+  confirm the expected behavior. Never report a task as ready on an untested
+  assumption.
+- A passing live-browser check is still **not** user verification. Keep the task
+  🟡 In progress and mark it ✅ Done only after the user explicitly confirms it.
 
 
 ## Bug log (required)
@@ -121,5 +129,5 @@ split — a package folder with a thin `__init__.py` plus one module per concern
 - **Walk the form step by step** until the terminal step. If a step does not
   advance (for example a required answer is unknown and blocks Next), stop
   gracefully with a clear note instead of retrying blindly.
-- **Never click Submit application** — submission is always a manual human step.
+
 

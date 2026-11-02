@@ -207,8 +207,7 @@ async def _await_human_submit(
             return "submitted"
         if deadline is not None and time.monotonic() >= deadline:
             notify(
-                "Task 8: no submission detected before the wait ended; "
-                "leaving the browser open."
+                "Task 8: no submission detected before the wait ended; leaving the browser open."
             )
             try:
                 await asyncio.wait_for(close_run(run_id), _READ_TIMEOUT_SECONDS)

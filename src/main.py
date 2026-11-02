@@ -29,8 +29,7 @@ def _date_range_argument(value: str) -> str:
     normalized = normalize_date_range(value)
     if not normalized:
         raise argparse.ArgumentTypeError(
-            f"unknown date range {value!r}; choose past_24_hours (24h) "
-            "or past_week (week)"
+            f"unknown date range {value!r}; choose past_24_hours (24h) or past_week (week)"
         )
     return normalized
 
@@ -194,9 +193,7 @@ def _summary(state: ApplyState) -> str:
             lines.append(f"self-heal evidence: {healing.last_bundle}")
     task16 = state.get("task16")
     if task16 is not None:
-        lines.append(
-            f"resume gate : strict={task16.enabled} jobs_skipped={task16.jobs_skipped}"
-        )
+        lines.append(f"resume gate : strict={task16.enabled} jobs_skipped={task16.jobs_skipped}")
         for job in task16.skipped:
             lines.append(
                 f"  skipped   : {job.title!r} at {job.company!r} "

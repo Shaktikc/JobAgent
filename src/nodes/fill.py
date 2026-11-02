@@ -107,9 +107,7 @@ def _fill_log(outcome: Task4Outcome, task5: Task5Outcome) -> list[str]:
             f"profile={context.profile_available} sources={context.sources}"
             + (f" errors={context.errors}" if context.errors else "")
         )
-    decisions = [
-        _decision_line(field) for field in outcome.fields if field.answered_by == "llm"
-    ]
+    decisions = [_decision_line(field) for field in outcome.fields if field.answered_by == "llm"]
     if decisions:
         log.append("fill(task4.1/task10/task12): LLM chose " + "; ".join(decisions))
     if task5.notes:
@@ -156,9 +154,7 @@ async def fill(state: ApplyState) -> ApplyState:
     description = state.get("job_description")
     if description is None or not getattr(description, "is_read", False):
         description = task3.job_description
-    context = build_job_context(
-        description, task3.selected_path, settings.resume_descriptions_file
-    )
+    context = build_job_context(description, task3.selected_path, settings.resume_descriptions_file)
 
     progress = get_reporter(run_id) or print
     if settings.self_healing.enabled:

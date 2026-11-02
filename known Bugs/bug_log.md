@@ -30,6 +30,8 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | [`task_6_bugs.md`](task_6_bugs.md) | Skip jobs already marked "Applied" |
 | [`task_13_bugs.md`](task_13_bugs.md) | Date posted → "Past 24 hours" filter |
 | [`task_16_bugs.md`](task_16_bugs.md) | Strict resume matching, skipping unmatched jobs, closing a skipped form |
+| [`task_20_bugs.md`](task_20_bugs.md) | Historical validation-skip bugs; Task 20 code removed by user request |
+| [`task_21_bugs.md`](task_21_bugs.md) | Visible question labels, universal no-asterisk filtering and optional-field preservation |
 | [`self_healing_bugs.md`](self_healing_bugs.md) | Self-healing loop: auto-captured Easy Apply crashes, recovery, same-job resume |
 | [`general_bugs.md`](general_bugs.md) | Browser session, profile/CDP, CLI, cleanup, build, security, tests |
 
@@ -105,7 +107,7 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 
 | BUG-057 | Task 4 — fill | an LLM-answered radio lost its marker → "required field was not filled" | 🟢 Fixed | (auto-recorded) |
 
-| BUG-058 | Task 4 — required-only | optional (no `*`) diversity questions were asked/filled and paused the run | 🟢 Fixed | `2d26b71` |
+| BUG-058 | Task 4 — required-only | optional (no `*`) diversity questions were asked/filled and paused the run | 🟡 Fixed (superseded) | `2d26b71`; Task 21 BUG-094/095 |
 | BUG-059 | Task 4/5 — SDUI checkbox group | group question read as each option's text, and the human's ticks were never saved | 🟢 Fixed | `2d26b71` |
 | BUG-060 | Task 8 — submit detection | real submission not detected (SDUI dialog + wrong card) → stuck on "waiting for you to submit" | 🟢 Fixed | (uncommitted) |
 | BUG-061 | Task 8 — submit wait | closing the browser during the wait left the run hung forever | 🟢 Fixed | (uncommitted) |
@@ -148,6 +150,13 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | BUG-088 | Task 16/17 — spec sync | Task 16 retained the old 100-skip default after Task 17 changed it to 0 | 🟢 Fixed | (uncommitted documentation sync) |
 
 | BUG-090 | Self-Healing — fill | form did not advance to a new step: no resume control found on this form step; form did not advance to a new step; stopp | 🔴 Open | (pending) |
+| BUG-091 | Task 20 — validation | rejected inputs were retried or treated as fill failures instead of durable skips | 🟡 Fixed (superseded) | Task 20 removed by user request; base `d732dc4` |
+| BUG-092 | Task 20 — posting identity | semantic cards reopened a rejected job because its ID lives in `componentkey` | 🟡 Fixed (superseded) | Task 20 removed by user request; base `d732dc4` |
+| BUG-093 | Task 20 — feedback | informational field feedback could be mistaken for rejection | 🟡 Fixed (superseded) | Task 20 removed by user request; base `d732dc4` |
+| BUG-094 | Task 21 — optional questions | metadata marked unstarred questions required, causing answering/prompts/storage | 🟢 Fixed | uncommitted; base `d732dc4` |
+| BUG-095 | Task 21 — question labels | visible group markers were lost or borrowed from other questions/options | 🟢 Fixed | uncommitted; base `d732dc4` |
+| BUG-096 | Task 21 — starred text questions | nested character counters hid salary/experience/notice labels, causing required fields to be skipped | 🟢 Fixed | uncommitted; base `d732dc4` |
+| BUG-097 | Task 20 removal — graph | deleting the fill skip branch also removed Task 16's match skip route | 🟢 Fixed | uncommitted; base `d732dc4` |
 
 ## Template for new entries
 

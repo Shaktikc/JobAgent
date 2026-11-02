@@ -32,75 +32,9 @@ from src.tools.choice_option_text import CHOICE_OPTION_TEXT_JS
 from src.tools.forms import answers_match
 from src.tools.job_context_answers import record_decision
 from src.tools.linkedin_ask_human import _remember_answer
-
-# Injected into the form-enumeration query (see
-# :mod:`~src.tools.linkedin_easy_apply_fill.form_queries.scripts`) to resolve the
-# question of a choice group when the known container selectors miss it (LinkedIn
-# uses hashed class names). It needs ``modal``, ``norm`` and ``esc`` from the
-# query's own scope, so it is injected rather than imported.
-GROUP_QUESTION_JS = r"""const firstTextWithoutControls = (node) => {
-    const CONTROL = '[role="radio"],[role="checkbox"],input,select,textarea,button';
-    if (!node.querySelector(CONTROL)) return norm(node.innerText);
-    const kids = node.querySelectorAll('span,p,label,legend,h1,h2,h3,h4,h5,h6,div');
-    for (const kid of kids) {
-      if (kid.querySelector(CONTROL)) continue;
-      const text = norm(kid.innerText);
-      if (text) return text;
-    }
-    return '';
-  };
-
-  const groupQuestionFromOptions = (el) => {
-    // The group element's own label attributes (React Aria points them at the
-    // question element).
-    const group = el.closest('[role="radiogroup"], [role="group"], fieldset');
-    if (group) {
-      const by = (group.getAttribute('aria-labelledby') || '').trim();
-      if (by) {
-        const parts = by.split(/\s+/).map((id) => {
-          const n = modal.querySelector('#' + esc(id));
-          return n ? norm(n.innerText) : '';
-        }).filter(Boolean);
-        if (parts.length) return parts.join(' ');
-      }
-      // LinkedIn's SDUI checkbox group is a bare <fieldset> (no legend, no
-      // aria-label) with the question in a <p> just above it — inside the field's
-      // own wrapper, or directly in the modal's scroller. Without this the option's
-      // own text became the question, so every option was a separate question
-      // (BUG-059).
-      const host = group.parentElement;
-      if (host && host !== modal) {
-        const near = Array.from(host.querySelectorAll('legend, p'))
-          .find((node) => !group.contains(node));
-        if (near && norm(near.innerText)) return norm(near.innerText);
-      }
-      const prev = group.previousElementSibling;
-      if (prev && norm(prev.innerText) && !prev.querySelector(
-        '[role="radio"],[role="checkbox"],input,select,textarea'
-      )) return norm(prev.innerText);
-    }
-    // Walk up to the ancestor that holds the whole option list, then read the
-    // text that precedes the options: the question is rendered just above them.
-    let box = el.parentElement;
-    for (let hops = 0; box && box !== modal && hops < 8; hops++) {
-      if (box.querySelectorAll(
-        '[role="radio"],[role="checkbox"],input[type="radio"],input[type="checkbox"]'
-      ).length > 1) break;
-      box = box.parentElement;
-    }
-    if (!box || box === modal) return '';
-    const texts = [];
-    const siblings = [];
-    for (let node = box.previousElementSibling; node; node = node.previousElementSibling) {
-      siblings.unshift(node);
-    }
-    for (const node of siblings) {
-      const text = firstTextWithoutControls(node);
-      if (text) texts.push(text);
-    }
-    const looksLikeQuestion = (text) => text.includes('?') || /[*]\s*$/.test(text);
-    return texts.find(looksLikeQuestion) || texts[0] || '';
-  };"""
+from src.tools.linkedin_easy_apply_fill.question_labels import (
+    QUESTION_LABEL_JS as GROUP_QUESTION_JS,
+)
 
 # Every option ticked in the group, in form order. A wrapper's checked state may
 # live on a nested ``<input>``, and its visible text on a nested ``<p>``.

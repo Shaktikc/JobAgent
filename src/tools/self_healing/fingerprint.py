@@ -155,9 +155,7 @@ def classify_failure(
         # Task 3.2's LLM/provider failure is not a form-fill exception either
         # (BUG-080). Only the match stage talks to the LLM in this guard.
         stage_name = (stage or "").strip().lower()
-        if stage_name == "match" and any(
-            marker in combined for marker in _LLM_ERROR_MARKERS
-        ):
+        if stage_name == "match" and any(marker in combined for marker in _LLM_ERROR_MARKERS):
             return "llm_call_failed"
         # An unrecognised non-fill stop is still not a form-fill exception.
         return "unknown_exception" if error else "unknown"
@@ -311,10 +309,7 @@ def fill_failure_reason(task4: Any) -> str:
 
     notes = _normalize(getattr(task4, "notes", ""))
     if "did not finish rendering" in notes:
-        return (
-            "fill: the Easy Apply form did not finish rendering its fields or "
-            "navigation buttons"
-        )
+        return "fill: the Easy Apply form did not finish rendering its fields or navigation buttons"
     if "form did not advance" in notes or "did not reach the final" in notes:
         return "fill: form did not advance to a new step"
     if "only navigation button is disabled" in notes:

@@ -3,8 +3,7 @@
 LinkedIn Easy Apply adds optional diversity/screening questions (ethnicity,
 gender, veteran status, ...). They do not block submission, so the fill must drop
 them untouched instead of pausing on them for the human or filling a stored
-answer. Only questions whose label carries LinkedIn's ``*`` marker (or whose
-control is explicitly required) are answered.
+answer. Only questions whose label carries LinkedIn's ``*`` marker are answered.
 """
 
 from __future__ import annotations
@@ -53,8 +52,8 @@ def test_has_required_marker_reads_the_visible_asterisk() -> None:
     assert has_required_marker(None) is False
 
 
-def test_is_required_field_uses_the_flag_or_the_marker() -> None:
-    assert is_required_field(_field("f0", "Phone number", required=True)) is True
+def test_is_required_field_uses_only_the_visible_marker() -> None:
+    assert is_required_field(_field("f0", "Phone number", required=True)) is False
     # Some layouts only put the marker in the label; the text still wins.
     assert is_required_field(_field("f5", "Notice period?*")) is True
     assert is_required_field(_field("f1", "I Identify my gender as:")) is False

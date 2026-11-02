@@ -280,7 +280,7 @@ async def test_task4_human_answered_radio_survives_a_stale_marker(monkeypatch, t
     walk must record the field as filled (not ``field element not found``) and
     must not stop as "required fields were not filled".
     """
-    question = "Are you available for a full-time contract?"
+    question = "Are you available for a full-time contract? *"
     fields = [
         {
             "marker": marker,

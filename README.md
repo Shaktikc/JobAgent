@@ -114,9 +114,12 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
      If you skip and nothing is available, the run stops instead of applying with
      an unmatching resume.
 4. **fill** — **Task 4:** enumerates the still-open Easy Apply form and answers
-   each **required** question (its label ends with `*`). Optional questions — e.g.
-   the voluntary diversity questions (ethnicity, gender, veteran status) — are
-   dropped untouched: never asked, never filled, and never reported as unknown.
+   each question with a visible `*` on its **own label or group heading**.
+   **Task 21:** every unstarred question is skipped, for any topic or control type,
+   even when HTML `required`, `aria-required` or an error-message ID is present.
+   Skipping happens before answer lookup, LLM selection or human prompts; existing
+   values/selections stay unchanged and blank optional fields do not count as
+   unknown.
    **Task 4.1** classifies every remaining question with an LLM
    (`OPENROUTER_API_KEY` + `AUTOJOB_LLM_MODEL`) and answers it from the store
    (`data/answers.json`) **by meaning**, and **Task 10** lets it **match or
@@ -193,7 +196,8 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
    the same scan falls back to the other range (Past 24 hours ⇄ Past week) and
    continues; a scan already on the fallback range stays there. Skips are uncapped by default; set
    `AUTOJOB_SESSION_MAX_SKIPPED_JOBS` to a positive number to stop after that many
-   unmatched jobs. The loop otherwise repeats until `AUTOJOB_SESSION_MAX_JOBS`
+   unmatched jobs.
+   The loop otherwise repeats until `AUTOJOB_SESSION_MAX_JOBS`
    jobs have been submitted (default `35`; `0` = until no unapplied job remains),
    every job
    is Applied, you close the browser, or a step fails — each with a clear
@@ -429,8 +433,12 @@ src/
   configuration.py   Typed settings from AUTOJOB_* environment variables
   date_range.py      Task 17: normalized Past 24 hours / Past week helpers
   date_range_choice.py  Task 17: startup prompt for the primary range
-  state.py           The graph's shared state (Task1-11 outcomes, JobDescription)
-  state_loop.py      Task 8/16 loop + skip outcome models (re-exported by state.py)
+  state/            Shared state, split by concern; existing src.state imports work
+    __init__.py     Public model/state re-exports
+    outcomes.py     Job, resume, context, and field models
+    forms.py        Task 4/5 form and human-answer outcomes
+    core.py         Graph state and aggregate outcomes
+  state_loop.py      Task 8/16 loop + skip outcome models (re-exported by state)
   graph.py           Graph assembly (START -> ingest -> browse -> match -> fill -> await_submit -> next_job -> ... -> cleanup -> verify -> END)
   nodes/
     ingest.py        Validate the LinkedIn URL and search query
@@ -493,6 +501,7 @@ src/
         scripts.py                 injected JS query scripts + findApplyRoot injection
         readers.py                 async readers over the scripts (read_form, read_resume_info, ...)
       required_only.py             Drop optional (no `*`) questions before filling
+      question_labels.py           Resolve each question's own visible label/group heading
       field_filling.py             Fill one step's required fields (LLM / Task 5 answers)
       checkbox_groups.py           Answer a checkbox (multi-select) question as one group
       resume_attachment.py         Attach the Task 3 resume (listed option or CDP upload)

@@ -321,7 +321,7 @@ async def test_fill_step_re_resolves_a_stale_radio_marker_by_name(tmp_path) -> N
     group's native ``name`` survives, so the fill re-resolves it by name and fills
     the matching option instead of reporting ``field element not found``.
     """
-    question = "Have you implemented and integrated conversational AI platforms?"
+    question = "Have you implemented and integrated conversational AI platforms? *"
     fields = [
         {
             "kind": "radio",

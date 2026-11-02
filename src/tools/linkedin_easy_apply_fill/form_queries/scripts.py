@@ -31,119 +31,7 @@ _ENUMERATE_FORM_QUERY = r"""
   const esc = (s) => (window.CSS && CSS.escape) ? CSS.escape(s) : s;
   // __AUTOJOB_GROUP_QUESTION__ (injected by _with_apply_root)
 
-  const ownLabel = (el) => {
-    const role = (el.getAttribute('role') || '').toLowerCase();
-    const type = (el.getAttribute('type') || '').toLowerCase();
-    const isChoice = role === 'radio' || role === 'checkbox'
-      || type === 'radio' || type === 'checkbox';
-    // A choice's visible option text comes first: LinkedIn sets a choice
-    // container's aria-label to the *question*, not the option, so its innerText
-    // (or a nested input's label/value, or a sibling span) must win.
-    if (isChoice) {
-      if (norm(el.innerText)) return norm(el.innerText);
-      const nested = el.querySelector('input');
-      const own = (el.labels && el.labels[0])
-        || (nested && nested.labels && nested.labels[0]) || null;
-      if (own && norm(own.innerText)) return norm(own.innerText);
-      if (el.id) {
-        const l = modal.querySelector('label[for="' + esc(el.id) + '"]');
-        if (l && norm(l.innerText)) return norm(l.innerText);
-      }
-      const wrap = el.closest('label');
-      if (wrap && norm(wrap.innerText)) return norm(wrap.innerText);
-      const sib = el.nextElementSibling || el.previousElementSibling;
-      if (sib && norm(sib.innerText)) return norm(sib.innerText);
-      if (norm(el.value) && el.value !== 'on') return norm(el.value);
-      if (nested && norm(nested.value) && nested.value !== 'on') return norm(nested.value);
-    }
-    const aria = el.getAttribute('aria-label');
-    if (aria && norm(aria)) return norm(aria);
-    const by = (el.getAttribute('aria-labelledby') || '').trim();
-    if (by) {
-      const parts = by.split(/\s+/).map((id) => {
-        const n = modal.querySelector('#' + esc(id));
-        return n ? norm(n.innerText) : '';
-      }).filter(Boolean);
-      if (parts.length) return parts.join(' ');
-    }
-    if (el.labels && el.labels.length && norm(el.labels[0].innerText)) {
-      return norm(el.labels[0].innerText);
-    }
-    if (el.id) {
-      const l = modal.querySelector('label[for="' + esc(el.id) + '"]');
-      if (l && norm(l.innerText)) return norm(l.innerText);
-    }
-    const wrap = el.closest('label');
-    if (wrap && norm(wrap.innerText)) return norm(wrap.innerText);
-    if (el.placeholder && norm(el.placeholder)) return norm(el.placeholder);
-    const box = el.closest(
-      '.fb-dash-form-element, .fb-form-element, .fb-form-element-wrapper, '
-      + '.artdeco-text-input, .jobs-easy-apply-form-element, '
-      + '.jobs-easy-apply-form-section__grouping, .jobs-easy-apply-form-section'
-    );
-    if (box) {
-      const lab = box.querySelector(
-        'label, .fb-dash-form-element__label, .fb-form-element-label, '
-        + '.artdeco-text-input--label'
-      );
-      if (lab && norm(lab.innerText)) return norm(lab.innerText);
-    }
-    return '';
-  };
-
-  const groupLabel = (el) => {
-    // LinkedIn's newer layout wraps a screening question in a
-    // ``[role="radiogroup"]`` (or fieldset) that points at its own label.
-    const group = el.closest('[role="radiogroup"], [role="group"], fieldset');
-    if (group) {
-      const gAria = group.getAttribute('aria-label');
-      if (gAria && norm(gAria)) return norm(gAria);
-      const ids = (group.getAttribute('aria-labelledby') || '').trim();
-      if (ids) {
-        const parts = ids.split(/\s+/).map((id) => {
-          const n = modal.querySelector('#' + esc(id));
-          return n ? norm(n.innerText) : '';
-        }).filter(Boolean);
-        if (parts.length) return parts.join(' ');
-      }
-      const lg = group.querySelector('legend');
-      if (lg && norm(lg.innerText)) return norm(lg.innerText);
-    }
-    // The question label usually sits in an outer grouping/section container
-    // that also wraps the controls. Walk outward and take the first container
-    // that actually holds a question label.
-    const boxes = [
-      '.jobs-easy-apply-form-section__grouping',
-      '.jobs-easy-apply-form-section',
-      '.fb-form-element-wrapper',
-      '.fb-form-element',
-      '.fb-dash-form-element',
-      '.jobs-easy-apply-form-element',
-      '.artdeco-form-element',
-    ];
-    for (const sel of boxes) {
-      const box = el.closest(sel);
-      if (!box) continue;
-      const lab = box.querySelector(
-        'legend, .fb-form-element-label, .fb-dash-form-element__label, label'
-      );
-      if (lab && norm(lab.innerText)) return norm(lab.innerText);
-    }
-    // LinkedIn puts the question on the choice control's own aria-label — but
-    // only when that label actually says something other than the option's own
-    // text (a checkbox option's aria-label can be just its own label).
-    const role = (el.getAttribute('role') || '').toLowerCase();
-    const type = (el.getAttribute('type') || '').toLowerCase();
-    if (role === 'radio' || role === 'checkbox' || type === 'radio' || type === 'checkbox') {
-      const aria = el.getAttribute('aria-label');
-      if (aria && norm(aria) && norm(aria) !== norm(el.innerText)) return norm(aria);
-    }
-    // Last resort: the question rendered next to the whole option list (checkbox
-    // multi-selects whose container uses hashed class names).
-    const fromOptions = groupQuestionFromOptions(el);
-    if (fromOptions) return fromOptions;
-    return '';
-  };
+  const ownLabel = (el) => questionLabel(el, false);
 
   const clickTarget = (el) => {
     if (el.id) {
@@ -203,7 +91,7 @@ _ENUMERATE_FORM_QUERY = r"""
       const nested = el.querySelector('input[name]');
       if (nested) fieldName = nested.getAttribute('name') || '';
     }
-    const question = isChoice ? (groupLabel(el) || ownLabel(el)) : ownLabel(el);
+    const question = questionLabel(el, isChoice);
     // The visible option text ("Yes"/"No"), never the control's aria-label:
     // LinkedIn puts the *question* there (BUG-082).
     let option = '';
@@ -393,7 +281,7 @@ def _with_apply_root(query: str) -> str:
     The three form queries are self-contained IIFEs, so the shared root finder
     (:data:`FIND_APPLY_ROOT_JS`) is injected where they resolve the form, and the
     choice-group question and required-marker helpers (``GROUP_QUESTION_JS`` and
-    ``REQUIRED_MARKER_JS`` from checkbox_groups) are injected where the query
+    ``REQUIRED_MARKER_JS`` from forms) are injected where the query
     declares the placeholder. This keeps the classic-modal and inline layouts on
     one code path.
     """

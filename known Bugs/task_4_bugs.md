@@ -17,7 +17,7 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 | BUG-034 | "Experience on AI?" reported unknown despite the store covering it | 🟢 Fixed | (uncommitted) |
 | BUG-035 | checkbox group: the human's tick was never saved (one question per option) | 🟢 Fixed | (uncommitted) |
 | BUG-042 | stopped at **Review** (next step not rendered yet); optional unfilled field failed the run | 🟢 Fixed | `e5a21a2` |
-| BUG-058 | optional (no `*`) questions were asked/filled, blocking the run on diversity questions | 🟢 Fixed | `2d26b71` |
+| BUG-058 | optional (no `*`) questions were asked/filled, blocking the run on diversity questions | 🟡 Fixed (superseded) | `2d26b71`; Task 21 BUG-094/095 |
 
 ---
 
@@ -239,7 +239,8 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   choice group so every option of a required radio/checkbox question stays. An
   optional question is dropped whole — never asked, never filled, never reported
   as unknown.
-- **Status:** 🟢 Fixed
+- **Status:** 🟡 Fixed (superseded) — Task 21 BUG-094/095 replaces metadata-based
+  requiredness and broad group propagation with each question's own visible `*`.
 - **Evidence:** `src/tools/linkedin_easy_apply_fill/required_only.py`
   (`has_required_marker`, `is_required_field`, `only_required_fields`),
   `src/tools/linkedin_easy_apply_fill/field_filling.py` (`_fill_step` filters

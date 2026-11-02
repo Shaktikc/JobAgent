@@ -131,14 +131,10 @@ def build_graph():
     builder.add_node("match", guard_task_node("match", match, reopen="job"))
     # Task 16: the form is clicked only after a resume was selected. A returned
     # form-open failure is retryable through the same-job reopen path.
-    builder.add_node(
-        "open_form", guard_task_node("open_form", open_form, reopen="job")
-    )
+    builder.add_node("open_form", guard_task_node("open_form", open_form, reopen="job"))
     builder.add_node("fill", guard_node("fill", fill, reopen="job"))
     builder.add_node("await_submit", guard_node("await_submit", await_submit, reopen="job"))
-    builder.add_node(
-        "next_job", guard_task_node("next_job", next_job, reopen="results")
-    )
+    builder.add_node("next_job", guard_task_node("next_job", next_job, reopen="results"))
     builder.add_node("cleanup", cleanup)
     builder.add_node("verify", guard_node("verify", verify, reopen=None))
 
@@ -160,7 +156,9 @@ def build_graph():
         {"fill": "fill", "cleanup": "cleanup"},
     )
     builder.add_conditional_edges(
-        "fill", _route_after_fill, {"await_submit": "await_submit", "cleanup": "cleanup"}
+        "fill",
+        _route_after_fill,
+        {"await_submit": "await_submit", "cleanup": "cleanup"},
     )
     builder.add_conditional_edges(
         "await_submit", _route_after_submit, {"next_job": "next_job", "cleanup": "cleanup"}

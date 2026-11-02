@@ -1,7 +1,6 @@
 """Task 4: walk the open Easy Apply form step by step, without submitting.
 
-This module owns the step walk, split out of
-:mod:`src.tools.linkedin_easy_apply_fill`. It reads each step, fills its known
+The walk reads each step, fills its known
 fields (:mod:`~src.tools.linkedin_easy_apply_fill.field_filling`), attaches the
 resume (:mod:`~src.tools.linkedin_easy_apply_fill.resume_attachment`), and
 advances via the Next/Continue button until the terminal step (only **Submit
@@ -143,9 +142,7 @@ async def _blur_active(page) -> None:
     suggestion list; blurring first makes the click land on Next (BUG-056).
     """
     await _safe(
-        page.evaluate(
-            "() => { const el = document.activeElement; if (el && el.blur) el.blur(); }"
-        )
+        page.evaluate("() => { const el = document.activeElement; if (el && el.blur) el.blur(); }")
     )
 
 
@@ -167,19 +164,10 @@ async def _task4_on_page(
     discovered at runtime rather than assumed. The walk stops at the terminal
     step (only Submit is left), or as soon as a step fails to advance.
 
-    Task 4.1 rides along: every question is classified by the LLM, which chooses
-    an answer from the store (``chooser``; built from ``settings`` when not
-    supplied). Task 10 extends that choice: when a model is configured, the
-    reasoning chooser may **match or derive** an answer and must cite the stored
-    key(s) it used (see :mod:`src.tools.llm_answer_reasoning`); the select-only
-    chooser remains the fallback. Task 5 rides along too: when the LLM cannot
-    choose a grounded answer and ``ask_human`` is on, the run pauses on a browser
-    banner and reads the answer the human types into the form field. Answers are
-    remembered so the same question is answered automatically next time. The
-    optional ``human`` tracker records the questions asked, answered, skipped, and
-    timed out. The optional ``context`` (Task 12) holds this job's description and
-    selected resume; when present, likely job-specific free-text questions are
-    answered from it and validated before filling.
+    The LLM chooser matches or derives grounded store answers (Tasks 4.1/10).
+    Task 5 asks the human about unknown questions and remembers their answers;
+    ``human`` tracks those requests. Task 12's optional ``context`` supplies this
+    job's description and selected resume for job-specific answers.
     """
     outcome = Task4Outcome(resume_path=resume_path or "")
     if context is not None:
@@ -213,9 +201,7 @@ async def _task4_on_page(
                 # by question when React drops the marker; a select's options are
                 # value/text pairs and play no part in reading the answer.
                 options=(
-                    field.get("options")
-                    if field.get("type") in {"checkbox", "radio"}
-                    else None
+                    field.get("options") if field.get("type") in {"checkbox", "radio"} else None
                 ),
             )
 
@@ -315,8 +301,7 @@ async def _task4_on_page(
         if not ready:
             outcome.notes = _append_note(
                 outcome.notes,
-                "the Easy Apply form did not finish rendering its fields or "
-                "navigation buttons",
+                "the Easy Apply form did not finish rendering its fields or navigation buttons",
             )
             break
         signature = _form_signature(title, fields, step)
@@ -342,9 +327,7 @@ async def _task4_on_page(
         if resume_path and not outcome.resume_attached:
             await _attach_resume(page, session, resume_path, settings, outcome, notify)
 
-        buttons = (
-            ready_buttons if ready_buttons is not None else await read_form_buttons(page)
-        )
+        buttons = ready_buttons if ready_buttons is not None else await read_form_buttons(page)
         button = pick_next_button(buttons)
         if button is None:
             # No enabled Next/Continue on this step. Say *why* we stopped: a

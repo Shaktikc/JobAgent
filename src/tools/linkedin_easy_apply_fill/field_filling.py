@@ -224,8 +224,12 @@ async def _fill_step(
             if key in handled_groups:
                 continue
             handled_groups.add(key)
-            group = [f for f in fields if f.get("kind") == "checkbox"
-                     and checkbox_groups.group_key(f, checkbox_counts) == key]
+            group = [
+                f
+                for f in fields
+                if f.get("kind") == "checkbox"
+                and checkbox_groups.group_key(f, checkbox_counts) == key
+            ]
             question = next((g.get("question") for g in group if g.get("question")), "") or key
             option_labels = [g.get("option", "") for g in group if g.get("option")]
             if looks_like_resume_field(question, option_labels):
