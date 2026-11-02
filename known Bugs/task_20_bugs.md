@@ -136,7 +136,7 @@ skill deletions and the repair launcher are outside Task 20's changes.
   `data/invalid_input_skips.json`, closed/discarded its form, then selected
   `4485445868` without submitting. A separate real required-phone rejection was
   corrected and advanced to the resume step. Evidence: `data/debug/task20_linkedin/`
-  (`walk.json`, `recovery.json`, screenshots). Commit: uncommitted; base `ad6dbda`.
+  (`walk.json`, `recovery.json`, screenshots). Commit: `479be98`.
 
 ### BUG-100 — referenced character counters were omitted from input constraints
 
@@ -150,7 +150,7 @@ skill deletions and the repair launcher are outside Task 20's changes.
 - **Evidence:** `src/tools/linkedin_validation/detection.py`;
   `test_detection_ignores_information_hidden_and_unrelated_text` covers a
   counter-only limit without a maxlength attribute; real nxzen inspection showed
-  the same helper layout. Commit: uncommitted; base `ad6dbda`.
+  the same helper layout. Commit: `479be98`.
 
 ### BUG-101 — explicit error semantics were lost for unfamiliar wording
 
@@ -163,7 +163,7 @@ skill deletions and the repair launcher are outside Task 20's changes.
 - **Status:** 🟢 Fixed.
 - **Evidence:** `src/tools/linkedin_validation/detection.py` and the real Chromium
   detection test's Notice field; hidden/unrelated/informational messages remain
-  excluded. Commit: uncommitted; base `ad6dbda`.
+  excluded. Commit: `479be98`.
 
 ### BUG-102 — validation first displayed after a navigation retry was missed
 
@@ -175,7 +175,7 @@ skill deletions and the repair launcher are outside Task 20's changes.
 - **Status:** 🟢 Fixed.
 - **Evidence:** `src/tools/linkedin_validation/navigation.py`;
   `test_validation_appearing_only_after_generic_retry_is_corrected` in
-  `tests/unit/test_task20_navigation.py`. Commit: uncommitted; base `ad6dbda`.
+  `tests/unit/test_task20_navigation.py`. Commit: `479be98`.
 
 ### BUG-103 — correction exceptions could lose validation context and self-heal
 
@@ -190,7 +190,7 @@ skill deletions and the repair launcher are outside Task 20's changes.
 - **Evidence:** correction/navigation modules, `src/nodes/fill.py`,
   `src/tools/self_healing/fingerprint.py`; raised-correction regression in
   `test_task20_navigation.py` and no-healing assertions in `test_task20_flow.py`.
-  Commit: uncommitted; base `ad6dbda`.
+  Commit: `479be98`.
 
 ### BUG-104 — a rejection prematurely aborted an unrelated human question
 
@@ -204,7 +204,7 @@ skill deletions and the repair launcher are outside Task 20's changes.
 - **Status:** 🟢 Fixed.
 - **Evidence:** `src/tools/linkedin_validation/correction.py`, form walker;
   `test_unrelated_unknown_question_keeps_human_flow_after_repair` plus existing
-  human-answer tests. Commit: uncommitted; base `ad6dbda`.
+  human-answer tests. Commit: `479be98`.
 
 ### BUG-105 — a grounded alternative could still change an existing fact
 
@@ -220,4 +220,4 @@ skill deletions and the repair launcher are outside Task 20's changes.
 - **Status:** 🟢 Fixed.
 - **Evidence:** `src/tools/linkedin_validation/{constraints,correction}.py`;
   `test_grounded_alternative_must_not_change_existing_salary_or_other_facts` in
-  `tests/unit/test_task20_constraints.py`. Commit: uncommitted; base `ad6dbda`.
+  `tests/unit/test_task20_constraints.py`. Commit: `479be98`.
