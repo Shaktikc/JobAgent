@@ -21,5 +21,5 @@ Each task lives in its own file. This index links to them.
 - [Task 17 — Fall back to "Past week" when the Past 24 hours results are exhausted; skips uncapped by default](task_17.md) — ✅ Done
 - [Task 18 — Ask for the job search query at startup](task_18.md) — ⬜ Not started
 - [Task 19 — Ignore years-of-experience requirements when matching a job](task_19.md) — ✅ Done
-- [Task 20 — Skip applications with invalid-input errors and log their job links](task_20.md) — 🟡 In progress
+- [Task 20 — Correct invalid Easy Apply inputs; log and skip unresolved applications](task_20.md) — 🟡 In progress
 - [Task 21 — Skip every Easy Apply question without an asterisk](task_21.md) — ✅ Done

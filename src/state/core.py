@@ -16,6 +16,7 @@ from src.state.outcomes import (
     Task2Outcome,
     Task3Outcome,
 )
+from src.state.validation import Task20Outcome
 from src.state_loop import Task8Outcome, Task16Outcome
 from src.tools.self_healing.models import SelfHealingOutcome
 
@@ -31,6 +32,7 @@ class AgentOutcome(BaseModel):
     task5: Task5Outcome = Field(default_factory=Task5Outcome)
     task8: Task8Outcome = Field(default_factory=Task8Outcome)
     task16: Task16Outcome = Field(default_factory=Task16Outcome)
+    task20: Task20Outcome = Field(default_factory=Task20Outcome)
 
 
 class ApplyState(TypedDict, total=False):
@@ -54,6 +56,7 @@ class ApplyState(TypedDict, total=False):
     task5: Task5Outcome
     task8: Task8Outcome
     task16: Task16Outcome
+    task20: Task20Outcome
     self_healing: SelfHealingOutcome
     # Task 12: the current job + selected resume (rebuilt for every job).
     job_context: JobAnswerContext
@@ -70,6 +73,7 @@ class ApplyState(TypedDict, total=False):
     # Task 16: normalized titles skipped for having no matching resume. Kept
     # append-only so later passes of the loop never re-open the same job.
     skipped_titles: Annotated[list[str], operator.add]
+    skipped_job_ids: Annotated[list[str], operator.add]
 
 
 def new_state(
@@ -91,4 +95,5 @@ def new_state(
         log=[],
         errors=[],
         skipped_titles=[],
+        skipped_job_ids=[],
     )

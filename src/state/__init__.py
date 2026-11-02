@@ -14,6 +14,7 @@ from src.state.outcomes import (
     Task2Outcome,
     Task3Outcome,
 )
+from src.state.validation import Task20Outcome
 from src.state_loop import SkippedJobRecord, Task8JobRecord, Task8Outcome, Task16Outcome
 
 __all__ = [
@@ -36,4 +37,5 @@ __all__ = [
     "Task8JobRecord",
     "Task8Outcome",
     "Task16Outcome",
+    "Task20Outcome",
 ]

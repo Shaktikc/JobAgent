@@ -157,6 +157,14 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | BUG-095 | Task 21 — question labels | visible group markers were lost or borrowed from other questions/options | 🟢 Fixed | uncommitted; base `d732dc4` |
 | BUG-096 | Task 21 — starred text questions | nested character counters hid salary/experience/notice labels, causing required fields to be skipped | 🟢 Fixed | uncommitted; base `d732dc4` |
 | BUG-097 | Task 20 removal — graph | deleting the fill skip branch also removed Task 16's match skip route | 🟢 Fixed | uncommitted; base `d732dc4` |
+| BUG-098 | Task 20 — step identity | validation feedback/counters looked like a new step and caused extra navigation | 🟢 Fixed | Chromium success/rejection checks; uncommitted, base `ad6dbda` |
+| BUG-099 | Task 20 — recovery/skip | unresolved input errors had no correction, durable JSON and continuation route | 🟢 Fixed | LinkedIn correction + logged discard + next posting; uncommitted, base `ad6dbda` |
+| BUG-100 | Task 20 — constraints | referenced character counters did not supply maxlength | 🟢 Fixed | real LinkedIn layout + Chromium counter regression; uncommitted, base `ad6dbda` |
+| BUG-101 | Task 20 — error semantics | explicit field errors with unfamiliar text were ignored | 🟢 Fixed | Chromium aria-errormessage regression; uncommitted, base `ad6dbda` |
+| BUG-102 | Task 20 — late validation | validation appearing only after a navigation retry was missed | 🟢 Fixed | navigation regression; uncommitted, base `ad6dbda` |
+| BUG-103 | Task 20 — correction failure | correction exceptions could lose validation context and trigger structural recovery | 🟢 Fixed | exception/no-healing regressions; uncommitted, base `ad6dbda` |
+| BUG-104 | Task 20 — human flow | a rejected field prematurely aborted another question's human prompt | 🟢 Fixed | unrelated-question + human-answer regressions; uncommitted, base `ad6dbda` |
+| BUG-105 | Task 20 — factual integrity | a grounded shorter answer could change a pre-existing fact | 🟢 Fixed | numeric/negative/new-fact guards; uncommitted, base `ad6dbda` |
 
 ## Template for new entries
 

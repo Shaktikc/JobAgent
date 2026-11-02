@@ -103,8 +103,10 @@ async def next_job(state: ApplyState) -> ApplyState:
     # skip cap is configured; 0 (the default) scans until the date range is
     # exhausted.
     task16 = state.get("task16")
+    task20 = state.get("task20")
     skip_cap = settings.session.max_skipped_jobs_per_run
-    if task16 is not None and skip_cap and task16.jobs_skipped >= skip_cap:
+    skipped_count = (task16.jobs_skipped if task16 else 0) + (task20.jobs_skipped if task20 else 0)
+    if skip_cap and skipped_count >= skip_cap:
         task8 = state.get("task8") or Task8Outcome()
         task8.stopped_reason = f"reached the skipped-jobs cap ({skip_cap})"
         log = [f"next_job: stopping - {task8.stopped_reason}"]
@@ -126,6 +128,18 @@ async def next_job(state: ApplyState) -> ApplyState:
     scan_kwargs: dict = {}
     if preferred_range:
         scan_kwargs["preferred_range"] = preferred_range
+    skipped_ids = list(state.get("skipped_job_ids") or [])
+    if skipped_ids:
+        from src.tools.linkedin_validation.continuation import results_url
+
+        task1 = state.get("task1")
+        scan_kwargs["skip_job_ids"] = skipped_ids
+        scan_kwargs["results_url"] = results_url(
+            task1.search_url if task1 else "", state.get("search_query", ""), date_range,
+        )
+        task4, task3 = state.get("task4"), state.get("task3")
+        if skipping and task4 and task4.validation.skipped and task3 and task3.selected_path:
+            skip_title = ""  # This posting is excluded by ID; another may have the same title.
     result = await open_next_job(
         run_id,
         settings,

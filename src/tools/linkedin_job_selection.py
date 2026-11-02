@@ -72,6 +72,7 @@ from src.tools.linkedin_job_card import (
 from src.tools.linkedin_results_scan import scan_results_pages
 from src.tools.linkedin_skip_applied import skip_applied_card
 from src.tools.linkedin_status_overlay import emit_step
+from src.tools.linkedin_validation.identity import read_card_id
 
 # Job cards in the left-hand search-results list (Task 2). This mirrors the
 # selector union :func:`results_count` uses, so a card style that ``results_count``
@@ -183,6 +184,10 @@ async def _scan_page(
                 continue
             if key in tried:
                 continue
+            if any(value.startswith("job:") for value in tried):
+                identity = await read_card_id(card)
+                if identity and f"job:{identity}" in tried:
+                    continue
             candidate = (index, card, title, key)
             break
         if candidate is None:

@@ -22,6 +22,15 @@ from src.tools.linkedin_easy_apply_fill.field_filling import _choice_hint, _fill
 from src.tools.linkedin_easy_apply_fill.form_queries import read_form, read_form_buttons
 from src.tools.linkedin_easy_apply_fill.resume_attachment import _attach_resume
 from src.tools.linkedin_status_overlay import emit_step
+from src.tools.linkedin_validation.correction import (
+    RecheckCorrectedStep,
+    RejectedUnknownAnswer,
+    failure,
+    reject_before_human_prompt,
+)
+from src.tools.linkedin_validation.detection import read_rejections
+from src.tools.linkedin_validation.navigation import finish_advance
+from src.tools.linkedin_validation.skip import persist_and_close
 from src.tools.llm_answers import AnswerChooser
 
 # How many steps of a multi-step Easy Apply form to walk before stopping. The
@@ -184,6 +193,9 @@ async def _task4_on_page(
     if human.enabled:
 
         async def _ask_question(question: str, field: dict) -> str | None:
+            await reject_before_human_prompt(
+                page, fields, question, chooser, outcome, notify, corrected_steps, signature,
+            )
             markers = field.get("markers")
             if markers is None and field.get("marker") is not None:
                 markers = [field.get("marker")]
@@ -210,6 +222,7 @@ async def _task4_on_page(
     previous: str | None = None
     pending_advance = False
     blocking: list[str] = []
+    corrected_steps: dict[str, bool] = {}
 
     emit_step(notify, "Please wait - filling the Easy Apply form...")
 
@@ -230,53 +243,14 @@ async def _task4_on_page(
             f"Please wait - filling form step {step_index + 1}{f': {title}' if title else ''}...",
         )
         if pending_advance:
-            if signature == previous:
-                # The click can be accepted before the next step renders (LinkedIn
-                # shows the review step a moment after Review). Poll for the new
-                # step instead of declaring failure on the first read.
-                deadline = time.monotonic() + settings.session.easy_apply_timeout_seconds
-                while signature == previous and time.monotonic() < deadline:
-                    await asyncio.sleep(min(0.5, max(deadline - time.monotonic(), 0)))
-                    opened, title, fields, step = await read_form(page)
-                    if not opened:
-                        break
-                    signature = _form_signature(title, fields, step)
-                if opened and signature != previous:
-                    notify(
-                        f"Task 4: step {step_index}: {title or '(untitled)'!r} "
-                        f"fields={len(fields)} step_id={step!r}"
-                    )
-            if not opened or signature == previous:
-                # The first click can be swallowed (a transient overlay, a stale
-                # handle, or LinkedIn's own saving layer). Re-resolve the current
-                # step's Next button and try exactly once before declaring the form
-                # stuck; a real validation block still stops after this retry.
-                retry_buttons = await read_form_buttons(page)
-                retry = pick_next_button(retry_buttons)
-                if retry is not None:
-                    notify(
-                        "Task 4: Next did not advance; retrying once with a fresh button handle."
-                    )
-                    retry_element = await _marker_element(page, "data-autojob-btn", retry["marker"])
-                    if retry_element is not None:
-                        await _blur_active(page)
-                        await _safe(retry_element.click())
-                        if settings.session.post_click_wait_seconds:
-                            await asyncio.sleep(settings.session.post_click_wait_seconds)
-                        retry_deadline = (
-                            time.monotonic() + settings.session.easy_apply_timeout_seconds
-                        )
-                        while signature == previous and time.monotonic() < retry_deadline:
-                            await asyncio.sleep(min(0.5, max(retry_deadline - time.monotonic(), 0)))
-                            opened, title, fields, step = await read_form(page)
-                            if not opened:
-                                break
-                            signature = _form_signature(title, fields, step)
-                        if opened and signature != previous:
-                            notify(
-                                f"Task 4: step {step_index}: {title or '(untitled)'!r} "
-                                f"fields={len(fields)} step_id={step!r}"
-                            )
+            opened, title, fields, step = await finish_advance(
+                page, (opened, title, fields, step), previous, settings, notify,
+                outcome, chooser, corrected_steps, read=read_form, buttons=read_form_buttons,
+                signature_of=_form_signature, blur=_blur_active,
+            )
+            signature = _form_signature(title, fields, step)
+            if outcome.validation.issues:
+                break
             if not opened or signature == previous:
                 # The click still did not move to a new step: stop instead of
                 # retrying blindly, naming the required fields that still block it.
@@ -309,16 +283,18 @@ async def _task4_on_page(
 
         outcome.form_open = True
         outcome.fields_enumerated += len(fields)
-        known, filled, unknown, records = await _fill_step(
-            page,
-            fields,
-            answers,
-            settings,
-            ask=asker,
-            human=human,
-            chooser=chooser,
-            status=notify,
-        )
+        try:
+            known, filled, unknown, records = await _fill_step(
+                page, fields, answers, settings, ask=asker, human=human,
+                chooser=chooser, status=notify,
+            )
+        except RecheckCorrectedStep:
+            continue
+        except RejectedUnknownAnswer as exc:
+            outcome.validation = failure(
+                exc.issues, attempted=exc.attempted, reason=exc.reason,
+            )
+            break
         outcome.known_fields += known
         outcome.filled_fields += filled
         outcome.unknown_fields.extend(unknown)
@@ -329,6 +305,19 @@ async def _task4_on_page(
 
         buttons = ready_buttons if ready_buttons is not None else await read_form_buttons(page)
         button = pick_next_button(buttons)
+        if button is None and await read_rejections(page, fields):
+            current = await finish_advance(
+                page, (opened, title, fields, step), previous, settings, notify,
+                outcome, chooser, corrected_steps, read=read_form, buttons=read_form_buttons,
+                signature_of=_form_signature, blur=_blur_active,
+            )
+            if outcome.validation.issues:
+                break
+            if _form_signature(current[1], current[2], current[3]) != previous:
+                pending_advance = True
+                continue
+            buttons = await read_form_buttons(page)
+            button = pick_next_button(buttons)
         if button is None:
             # No enabled Next/Continue on this step. Say *why* we stopped: a
             # disabled navigation button usually means a required answer is
@@ -373,6 +362,11 @@ async def _task4_on_page(
             f"form did not reach the final step within {_MAX_FORM_STEPS} steps",
         )
 
+    if outcome.validation.issues:
+        await persist_and_close(
+            page, {"job_description": context.job_description} if context else {},
+            outcome, settings, notify,
+        )
     outcome.page_url = await _safe(page.get_url(), None)
     return outcome
 
@@ -384,4 +378,5 @@ def _task4_ok(outcome: Task4Outcome) -> bool:
         and outcome.filled_fields == outcome.known_fields
         and outcome.reached_terminal_step
         and not outcome.submitted
+        and not outcome.validation.issues
     )

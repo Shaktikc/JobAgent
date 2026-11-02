@@ -178,8 +178,15 @@ REQUIRED_MARKER_JS = r"""const requiredOf = (el, isChoice, questionText) => {
 STEP_IDENTITY_JS = r"""const stepIdentity = (modal) => {
     const transient = Array.from(modal.querySelectorAll(
       '[role="status"], [aria-live], [role="listbox"], [role="option"], '
-      + '[data-testid*="typeahead-result"], [data-testid*="typeahead-list"]'
+      + '[data-testid*="typeahead-result"], [data-testid*="typeahead-list"], '
+      + '[role="alert"], .artdeco-inline-feedback, [data-testid*="helper-text"], '
+      + '[id*="error"], [data-test-form-element-error-messages]'
     ));
+    // Rejection feedback and character counters change on the SAME step. They
+    // must not make a rejected Next click appear to have advanced (Task 20).
+    modal.querySelectorAll('p,span').forEach((el) => {
+      if (/^(?:invalid input[.!]?|\d+\s*\/\s*\d+)$/i.test(norm(el.innerText))) transient.push(el);
+    });
     const saved = transient.map((el) => el.style.display);
     transient.forEach((el) => { el.style.display = 'none'; });
     const text = norm(modal.innerText);
@@ -189,10 +196,17 @@ STEP_IDENTITY_JS = r"""const stepIdentity = (modal) => {
     );
     const progress = progressMatch ? progressMatch[0] : '';
     const headings = Array.from(modal.querySelectorAll('h1, h2, h3, h4'))
+      .filter((h) => h.getClientRects().length)
       .map((h) => norm(h.innerText)).filter(Boolean).join(' | ');
     let hash = 0;
-    for (let i = 0; i < text.length; i++) {
-      hash = (hash * 31 + text.charCodeAt(i)) | 0;
+    // Controls/questions already distinguish fillable steps in _form_signature.
+    // Hash only fieldless review content: arbitrary server errors on a fillable
+    // step must never masquerade as a successful navigation.
+    const hasControls = Array.from(modal.querySelectorAll('input,textarea,select,'
+      + '[role="radio"],[role="checkbox"]')).some((el) => el.getClientRects().length);
+    const stableText = hasControls ? '' : text;
+    for (let i = 0; i < stableText.length; i++) {
+      hash = (hash * 31 + stableText.charCodeAt(i)) | 0;
     }
     return [progress, headings, 'text:' + (hash >>> 0)].filter(Boolean).join(' \u00b7 ');
   };"""

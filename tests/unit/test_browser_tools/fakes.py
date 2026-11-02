@@ -175,6 +175,8 @@ class FakePage:
                 self.ai_elements[marker] = element
                 candidates.append({"marker": marker, "label": element.label})
             return json.dumps({"candidates": candidates})
+        if "JSON.stringify({issues" in js:
+            return json.dumps({"issues": []})
         if "data-autojob-fill" in js:
             if self.form_enumerations:
                 return json.dumps(self.form_enumerations.pop(0))

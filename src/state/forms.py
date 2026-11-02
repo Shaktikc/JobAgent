@@ -3,6 +3,7 @@
 from pydantic import BaseModel, Field
 
 from src.state.outcomes import FormField, JobContextAudit
+from src.state.validation import ValidationFailure
 
 
 class Task4Outcome(BaseModel):
@@ -37,6 +38,7 @@ class Task4Outcome(BaseModel):
     # Task 12: what the per-job context contained (sources/counts, never raw text).
     job_context: JobContextAudit = Field(default_factory=JobContextAudit)
     notes: str = ""
+    validation: ValidationFailure = Field(default_factory=ValidationFailure)
 
     @property
     def awaiting_human_submit(self) -> bool:
@@ -45,7 +47,7 @@ class Task4Outcome(BaseModel):
         The human owns the final **Submit application** action, so the browser is
         left open for them to review, submit, and close it themselves.
         """
-        return self.reached_terminal_step and not self.submitted
+        return self.reached_terminal_step and not self.submitted and not self.validation.issues
 
 
 class Task5Outcome(BaseModel):

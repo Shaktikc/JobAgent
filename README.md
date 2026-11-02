@@ -152,6 +152,15 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
      (`AUTOJOB_SELF_HEAL_MAX_ATTEMPTS`, default `3`); on exhaustion the evidence is
      preserved and the run stops. With no repair command configured it performs
      runtime recovery only.
+   - **Task 20 (inside fill):** a visible invalid-input error gets one correction
+     pass and one navigation retry, using truthful answers and the live field's
+     constraints. A successful correction continues the same application. If no
+     safe correction fits or the error persists, the agent saves the direct job
+     link, error, and correction outcome in `data/invalid_input_skips.json`,
+     closes/discards Easy Apply, and selects the next eligible job. These skips
+     never count as submissions and their posting IDs remain excluded across
+     pages/date ranges. A log-write or close failure stops safely; validation
+     never invokes structural self-healing. See [Task 20 recovery](docs/task20-validation-recovery.md).
    - **Task 5 (inside fill):** when the LLM cannot choose a grounded answer for a
      required (`*`) question, the agent shows a banner in the browser window
      saying it does not know the answer,

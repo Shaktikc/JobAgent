@@ -137,6 +137,15 @@ def verify(state: ApplyState) -> ApplyState:
     if state.get("dry_run", True):
         return {"status": "done", "log": ["verify: dry-run complete (browser not launched)"]}
 
+    task4, task20, task8 = state.get("task4"), state.get("task20"), state.get("task8")
+    if (task4 and task4.validation.skipped and task20 and task20.jobs_skipped
+            and task8 and task8.stopped_reason and _task1_succeeded(state)
+            and _task2_succeeded(state) and _task5_succeeded(state)):
+        return {"status": "done", "log": [
+            f"verify: Task 20 logged and skipped {task20.jobs_skipped} invalid-input job(s); "
+            f"no automatic submissions; stopped: {task8.stopped_reason}",
+        ]}
+
     if (
         _task1_succeeded(state)
         and _task2_succeeded(state)

@@ -90,6 +90,8 @@ def _route_after_fill(state: ApplyState) -> str:
     """Wait for the human only when the walk stopped at the terminal step."""
     if state.get("errors"):
         return "cleanup"
+    if state.get("status") == "skipped":
+        return "next_job"
     task4 = state.get("task4")
     if task4 is None or not task4.reached_terminal_step or task4.submitted:
         return "cleanup"
@@ -158,7 +160,7 @@ def build_graph():
     builder.add_conditional_edges(
         "fill",
         _route_after_fill,
-        {"await_submit": "await_submit", "cleanup": "cleanup"},
+        {"await_submit": "await_submit", "next_job": "next_job", "cleanup": "cleanup"},
     )
     builder.add_conditional_edges(
         "await_submit", _route_after_submit, {"next_job": "next_job", "cleanup": "cleanup"}

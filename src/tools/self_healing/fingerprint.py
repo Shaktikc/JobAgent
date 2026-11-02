@@ -143,6 +143,8 @@ def classify_failure(
     """
     text = _notes_of(task4, notes)
     combined = _normalize(f"{text} {error or ''}")
+    if getattr(getattr(task4, "validation", None), "issues", None):
+        return "invalid_input"
 
     if (stage or "fill").strip().lower() != "fill":
         for marker, category in _BROWSE_MARKERS:
@@ -281,6 +283,11 @@ def fill_failure_reason(task4: Any) -> str:
         return "fill: no Task 4 outcome"
     if bool(getattr(task4, "submitted", False)):
         return "fill: Submit was clicked (must never happen)"
+    validation = getattr(task4, "validation", None)
+    if validation is not None and validation.issues:
+        return "" if validation.skipped else (
+            validation.error or "fill: unresolved invalid input; skip incomplete"
+        )
     if not bool(getattr(task4, "form_open", False)):
         return "fill: Easy Apply form was not found"
 

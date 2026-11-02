@@ -199,6 +199,10 @@ def _summary(state: ApplyState) -> str:
                 f"  skipped   : {job.title!r} at {job.company!r} "
                 f"(fit={job.fit or 'none'}, {job.rationale or 'no rationale'})"
             )
+    task20 = state.get("task20")
+    if task20 is not None:
+        lines.append(f"invalid input: jobs_skipped={task20.jobs_skipped}")
+        lines.extend(f"  saved link: {job.job_url} (log: {job.log_path})" for job in task20.skipped)
     task8 = state.get("task8")
     if task8 is not None:
         cap = task8.max_jobs if task8.max_jobs else "none"

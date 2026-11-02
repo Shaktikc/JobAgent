@@ -127,6 +127,8 @@ def _should_heal(outcome: Task4Outcome, error: str, settings) -> tuple[bool, str
         return False, "the self-healing attempt cap is zero"
     if outcome.submitted:
         return False, "Submit was clicked; never retrying that automatically"
+    if outcome.validation.issues:
+        return False, "invalid input is handled by Task 20"
     category = classify_failure(error, outcome)
     return is_recoverable(category, outcome), category
 
@@ -192,6 +194,12 @@ async def fill(state: ApplyState) -> ApplyState:
         "log": _fill_log(outcome, task5),
     }
     log = update["log"]
+    if outcome.validation.issues:
+        from src.tools.linkedin_validation.skip import record_validation_skip
+
+        skipped = record_validation_skip(state, outcome)
+        skipped["log"] = log + skipped["log"]
+        return {**update, **skipped}
     errors = _fill_errors(outcome)
     if error:
         errors.insert(0, f"fill: {error}")
@@ -259,6 +267,12 @@ async def fill(state: ApplyState) -> ApplyState:
     elif errors and not should_heal:
         log.append(f"fill: not auto-recovering - {category}")
 
+    if outcome.validation.issues:
+        from src.tools.linkedin_validation.skip import record_validation_skip
+
+        skipped = record_validation_skip(state, outcome)
+        skipped["log"] = log + skipped["log"]
+        return {**update, **skipped}
     if errors:
         update["errors"] = errors
     return update

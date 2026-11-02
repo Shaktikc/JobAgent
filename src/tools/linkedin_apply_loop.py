@@ -256,6 +256,8 @@ async def open_next_job(
     close_form: bool = False,
     date_range: str = "",
     preferred_range: str = "",
+    skip_job_ids: Iterable[str] = (),
+    results_url: str = "",
 ) -> NextJobResult:
     """Select the next unapplied Easy Apply job on the open results list.
 
@@ -290,6 +292,7 @@ async def open_next_job(
 
     titles = [title for title in (skip_title, *skip_titles) if (title or "").strip()]
     skip_keys = {_job_key(title, -1) for title in titles}
+    skip_keys.update(f"job:{identity}" for identity in skip_job_ids if str(identity).isdigit())
     emit_step(notify, "Please wait - opening the next unapplied job...")
     # The post-apply "Your application was sent..." / "Turn your resume into a
     # profile" dialog can still cover the results list; its backdrop would block
@@ -300,6 +303,10 @@ async def open_next_job(
             task2=Task2Outcome(notes="the Easy Apply form could not be closed"),
             reason="the Easy Apply form could not be closed",
         )
+    if skip_job_ids and results_url:
+        from src.tools.linkedin_validation.continuation import prepare_results_page
+
+        await prepare_results_page(run.page, results_url, notify)
     scan_kwargs: dict = {
         "skip_keys": skip_keys,
         "capture": read_job_description,

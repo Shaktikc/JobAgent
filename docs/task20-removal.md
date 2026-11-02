@@ -1,5 +1,8 @@
 # Task 20 removal
 
+Historical removal record. The user subsequently authorized the correction-first
+replacement described in [Task 20 recovery](task20-validation-recovery.md).
+
 The user requested removal of all Task 20 code on 2026-11-02. Easy Apply no
 longer treats visible validation feedback as a reason to automatically discard
 an application, journal its link, or advance to the next posting. Required
