@@ -2,8 +2,8 @@
 
 Task 8 adds one more check: when the submit-and-repeat loop ran, it must have
 recorded why it stopped (the human submitted, closed the browser, the cap was
-reached, or nothing was left to apply to). The human's submission is never treated
-as a failure — the agent never clicks **Submit application**.
+reached, or nothing was left to apply to). Task 22 also permits confirmed automatic
+submission when the human selected it at startup.
 
 Task 16 adds a clean stop for strict resume matching: when the last job was
 skipped because no existing resume matched, the run is done (not failed) as long
@@ -72,7 +72,10 @@ def _task4_succeeded(state: ApplyState) -> bool:
         and outcome.resume_attached
         and outcome.filled_fields == outcome.known_fields
         and outcome.reached_terminal_step
-        and not outcome.submitted
+        and (not outcome.submitted or (
+            state.get("submission_mode") == "auto" and outcome.submission_attempted
+            and state.get("task8") and state["task8"].jobs_applied > 0
+        ))
     )
 
 
@@ -138,12 +141,20 @@ def verify(state: ApplyState) -> ApplyState:
         return {"status": "done", "log": ["verify: dry-run complete (browser not launched)"]}
 
     task4, task20, task8 = state.get("task4"), state.get("task20"), state.get("task8")
+    if (state.get("submission_mode") == "auto" and task8
+            and task8.last_submission_status in {
+                "blocked", "unconfirmed", "closed", "interrupted",
+            }):
+        return {"status": "needs_review", "log": [
+            f"verify: automatic submission needs manual review; {task8.stopped_reason}",
+            f"verify: confirmed submissions this run={task8.jobs_applied}",
+        ]}
     if (task4 and task4.validation.skipped and task20 and task20.jobs_skipped
             and task8 and task8.stopped_reason and _task1_succeeded(state)
             and _task2_succeeded(state) and _task5_succeeded(state)):
         return {"status": "done", "log": [
             f"verify: Task 20 logged and skipped {task20.jobs_skipped} invalid-input job(s); "
-            f"no automatic submissions; stopped: {task8.stopped_reason}",
+            f"stopped: {task8.stopped_reason}",
         ]}
 
     if (
@@ -158,7 +169,9 @@ def verify(state: ApplyState) -> ApplyState:
         log = [
             f"verify: logged in, search returned results, Easy Apply + {range_label} "
             "filters selected, job Easy Apply form opened, best-matching resume "
-            "selected, form filled and resume attached (not submitted)"
+            "selected, form filled and resume attached "
+            + ("(automatic submission confirmed)" if state.get("task4").submitted
+               else "(not submitted)")
         ]
         task8 = state.get("task8")
         if task8 is not None:

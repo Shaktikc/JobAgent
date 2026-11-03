@@ -17,8 +17,8 @@ from pydantic import BaseModel, Field
 class Task8JobRecord(BaseModel):
     """One job handled by the Task 8 loop.
 
-    ``outcome`` is how the per-job human-submit wait ended: ``"submitted"`` (the
-    human submitted), ``"closed"`` (the human closed the browser), or
+    ``outcome`` is how submission ended: ``"submitted"`` (confirmed automatic or
+    human submission), ``"closed"`` (the human closed the browser), or
     ``"timeout"`` (the wait elapsed). Only a ``"submitted"`` record counts toward
     ``Task8Outcome.jobs_applied``.
     """
@@ -33,9 +33,9 @@ class Task8JobRecord(BaseModel):
 class Task8Outcome(BaseModel):
     """What the Task 8 loop did across a run.
 
-    After the human submits a job, the loop opens the next unapplied job and
+    After a confirmed submission, the loop opens the next unapplied job and
     repeats the whole process in the same session. ``jobs`` records each job the
-    human submitted (title, company, chosen resume), ``jobs_applied`` counts them,
+    run submitted (title, company, chosen resume), ``jobs_applied`` counts them,
     and ``stopped_reason`` says why the loop ended (the jobs-per-run cap, no
     unapplied job left, the human closing the browser, a timeout, or a failure).
     """
@@ -45,6 +45,8 @@ class Task8Outcome(BaseModel):
     jobs: list[Task8JobRecord] = Field(default_factory=list)
     max_jobs: int = 0
     stopped_reason: str = ""
+    # Distinguish a clean loop finish from a blocked or uncertain automatic submit.
+    last_submission_status: str = ""
     notes: str = ""
 
 

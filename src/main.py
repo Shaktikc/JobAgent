@@ -22,6 +22,7 @@ from src.state import (
     ApplyState,
     new_state,
 )
+from src.submission_choice import choose_submission_mode
 
 
 def _date_range_argument(value: str) -> str:
@@ -43,9 +44,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "best-matching resume, and start filling the form (Tasks 1-4), asking "
             "the human in the browser about unknown questions and remembering the "
             "answers (Task 5). When the chosen range is exhausted the agent falls "
-            "back to the other range (Task 17). After you submit a job yourself, "
-            "the agent opens the next unapplied job and repeats (Task 8). The "
-            "agent never clicks Submit."
+            "back to the other range (Task 17). Choose manual or automatic submission "
+            "at startup (Task 22); after submission the agent opens the next job (Task 8)."
         ),
     )
     parser.add_argument(
@@ -68,6 +68,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "falls back to the other range when it is exhausted. Asked at "
             "startup when omitted."
         ),
+    )
+    parser.add_argument(
+        "--submission-mode",
+        choices=("manual", "auto"),
+        default=None,
+        help="Submit manually or automatically; asked at startup, default: manual.",
     )
     parser.add_argument(
         "--resumes-dir",
@@ -119,6 +125,7 @@ def _summary(state: ApplyState) -> str:
         f"status      : {state.get('status', 'unknown')}",
         f"url         : {state.get('url', 'unknown')}",
         f"search      : {state.get('search_query', 'unknown')!r}",
+        f"submission  : {state.get('submission_mode', 'manual')}",
         f"date range  : {date_range_label(requested_range) or requested_range} "
         "(fallback: the other range)",
     ]
@@ -268,6 +275,7 @@ async def _run(args: argparse.Namespace) -> ApplyState:
         dry_run=args.dry_run,
         resumes_dir=resumes_dir,
         date_range=args.date_range or DEFAULT_DATE_RANGE,
+        submission_mode=args.submission_mode or "manual",
     )
     # Task 8's submit-and-repeat loop is a graph cycle, so raise LangGraph's
     # default recursion limit to leave room for a few nodes per job and per
@@ -357,6 +365,7 @@ def main(argv: list[str] | None = None) -> int:
     # piped output, LangGraph Studio) keeps the Past 24 hours default.
     try:
         args.date_range = choose_date_range(args.date_range)
+        args.submission_mode = choose_submission_mode(args.submission_mode)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

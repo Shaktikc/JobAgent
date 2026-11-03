@@ -14,13 +14,13 @@ class Task4Outcome(BaseModel):
     questions it cannot ground are left for Task 5 and recorded in
     ``unknown_fields``. The chosen resume is preferred from the form's own resume
     list; it is only uploaded when nothing listed matches. The application is
-    never submitted.
+    not submitted by the fill walk. Task 22 can then submit in automatic mode.
     """
 
     form_open: bool = False
     steps_advanced: int = 0
     # Task 4: the walk stopped at the terminal step (only **Submit application**
-    # remains), so the browser is left open for the human to submit and close.
+    # remains). Task 22's startup choice controls who submits next.
     reached_terminal_step: bool = False
     fields: list[FormField] = Field(default_factory=list)
     fields_enumerated: int = 0
@@ -33,6 +33,8 @@ class Task4Outcome(BaseModel):
     resume_path: str = ""
     upload_attempted: bool = False
     submitted: bool = False
+    # Task 22: set before clicking; an uncertain result must never trigger a second click.
+    submission_attempted: bool = False
     screenshot_path: str | None = None
     page_url: str | None = None
     # Task 12: what the per-job context contained (sources/counts, never raw text).
@@ -44,8 +46,8 @@ class Task4Outcome(BaseModel):
     def awaiting_human_submit(self) -> bool:
         """True when the walk stopped at the last step and nothing was submitted.
 
-        The human owns the final **Submit application** action, so the browser is
-        left open for them to review, submit, and close it themselves.
+        The fill walk leaves the form ready. Manual runs leave the browser open
+        for the human to review, submit, and close it themselves.
         """
         return self.reached_terminal_step and not self.submitted and not self.validation.issues
 

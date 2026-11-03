@@ -2,8 +2,8 @@
 
 Two nodes drive the loop after Task 4 fills a job to its terminal step:
 
-* :func:`await_submit` — leave the browser open and wait for the human to submit
-  (or close it). The agent **never** clicks **Submit application**. On a detected
+* :func:`await_submit` — submit automatically when explicitly selected at startup,
+  or leave the browser open and wait for the human to submit (or close it). On a detected
   submission it records the job on the Task 8 outcome and, unless the jobs-per-run
   cap is reached, lets the graph continue.
 * :func:`next_job` — back on the results list, re-read the cards, skip the
@@ -23,7 +23,7 @@ from src.state import ApplyState, Task8JobRecord, Task8Outcome
 
 
 async def await_submit(state: ApplyState) -> ApplyState:
-    """Wait for the human to submit the open application (Task 8, step 1)."""
+    """Submit according to the startup mode, then record confirmed applications."""
     if state.get("dry_run", True):
         return {"status": "submitted", "log": ["await_submit: dry-run, nothing to wait for"]}
 
@@ -44,16 +44,33 @@ async def await_submit(state: ApplyState) -> ApplyState:
     description = state.get("job_description")
     title = (task2.job_title if task2 else "") or ""
 
-    # Let a crash propagate: the graph's self-heal guard records it, closes the
-    # stale browser, repairs/tests, and retries this same step (Task 11).
-    result = await await_human_submit(
-        run_id, settings, progress=get_reporter(run_id) or print, title=title
-    )
+    automatic = state.get("submission_mode") == "auto"
+    stop_reason = ""
+    evidence_path = ""
+    if automatic:
+        from src.tools.linkedin_auto_submit import AutoSubmitResult, submit_application
+
+        task4 = state.get("task4")
+        observed = (await submit_application(
+            run_id, task4, settings, progress=get_reporter(run_id) or print,
+            title=title, company=description.company if description else "",
+        )) if task4 else AutoSubmitResult("blocked", "no completed form outcome")
+        result, stop_reason = observed.status, observed.reason
+        evidence_path = observed.evidence_path
+    else:
+        result = await await_human_submit(
+            run_id, settings, progress=get_reporter(run_id) or print, title=title
+        )
 
     task8 = state.get("task8") or Task8Outcome()
     task8.iterations += 1
     task8.max_jobs = settings.session.max_jobs_per_run
-    log = [f"await_submit: human submit result={result} (job={title!r})"]
+    task8.last_submission_status = result
+    mode = "automatic" if automatic else "human"
+    log = [f"await_submit: {mode} submit result={result} (job={title!r})"]
+    if evidence_path:
+        task8.notes = f"Submission evidence: {evidence_path}"
+        log.append(f"await_submit: evidence saved to {evidence_path}")
 
     if result == "submitted":
         task8.jobs_applied += 1
@@ -71,6 +88,9 @@ async def await_submit(state: ApplyState) -> ApplyState:
         if cap and task8.jobs_applied >= cap:
             task8.stopped_reason = f"reached the jobs-per-run cap ({cap})"
             log.append(f"await_submit: stopping - {task8.stopped_reason}")
+    elif automatic:
+        task8.stopped_reason = f"automatic submission stopped: {stop_reason}; review manually"
+        log.append(f"await_submit: {task8.stopped_reason}")
     elif result == "closed":
         task8.stopped_reason = "the human closed the browser"
         log.append(f"await_submit: stopping - {task8.stopped_reason}")
@@ -78,7 +98,12 @@ async def await_submit(state: ApplyState) -> ApplyState:
         task8.stopped_reason = "timed out waiting for the human to submit"
         log.append(f"await_submit: stopping - {task8.stopped_reason}")
 
-    return {"task8": task8, "status": "submitted", "log": log}
+    update: ApplyState = {"task8": task8, "status": "submitted", "log": log}
+    if automatic and result != "submitted":
+        update["status"] = "needs_review"
+    if automatic and state.get("task4") is not None:
+        update["task4"] = state["task4"]
+    return update
 
 
 async def next_job(state: ApplyState) -> ApplyState:

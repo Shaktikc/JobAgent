@@ -37,12 +37,13 @@ from pathlib import Path
 
 from src.configuration import DEFAULT_REPAIR_MODEL as DEFAULT_REPAIR_MODEL
 from src.configuration import resolve_repair_model
+from src.tools.self_healing.skill_path import repair_skill_path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_REPORT = "report.md"
 # The repair agent must land its fix in thin, testable slices; attach the skill so
 # it is available even if the session does not pick it up from the skill tool.
-SKILL_FILE = PROJECT_ROOT / ".opencode" / "skills" / "incremental-implementation" / "SKILL.md"
+SKILL_FILE = repair_skill_path(PROJECT_ROOT)
 
 
 def _env(name: str, default: str = "") -> str:

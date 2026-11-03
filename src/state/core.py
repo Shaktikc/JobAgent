@@ -46,6 +46,8 @@ class ApplyState(TypedDict, total=False):
     # Task 17: the range the user chose at startup (``past_24_hours`` or
     # ``past_week``). The scan starts here and falls back to the other range.
     date_range: str
+    # Task 22: opt in once per run; omitted/unknown modes never auto-submit.
+    submission_mode: str
 
     # --- results ---
     task1: Task1Outcome
@@ -83,6 +85,7 @@ def new_state(
     dry_run: bool = True,
     resumes_dir: str = "",
     date_range: str = DEFAULT_DATE_RANGE,
+    submission_mode: str = "manual",
 ) -> ApplyState:
     """Build a well-formed initial state for a single agent run."""
     return ApplyState(
@@ -91,6 +94,7 @@ def new_state(
         dry_run=dry_run,
         resumes_dir=resumes_dir,
         date_range=normalize_date_range(date_range) or DEFAULT_DATE_RANGE,
+        submission_mode=submission_mode,
         status="pending",
         log=[],
         errors=[],

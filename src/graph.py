@@ -16,8 +16,8 @@ Easy Apply; ``fill`` then fills that form (Task 4) and, inside it, asks the huma
 in the browser about unknown questions and remembers their answers (Task 5).
 
 **Task 8:** when Task 4 stops at the terminal step (only **Submit application**
-remains) the graph waits for the **human** to submit the application
-(``await_submit``; the agent never clicks Submit). On a detected submission it
+remains) the graph uses Task 22's startup mode: wait for the human (default), or
+submit automatically and confirm the result. On a detected submission it
 loops back to ``next_job``, which opens the next unapplied job (Tasks 6-7) and
 re-runs ``match``/``fill`` for it — repeating until the jobs-per-run cap is
 reached, no unapplied job remains, the human closes the browser, or a step fails.
@@ -31,10 +31,12 @@ skipped title is excluded from later passes until no job (or the skip cap) stops
 the loop. Because matching happens before the click, a skipped job never opens
 the Easy Apply form at all.
 
-Every node is also wrapped by the self-healing guards: uncaught crashes in any
-node are recorded/repaired/retried, and returned Task 1-3 hard stops (login gate
+Nodes use self-healing guards: uncaught crashes are recorded/repaired/retried,
+and returned Task 1-3 hard stops (login gate
 excluded) are retried through the task-level guard. Clean Task 8 stops (cap,
 timeout, human closed, nothing left) are never treated as crashes.
+Automatic submission is never replayed by self-healing: an uncertain result
+stops for manual review with the browser left open.
 """
 
 from __future__ import annotations
@@ -53,6 +55,7 @@ from src.nodes import (
     verify,
 )
 from src.nodes.self_heal_guard import guard_node
+from src.nodes.submission_guard import guard_submission
 from src.nodes.task_self_heal import guard_task_node
 from src.state import ApplyState
 
@@ -87,7 +90,7 @@ def _route_after_open_form(state: ApplyState) -> str:
 
 
 def _route_after_fill(state: ApplyState) -> str:
-    """Wait for the human only when the walk stopped at the terminal step."""
+    """Submit in the selected mode only after reaching the terminal step."""
     if state.get("errors"):
         return "cleanup"
     if state.get("status") == "skipped":
@@ -122,10 +125,11 @@ def build_graph():
     """Construct and compile the agent graph."""
     builder = StateGraph(ApplyState)
 
-    # Every node that can raise is guarded: an uncaught crash is recorded,
+    # Recoverable nodes are guarded: an uncaught crash is recorded,
     # repaired/tested, and the same node is retried in a fresh browser instead of
     # silently ending the run (Task 11). ``cleanup`` stays unguarded so a release
-    # failure can never relaunch the browser.
+    # failure can never relaunch the browser. Automatic submission also stops
+    # without reopening/retrying, to avoid sending an application twice.
     builder.add_node("ingest", guard_node("ingest", ingest, reopen=None))
     # Tasks 1-3 return their failures as outcomes rather than raising, so these
     # two nodes also use the task-level guard (BUG-065).
@@ -135,7 +139,7 @@ def build_graph():
     # form-open failure is retryable through the same-job reopen path.
     builder.add_node("open_form", guard_task_node("open_form", open_form, reopen="job"))
     builder.add_node("fill", guard_node("fill", fill, reopen="job"))
-    builder.add_node("await_submit", guard_node("await_submit", await_submit, reopen="job"))
+    builder.add_node("await_submit", guard_submission(await_submit))
     builder.add_node("next_job", guard_task_node("next_job", next_job, reopen="results"))
     builder.add_node("cleanup", cleanup)
     builder.add_node("verify", guard_node("verify", verify, reopen=None))

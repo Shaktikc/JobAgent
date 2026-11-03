@@ -16,12 +16,14 @@ matches, and starts filling it — all through a real browser (via
 > answers it from the store — copying a stored answer, or **deriving** one the
 > stored entries entail (e.g. a stored "years of experience with AI: 5" answers
 > "Experience on AI? [Yes/No]" as **Yes**), always citing the stored key(s) it used
-> and never inventing an answer. After **you** submit a job, the agent
+> and never inventing an answer. Choose **manual** (default) or **automatic**
+> submission at startup (Task 22). After a confirmed submission, the agent
 > returns to the results list, selects the next unapplied job, and repeats. A live
 > **status panel (Task 9)** on the LinkedIn page shows each step in plain language
 > and exactly what the **LLM** is doing. The graph
 > runs end-to-end in **dry-run** mode (no browser, no network); the browser layer
-> is wired but opt-in. **No application is ever submitted by the agent.**
+> is wired but opt-in. Automatic submission requires an explicit startup choice
+> or `--submission-mode auto`; otherwise you review and submit each application.
 
 ## Behaviour
 
@@ -183,9 +185,10 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
      Set `AUTOJOB_SESSION_ASK_HUMAN=false` to leave unknown questions unanswered
      instead of prompting. Questions you skip or leave unanswered are recorded and
      can be answered on a later run.
-5. **await_submit** — **Task 8 (subtask 8.1):** leaves the browser open on the
-   terminal step and **waits for you to submit** the application yourself (the
-   agent **never** clicks **Submit application**). It polls for a submission
+5. **await_submit** — **Tasks 8/22:** in manual mode, leaves the browser open on the
+   terminal step and **waits for you to submit** the application yourself.
+   In automatic mode, checks required answers, validation, and the current
+   terminal control, then clicks **Submit application** once. It polls for a submission
    confirmation ("Your application was sent to X!" / "Application sent" / "Done")
    or the job's card flipping to **"Applied"**, bounded by
    `AUTOJOB_SESSION_KEEP_OPEN_TIMEOUT_SECONDS`. A modal dismissed with X, or a
@@ -193,6 +196,11 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
    submission the post-apply dialog is closed with a safe dismiss control —
    **Not now** (or the X / **Done**) — never **Update profile** — and the job is
    recorded (title, company, resume) on the Task 8 outcome.
+   Automatic mode stops for manual review if confirmation is missing; it never
+   retries the click or reopens this submission through self-healing. Its timeout
+   is `AUTOJOB_SESSION_AUTO_SUBMIT_TIMEOUT_SECONDS` (default: 30 seconds).
+   Uncertain automatic attempts return `needs_review` and save diagnostic evidence
+   under `data/debug/task22/`, with the path included in the run log.
 6. **next_job** — **Task 8 (subtask 8.2):** back on the results list, re-reads the
    cards, skips the **"Applied"** ones (Task 6), paginates when a whole page is
    Applied (Task 7), and selects the first unapplied **Easy Apply** job, reading
@@ -408,12 +416,16 @@ uvx playwright install chromium
 # Offline dry run - validates the wiring, no browser is launched.
 uv run autojob --dry-run
 
-# Real run - asks whether to search Past 24 hours or Past week first, opens
+# Real run - asks for the date range and manual/automatic submission mode, opens
 # Chromium, waits for login, searches, opens Easy Apply, reads the job, picks a
-# resume, and fills the form (never submits).
+# resume, and fills the form. Manual submission is the default.
 uv run autojob --no-dry-run
 uv run autojob --no-dry-run --date-range week
 uv run autojob --no-dry-run --query "software engineer" --resumes-dir ./resumes
+
+# Select submission mode explicitly and skip its startup question.
+uv run autojob --no-dry-run --submission-mode auto
+uv run autojob --no-dry-run --submission-mode manual
 
 # Task 15: describe resumes in resumes/new/, then move them into resumes/
 uv run autojob --describe-new-resumes
@@ -424,6 +436,12 @@ omitted, an interactive terminal asks which range to scan first (default: **Past
 24 hours**); a non-interactive run (tests, piped output, LangGraph Studio) keeps
 that default. When the chosen range is exhausted, the agent falls back to the
 other range.
+
+Task 22 asks who should submit each application before the browser starts.
+Press Enter for **manual**, or select **automatic** for the whole run. An explicit
+`--submission-mode manual|auto` skips this question. Non-interactive runs, EOF,
+and interrupted prompts default to manual. Maintenance modes never prompt.
+See [submission modes and verification](docs/task22-submission.md).
 
 Exit code is `0` only when all acceptance criteria pass. Add `--json` for the raw
 final state.
@@ -581,8 +599,9 @@ tests/
 - Task 4 answers via the LLM (Task 4.1/10), which only uses **stored** answers — it
   may copy one or **derive** one the stored entries entail, always citing the
   stored key(s) it used, so it can never invent an answer — attaches the chosen
-  resume, and **never clicks Submit application** — submission stays a manual human
-  step. **Task 12** adds a second grounded source only for job-specific free-text
+  resume, and stops at the review step. **Task 22** then follows the startup
+  submission choice; manual mode is the default. **Task 12** adds a second grounded source
+  only for job-specific free-text
   questions: the current job description and the selected resume. Its answer must
   cite evidence that actually exists in every claimed source, is length-bounded,
   and is rejected (Task 5 asks you) when unsupported. Choice controls never

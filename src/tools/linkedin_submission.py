@@ -190,25 +190,25 @@ _SUBMISSION_QUERY_TEMPLATE = (
   // "(Verified job)"): a plain substring match picked a different "Senior
   // Software Engineer" card that was already Applied (BUG-060). The company, when
   // known, can still disambiguate same-titled jobs.
-  const wanted = norm(__JOB_TITLE__).toLowerCase();
+  const titleKey = (text) => norm(text).replace(/^selected,\s*/i, '')
+    .replace(/\s*\(verified job\)\s*$/i, '').toLowerCase();
+  const wanted = titleKey(__JOB_TITLE__);
   const company = norm(__COMPANY__).toLowerCase();
   const headOf = (card) => {
     const lines = (card.innerText || '').split('\n')
       .map((line) => line.trim()).filter(Boolean);
-    return (lines[0] || '').replace(/\s*\(verified job\)\s*$/i, '').toLowerCase();
+    return titleKey(lines[0] || '');
   };
   let cardApplied = false;
   if (wanted) {
     const cards = Array.from(document.querySelectorAll(
       'li.jobs-search-results__list-item, li.scaffold-layout__list-item, '
       + 'div.job-card-container, div.jobs-search-results-list__list-item, '
-      + 'ul.jobs-search__results-list > li, [data-autojob-card]'
+      + 'ul.jobs-search__results-list > li, [data-autojob-card], div[role="button"]'
     ));
     const card = cards.find((c) => {
-      if (headOf(c) === wanted) return true;
-      if (!company) return false;
       const text = norm(c.innerText).toLowerCase();
-      return text.includes(wanted) && text.includes(company);
+      return headOf(c) === wanted && (!company || text.includes(company));
     });
     if (card) cardApplied = /(^|\s)applied(\s|·|$)/i.test(norm(card.innerText));
   }

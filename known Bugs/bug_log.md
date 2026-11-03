@@ -32,6 +32,8 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | [`task_16_bugs.md`](task_16_bugs.md) | Strict resume matching, skipping unmatched jobs, closing a skipped form |
 | [`task_20_bugs.md`](task_20_bugs.md) | Historical validation-skip bugs; Task 20 code removed by user request |
 | [`task_21_bugs.md`](task_21_bugs.md) | Visible question labels, universal no-asterisk filtering and optional-field preservation |
+| [`task_22_bugs.md`](task_22_bugs.md) | Automatic submission preflight and manual-mode compatibility |
+| [`self_healing_skill_bugs.md`](self_healing_skill_bugs.md) | Repair skill location and attachment |
 | [`self_healing_bugs.md`](self_healing_bugs.md) | Self-healing loop: auto-captured Easy Apply crashes, recovery, same-job resume |
 | [`general_bugs.md`](general_bugs.md) | Browser session, profile/CDP, CLI, cleanup, build, security, tests |
 
@@ -165,6 +167,12 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | BUG-103 | Task 20 — correction failure | correction exceptions could lose validation context and trigger structural recovery | 🟢 Fixed | exception/no-healing regressions; fix commit `479be98` |
 | BUG-104 | Task 20 — human flow | a rejected field prematurely aborted another question's human prompt | 🟢 Fixed | unrelated-question + human-answer regressions; fix commit `479be98` |
 | BUG-105 | Task 20 — factual integrity | a grounded shorter answer could change a pre-existing fact | 🟢 Fixed | numeric/negative/new-fact guards; fix commit `479be98` |
+| BUG-106 | Task 22 — checkbox groups | valid required checkbox selection blocked by unique option names | 🟢 Fixed | shared group rules + regression; uncommitted, base `128eb75` |
+| BUG-107 | Task 22 — manual compatibility | manual verification summary changed during integration | 🟢 Fixed | preserve existing summary + regression; uncommitted, base `128eb75` |
+| BUG-108 | Self-healing — skill lookup | repair wrapper omitted the skill after the .agents migration | 🟢 Fixed | current path with legacy fallback + regression; uncommitted, base `128eb75` |
+| BUG-109 | Task 22 — confirmation | re-rendered semantic and verified-title cards missed a successful submission | 🟢 Fixed | live CORTO probe + Chromium regressions; uncommitted, base `128eb75` |
+| BUG-110 | Task 22 — click geometry | offscreen Submit was clicked at coordinates calculated before scrolling | 🟢 Fixed | pre-scroll + exactly-once click regression; uncommitted, base `128eb75` |
+| BUG-111 | Task 22 — failure reporting | unconfirmed automatic attempts looked completed and retained no evidence | 🟢 Fixed | needs_review + diagnostic evidence regressions; uncommitted, base `128eb75` |
 
 ## Template for new entries
 

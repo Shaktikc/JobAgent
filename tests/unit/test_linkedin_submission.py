@@ -73,7 +73,8 @@ def test_probe_matches_the_card_by_its_title_line() -> None:
     query = _submission_query("Software Engineer", "LEAP Legal Software")
     assert '"Software Engineer"' in query
     assert "headOf(c) === wanted" in query
-    assert "if (!company) return false;" in query
+    assert "headOf(c) === wanted && (!company || text.includes(company))" in query
+    assert "text.includes(wanted)" not in query
 
 
 def test_probe_reads_the_sdui_dialog_and_the_status_panel() -> None:

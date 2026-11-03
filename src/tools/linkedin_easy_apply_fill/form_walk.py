@@ -334,7 +334,7 @@ async def _task4_on_page(
                 )
                 emit_step(
                     notify,
-                    "Waiting for you - review and submit the application, then close the browser.",
+                    "Application ready at the final review step.",
                 )
             break
 

@@ -23,3 +23,4 @@ Each task lives in its own file. This index links to them.
 - [Task 19 — Ignore years-of-experience requirements when matching a job](task_19.md) — ✅ Done
 - [Task 20 — Correct invalid Easy Apply inputs; log and skip unresolved applications](task_20.md) — 🟡 In progress
 - [Task 21 — Skip every Easy Apply question without an asterisk](task_21.md) — ✅ Done
+- [Task 22 — Choose automatic or manual application submission at startup](task_22.md) — 🟡 In progress

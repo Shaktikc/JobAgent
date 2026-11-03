@@ -152,13 +152,13 @@ class SessionSettings(BaseModel):
     # Task 16: optional safety cap on jobs skipped for having no matching resume;
     # 0 (the default) = no cap. A skip never counts toward ``max_jobs_per_run``.
     max_skipped_jobs_per_run: int = Field(default=0, ge=0)
-    # Task 4: when the walk stops at the terminal step (only **Submit
-    # application** remains) the browser is left open for the human to review and
-    # submit the application manually. The run waits for the human to close the
-    # window, up to this many seconds; if it times out the browser is left open
-    # anyway (the agent never closes it). 0 waits indefinitely.
+    # Manual submission: leave the browser open for human review/submission.
+    # On timeout it stays open; 0 waits indefinitely. Automatic mode uses its
+    # own bounded confirmation timeout (Task 22).
     keep_open_timeout_seconds: float = Field(default=1800.0, ge=0)
     keep_open_poll_seconds: float = Field(default=1.0, gt=0)
+    # Task 22: automatic submission waits a bounded time for confirmation.
+    auto_submit_timeout_seconds: float = Field(default=30.0, gt=0)
     # Task 8: how many jobs one run may submit before the loop stops. 0 = keep
     # going until no unapplied job remains (or the human stops).
     max_jobs_per_run: int = Field(default=35, ge=0)
@@ -329,6 +329,9 @@ def load_settings(env_file: Path | None = None) -> Settings:
                 "AUTOJOB_SESSION_KEEP_OPEN_TIMEOUT_SECONDS", 1800.0
             ),
             keep_open_poll_seconds=_get_float("AUTOJOB_SESSION_KEEP_OPEN_POLL_SECONDS", 1.0),
+            auto_submit_timeout_seconds=_get_float(
+                "AUTOJOB_SESSION_AUTO_SUBMIT_TIMEOUT_SECONDS", 30.0,
+            ),
             max_jobs_per_run=_get_int("AUTOJOB_SESSION_MAX_JOBS", 35),
         ),
         llm=LLMSettings(
