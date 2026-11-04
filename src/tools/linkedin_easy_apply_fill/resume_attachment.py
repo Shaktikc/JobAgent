@@ -64,6 +64,15 @@ def _resume_listed_names(info: dict) -> list[str]:
     return names
 
 
+async def _click_resume_control(element) -> None:
+    """Settle scrolling before browser-use calculates the click coordinates."""
+    await element.evaluate(
+        "() => this.scrollIntoView({block:'center', inline:'nearest', behavior:'instant'})",
+    )
+    await asyncio.sleep(0.05)
+    await element.click()
+
+
 async def _attach_resume(
     page,
     session,
@@ -87,7 +96,7 @@ async def _attach_resume(
         if option is not None:
             element = await _marker_element(page, "data-autojob-resume", option["marker"])
             if element is not None:
-                await _safe(element.click())
+                await _safe(_click_resume_control(element))
                 if settings.session.post_click_wait_seconds:
                     await asyncio.sleep(settings.session.post_click_wait_seconds)
                 outcome.resume_attached = True
@@ -119,7 +128,7 @@ async def _attach_resume(
         upload = info["uploadButton"]
         element = await _marker_element(page, "data-autojob-resume-upload", upload["marker"])
         if element is not None:
-            await _safe(element.click())
+            await _safe(_click_resume_control(element))
             if settings.session.post_click_wait_seconds:
                 await asyncio.sleep(settings.session.post_click_wait_seconds)
             selector = await _resume_file_selector(page)

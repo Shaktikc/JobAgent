@@ -5,9 +5,9 @@ job's Easy Apply form, read the job description), matches resumes offline, and
 uses an LLM (Task 4.1/10) to answer questions from the store, so this exposes the
 browser session settings, the LLM settings, the self-healing repair model, the
 resumes folder, and the data directory used for the persistent profile and debug
-screenshots. The general-purpose model (``AUTOJOB_LLM_MODEL``) and the
-self-healing model (``AUTOJOB_SELF_HEAL_REPAIR_MODEL``) are configured
-independently; there is no cross-purpose fallback. Variable names follow the flat
+screenshots. Task 3/10 can override the general-purpose ``AUTOJOB_LLM_MODEL``
+independently; the self-healing model (``AUTOJOB_SELF_HEAL_REPAIR_MODEL``) never
+falls back to these models. Variable names follow the flat
 ``AUTOJOB_*`` scheme documented in ``.env.example``.
 """
 
@@ -171,16 +171,18 @@ class SessionSettings(BaseModel):
 class LLMSettings(BaseModel):
     """General-purpose OpenRouter (OpenAI-compatible) text model.
 
-    Every non-healing LLM path uses ``model`` (``AUTOJOB_LLM_MODEL``): resume
-    descriptions and best-resume matching (Task 3.2), form answers (Task 4.1/10),
-    and job-context answers (Task 12). When it is not configured (no key or
-    model), no answer is chosen and every question is handed to Task 5 instead.
+    ``model`` (``AUTOJOB_LLM_MODEL``) is the general-purpose default. Task 3/15
+    can override it with ``resume_model``; Task 4.1/10's store chooser can use
+    ``answers_model``. Task 12 keeps the general model. Missing keys/models
+    leave questions unknown for Task 5; resume calls report a configuration error.
     The self-healing repair agent has its own model and never uses this one.
     """
 
     api_key: str | None = None
     base_url: str = "https://openrouter.ai/api/v1"
     model: str | None = None
+    resume_model: str | None = None
+    answers_model: str | None = None
     temperature: float = Field(default=0.0, ge=0, le=2)
     timeout_seconds: float = Field(default=60.0, gt=0)
     max_retries: int = Field(default=3, ge=0)
@@ -338,6 +340,8 @@ def load_settings(env_file: Path | None = None) -> Settings:
             api_key=_get_str("OPENROUTER_API_KEY") or _get_str("AUTOJOB_LLM_API_KEY"),
             base_url=_get_str("AUTOJOB_LLM_BASE_URL", "https://openrouter.ai/api/v1"),
             model=_get_str("AUTOJOB_LLM_MODEL"),
+            resume_model=_get_model("AUTOJOB_RESUME_LLM_MODEL", "") or None,
+            answers_model=_get_model("AUTOJOB_ANSWERS_LLM_MODEL", "") or None,
             temperature=_get_float("AUTOJOB_LLM_TEMPERATURE", 0.0),
             timeout_seconds=_get_float("AUTOJOB_LLM_TIMEOUT_SECONDS", 60.0),
             max_retries=_get_int("AUTOJOB_LLM_MAX_RETRIES", 3),

@@ -8,6 +8,7 @@ import pytest
 
 from src.configuration import SessionSettings, Settings
 from src.tools import browser as browser_tools
+from src.tools.browser import profiles
 from src.tools.linkedin import build_jobs_search_url
 
 from .helpers import (
@@ -50,7 +51,7 @@ def test_clean_profile_terminates_and_unlocks(
         calls.append(profile_dir)
         return 2
 
-    monkeypatch.setattr(browser_tools, "terminate_profile_browsers", fake_terminate)
+    monkeypatch.setattr(profiles, "terminate_profile_browsers", fake_terminate)
 
     killed = browser_tools.clean_profile(settings)
 
@@ -62,14 +63,14 @@ def test_clean_profile_terminates_and_unlocks(
 def test_terminate_profile_browsers_kills_each_pid(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
-    monkeypatch.setattr(browser_tools, "_profile_browser_pids", lambda _p: [11, 22])
+    monkeypatch.setattr(profiles, "_profile_browser_pids", lambda _p: [11, 22])
     commands: list = []
 
     def fake_run(cmd, **kwargs):
         commands.append(cmd)
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
-    monkeypatch.setattr(browser_tools.subprocess, "run", fake_run)
+    monkeypatch.setattr(profiles.subprocess, "run", fake_run)
 
     assert browser_tools.terminate_profile_browsers(tmp_path) == 2
     assert len(commands) == 2
@@ -87,7 +88,7 @@ def test_build_browser_clears_a_stale_profile_lock(
     (settings.profile_dir / "lockfile").write_text("", encoding="utf-8")
 
     # No live browser owns the lock, so it is stale and may be cleared.
-    monkeypatch.setattr(browser_tools, "_profile_browser_pids", lambda _p: [])
+    monkeypatch.setattr(profiles, "_profile_browser_pids", lambda _p: [])
 
     browser = browser_tools.build_browser(settings)
 
@@ -112,14 +113,14 @@ def test_build_browser_refuses_to_kill_a_live_browser_holding_the_profile(
     (settings.profile_dir / "lockfile").write_text("", encoding="utf-8")
 
     # A live browser owns the profile (a running process references it).
-    monkeypatch.setattr(browser_tools, "_profile_browser_pids", lambda _p: [4321])
+    monkeypatch.setattr(profiles, "_profile_browser_pids", lambda _p: [4321])
     killed: list = []
 
     def fake_terminate(profile_dir):
         killed.append(profile_dir)
         return 1
 
-    monkeypatch.setattr(browser_tools, "terminate_profile_browsers", fake_terminate)
+    monkeypatch.setattr(profiles, "terminate_profile_browsers", fake_terminate)
 
     with pytest.raises(RuntimeError, match="already using the AutoJobApply profile"):
         browser_tools.build_browser(settings)
@@ -140,7 +141,7 @@ def test_build_browser_skips_cleanup_when_profile_is_free(
         calls.append(profile_dir)
         return 0
 
-    monkeypatch.setattr(browser_tools, "terminate_profile_browsers", fake_terminate)
+    monkeypatch.setattr(profiles, "terminate_profile_browsers", fake_terminate)
 
     browser = browser_tools.build_browser(settings)
 

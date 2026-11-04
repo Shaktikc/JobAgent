@@ -33,6 +33,22 @@ _INPUT_METHODS = (
 
 # One lock per live page; keyed by ``id(page)``, removed on release.
 _INTERACTION_LOCKS: dict[int, InteractionLock] = {}
+_RELEASE_TIMEOUT_SECONDS = 15.0
+
+
+async def _finish_cleanup(awaitable):
+    """Finish the bounded input-release attempt before propagating cancellation."""
+    task = asyncio.ensure_future(awaitable)
+    cancelled = False
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            cancelled = True
+    result = task.result()
+    if cancelled:
+        raise asyncio.CancelledError
+    return result
 
 
 class InteractionLock:
@@ -48,6 +64,7 @@ class InteractionLock:
         self._originals: dict[str, object] = {}
         self._task: asyncio.Task | None = None
         self._released = False
+        self._release_task: asyncio.Task | None = None
         # Serializes the CDP ``setIgnoreInputEvents`` writes. Without it a watch
         # tick that inspected the page *before* a human turn began could send its
         # ``ignore=true`` after the turn's ``ignore=false`` (BUG-083).
@@ -173,6 +190,11 @@ class InteractionLock:
             return False
 
     async def release(self) -> None:
+        if self._release_task is None:
+            self._release_task = asyncio.create_task(self._release())
+        await _finish_cleanup(self._release_task)
+
+    async def _release(self) -> None:
         if self._released:
             return
         self._released = True
@@ -182,12 +204,17 @@ class InteractionLock:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._task
             self._task = None
-        await self._set_ignore(False)
-        input_client = self._input_client()
-        if input_client is not None:
-            for name, original in self._originals.items():
-                setattr(input_client, name, original)
-        self._originals.clear()
+        try:
+            # A lost CDP response must not make cancellation wait indefinitely.
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(self._set_ignore(False), _RELEASE_TIMEOUT_SECONDS)
+        finally:
+            self._locked = False
+            input_client = self._input_client()
+            if input_client is not None:
+                for name, original in self._originals.items():
+                    setattr(input_client, name, original)
+            self._originals.clear()
 
 
 async def ensure_interaction_lock(page) -> InteractionLock | None:
@@ -222,9 +249,15 @@ async def end_human_turn(page) -> None:
 
 
 async def release_interaction_lock(page) -> None:
-    lock = _INTERACTION_LOCKS.pop(id(page), None)
+    key = id(page)
+    lock = _INTERACTION_LOCKS.get(key)
     if lock is not None:
-        await lock.release()
+        try:
+            await lock.release()
+        finally:
+            if (lock._release_task is not None and lock._release_task.done()
+                    and _INTERACTION_LOCKS.get(key) is lock):
+                _INTERACTION_LOCKS.pop(key, None)
 
 
 async def release_all_interaction_locks() -> None:

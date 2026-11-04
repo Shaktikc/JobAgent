@@ -24,3 +24,4 @@ Each task lives in its own file. This index links to them.
 - [Task 20 — Correct invalid Easy Apply inputs; log and skip unresolved applications](task_20.md) — 🟡 In progress
 - [Task 21 — Skip every Easy Apply question without an asterisk](task_21.md) — ✅ Done
 - [Task 22 — Choose automatic or manual application submission at startup](task_22.md) — 🟡 In progress
+- [Task 23 — Use separate LLM models for Task 3 and Task 10](task_23.md) — 🟡 In progress

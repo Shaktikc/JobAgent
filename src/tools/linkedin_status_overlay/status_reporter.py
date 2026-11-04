@@ -15,8 +15,11 @@ the package re-exports the public names.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 from src.tools.linkedin_status_overlay.interaction_lock import (
+    _RELEASE_TIMEOUT_SECONDS,
+    _finish_cleanup,
     ensure_interaction_lock,
     release_interaction_lock,
 )
@@ -39,6 +42,7 @@ class StatusReporter:
     def __init__(self, emit=None, page=None) -> None:
         self.emit = emit or (lambda _message: None)
         self._page = page
+        self._lock_task: asyncio.Task | None = None
 
     def bind_page(self, page) -> None:
         """Attach the live page and install the automation interaction lock."""
@@ -47,7 +51,7 @@ class StatusReporter:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             return  # CLI-only reporter; no page task to schedule
-        loop.create_task(ensure_interaction_lock(page))
+        self._lock_task = loop.create_task(ensure_interaction_lock(page))
 
     def __call__(self, message: str) -> None:
         """Technical notify line: CLI only (matches the old ``notify`` callback)."""
@@ -83,17 +87,34 @@ class StatusReporter:
         except Exception:  # noqa: BLE001 - the panel is best-effort feedback
             pass
 
+    async def release_input(self) -> None:
+        """Drain installation before the final handoff can release the lock."""
+        page, pending = self._page, self._lock_task
+
+        async def release():
+            if pending is not None:
+                # Cancel an unresponsive installer before it can outlive handoff.
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(
+                        asyncio.gather(pending, return_exceptions=True),
+                        _RELEASE_TIMEOUT_SECONDS,
+                    )
+            await release_interaction_lock(page)
+
+        await _finish_cleanup(release())
+
     async def clear(self) -> None:
         """Remove the panel from the page (called once the run ends)."""
-        page, self._page = self._page, None
+        page = self._page
         if page is None:
             return
         try:
+            await self.release_input()
             await page.evaluate(_CLEAR_STATUS_JS)
         except Exception:  # noqa: BLE001 - nothing to clean up if the page is gone
             pass
         finally:
-            await release_interaction_lock(page)
+            self._page = None
 
 
 def emit_step(status, message: str) -> None:

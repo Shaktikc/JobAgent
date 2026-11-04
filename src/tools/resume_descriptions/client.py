@@ -15,6 +15,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from src.configuration import LLMSettings, Settings
+from src.llm_model_routing import resume_llm_settings
 from src.state import JobDescription
 
 from .messages import (
@@ -236,18 +237,20 @@ async def describe_resume(
     Raises :class:`ResumeDescriptionError` when the LLM is not configured, the
     resume has no readable text, the call fails, or the reply is unusable.
     """
-    if not settings.llm.configured:
+    llm = resume_llm_settings(settings)
+    if not llm.configured:
         raise ResumeDescriptionError(
-            "the LLM is not configured (set OPENROUTER_API_KEY and AUTOJOB_LLM_MODEL)"
+            "the resume LLM is not configured (set OPENROUTER_API_KEY and "
+            "AUTOJOB_RESUME_LLM_MODEL or AUTOJOB_LLM_MODEL)"
         )
     text = (extract_text or _extract_text)(resume_path)
     if not text.strip():
         raise ResumeDescriptionError(f"no readable text in resume {resume_path}")
 
-    client = client or _build_client(settings.llm)
+    client = client or _build_client(llm)
     messages = build_describe_messages(text)
     try:
-        return await _ask_json(client, settings.llm, messages, _parsed_description)
+        return await _ask_json(client, llm, messages, _parsed_description)
     except ResumeDescriptionError:
         raise
     except Exception as exc:  # noqa: BLE001 - surface a clean Task 3.2 error
@@ -269,17 +272,19 @@ async def pick_best_resume(
     """
     if not candidates:
         return ResumeMatch()
-    if not settings.llm.configured:
+    llm = resume_llm_settings(settings)
+    if not llm.configured:
         raise ResumeDescriptionError(
-            "the LLM is not configured (set OPENROUTER_API_KEY and AUTOJOB_LLM_MODEL)"
+            "the resume LLM is not configured (set OPENROUTER_API_KEY and "
+            "AUTOJOB_RESUME_LLM_MODEL or AUTOJOB_LLM_MODEL)"
         )
 
     ids = candidate_ids(candidates)
-    client = client or _build_client(settings.llm)
+    client = client or _build_client(llm)
     messages = build_match_messages(job_description, candidates, ids)
     try:
         return await _ask_json(
-            client, settings.llm, messages, lambda reply: parse_match(reply, ids)
+            client, llm, messages, lambda reply: parse_match(reply, ids)
         )
     except ResumeDescriptionError:
         raise

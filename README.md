@@ -123,7 +123,8 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
    values/selections stay unchanged and blank optional fields do not count as
    unknown.
    **Task 4.1** classifies every remaining question with an LLM
-   (`OPENROUTER_API_KEY` + `AUTOJOB_LLM_MODEL`) and answers it from the store
+   (`OPENROUTER_API_KEY` + `AUTOJOB_ANSWERS_LLM_MODEL`, falling back to
+   `AUTOJOB_LLM_MODEL`) and answers it from the store
    (`data/answers.json`) **by meaning**, and **Task 10** lets it **match or
    derive**: it may copy a stored answer, or produce a short answer the stored
    entries *entail* when no stored value can be copied verbatim (a positive
@@ -348,28 +349,53 @@ To add a resume later, put it in `resumes/new/`; Task 3.2 describes it and moves
 it into `resumes/` on the next matching run (or run
 `uv run autojob --describe-new-resumes` to do it immediately, without a browser).
 
-Task 4.1/10 needs an LLM to classify questions and answer them. Two independent
-models are configured, one per purpose:
+Task 23 lets Task 3 and Task 10 use different LLM models. Set their optional
+overrides independently; an unset or blank override uses the general model:
 
 ```bash
 OPENROUTER_API_KEY=sk-or-...                                     # shared credential
 AUTOJOB_LLM_MODEL=xiaomi/mimo-v2.6-pro                           # general-purpose
+AUTOJOB_RESUME_LLM_MODEL=                                      # Task 3/15 override
+AUTOJOB_ANSWERS_LLM_MODEL=                                     # Task 4.1/10 override
 AUTOJOB_SELF_HEAL_REPAIR_MODEL=deepseek/deepseek-v4.1-flash-1017 # repair agent
 ```
 
-The general model (MiMo-V2.6-Pro) handles resume descriptions, best-resume
-matching, form answers, and job-context answers. The self-healing model
+Set `AUTOJOB_RESUME_LLM_MODEL` to the model ID for resume descriptions and
+best-resume selection, including new resumes processed by Task 15. Set
+`AUTOJOB_ANSWERS_LLM_MODEL` to a different model ID for matching and deriving
+answers from the stored knowledge. Both reuse the existing key, endpoint,
+timeouts, retries, and request options. An override works without a general
+model; it never falls back to the other task's override.
+
+Task 12's job-context reasoning keeps `AUTOJOB_LLM_MODEL`, even when it wraps
+the Task 10 store chooser. With neither override set, all three purposes use
+the general model as before. The self-healing model
 (DeepSeek V4.1 Flash 1017) is used only by the Task 11 repair agent; it defaults
-to DeepSeek even when the general model is MiMo. Changing one purpose's model
-never changes the other, and there is no cross-purpose fallback. Use the exact
-ids shown: the repair wrapper maps the default bare DeepSeek id to OpenCode's
+to DeepSeek even when the general model is MiMo. Changing a task override never
+changes another task, the general model, or self-healing. Failed requests retain
+their existing error/unknown-answer handling without switching models. Use bare
+provider model IDs for general/resume/answer calls; the repair wrapper maps the
+default bare DeepSeek id to OpenCode's
 `openrouter/...` form, while an explicit override is passed to OpenCode verbatim
 (use a `provider/model` id to select another provider). The startup log names
-both resolved models for every run.
+the general, `task3`, `task10`, and self-healing models for every run.
+
+To verify routing in LinkedIn, configure two distinct task models and run
+`uv run python -m scripts.verify_task23_linkedin --walk`. It launches the saved
+browser profile, matches a resume, and walks the dynamic Easy Apply form without
+submitting. `--resume-model` and `--answers-model` can temporarily override the
+models for this check; `--job-id` selects a specific posting, and `--cdp-url`
+attaches to an already running dedicated browser. Evidence under
+`data/debug/task23/` records request/response model IDs, HTTP status, form results,
+and screenshots without credentials. Unsupported required answers retain the
+normal Task 5 prompt and Task 20 validation handling. The shared label reader
+recognizes visible CSS-generated asterisks as well as text asterisks, keeping
+these required questions eligible while unstarred questions remain untouched.
 
 Any OpenAI-compatible endpoint works via `AUTOJOB_LLM_BASE_URL`. Without a key
-and model, no answer is chosen and **every** question is handed to Task 5 (ask
-the human), so the run still works — it just prompts for every question.
+and a resolved model for the purpose, its LLM calls are unavailable. Unknown
+form questions are handed to Task 5 (ask the human); resume calls report a
+configuration error.
 
 Task 3.2's structured calls (resume descriptions and the resume match) ask for
 JSON and, on OpenRouter, skip the model's hidden reasoning by default
@@ -476,9 +502,14 @@ src/
     cleanup.py       Close the shared browser session (or leave it open at the last step)
     verify.py        Confirm every task's acceptance criteria
   tools/
-    browser.py       browser-use session wrapper (opt-in); shared browser primitives,
-                     run_agent / run_full_agent, the Task 3.1 / Task 5 banners, and
-                     the Task 9 status reporter/panel
+    browser/         browser-use wrapper (opt-in), with the existing public imports
+      __init__.py    shared API and lazy Task 1–5 exports
+      runs.py        live run registry, final human review, and session detachment
+      orchestration.py  start_tasks / fill_application / run_agent / run_full_agent
+      profiles.py    dedicated Chromium sessions and profile recovery
+      primitives.py  shared CDP helpers and failure screenshots
+      queries.py     shared DOM query literals
+      task_exports.py  lazy compatibility exports
     linkedin.py      Pure LinkedIn URL/text helpers
     linkedin_search/              Task 1: log in, search jobs, apply the filters
       __init__.py                 public API (re-exports the submodules below)

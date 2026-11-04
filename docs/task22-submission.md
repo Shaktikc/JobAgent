@@ -33,6 +33,11 @@ the `Selected,` prefix and `(Verified job)` badge, and matches the job's title a
 company. Other jobs' Applied badges and pre-existing submitted statuses never
 confirm the current attempt.
 
+Resume selection and the Upload resume button also scroll into view before
+their click coordinates are calculated. A long saved-resume list previously
+caused the upload click to miss, leaving `resume=none` and stopping the run
+before automatic submission. This attachment fix applies to both submission modes.
+
 An uncertain or blocked automatic attempt ends with `status="needs_review"`
 (CLI exit code 1). Submit failures save JSON metadata and a screenshot under
 `data/debug/task22/`; the run log includes the evidence path. JSON stores boolean
@@ -48,6 +53,21 @@ step counts, runtime blockers, and absent confirmation. Controlled fixtures send
 no real applications. A real LinkedIn inspection checks the current DOM and
 submission preflight separately; a genuine job submission requires choosing
 automatic mode for that run. Task 22 remains in progress until user verification.
+
+Final manual review releases the renderer input lock before asking you to act,
+including the fallback path that waits for you to close the browser. A timeout,
+cancelled wait, or failed observation leaves the retained page interactive.
+Confirmed manual submission restores the automation lock before the next job.
+Pending status-panel lock installation is drained before handoff, and a cancelled
+unlock finishes before cancellation propagates, so neither can re-lock review.
+Each pending-install and final unlock wait is limited to 15 seconds if the
+browser connection stops responding; cancellation cannot wait indefinitely.
+
+The shared browser entry point is now the `src/tools/browser/` package. Its thin
+`__init__.py` preserves existing imports and lazy Task 1–5 exports. `runs.py` owns
+the run registry and final human handoff; `orchestration.py` drives the tasks;
+`profiles.py`, `primitives.py`, and `queries.py` retain their existing behavior.
+Regression patches target the module that calls each dependency.
 
 The live LinkedIn inspection opened a real Easy Apply contact step, discovered
 its Next control, and confirmed that automatic submission was blocked before the

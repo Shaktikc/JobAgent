@@ -8,6 +8,7 @@ from src.configuration import SessionSettings, Settings
 from src.state import DEFAULT_LOGIN_URL
 from src.tools import browser as browser_tools
 from src.tools import linkedin_easy_apply_fill as fill_tools
+from src.tools.browser import orchestration
 from src.tools.linkedin import build_jobs_search_url
 from src.tools.linkedin_best_matching_resume import selection as resume_selection
 from src.tools.resume_descriptions import ResumeDescription, ResumeMatch
@@ -64,7 +65,7 @@ async def test_run_full_agent_end_to_end_offline(monkeypatch: pytest.MonkeyPatch
     page.button_elements = {"b0": FakeElement("Submit application")}
 
     session = FakeSession(page)
-    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+    monkeypatch.setattr(orchestration, "build_browser", lambda settings: session)
     # Task 4.1's LLM is a stand-in here (no network in unit tests): it chooses
     # stored answers exactly as the model is expected to.
     monkeypatch.setattr(

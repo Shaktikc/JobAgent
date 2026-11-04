@@ -46,7 +46,12 @@ from src.tools.browser import (
 from src.tools.linkedin_date_posted import PAST_WEEK_VALUE
 from src.tools.linkedin_job_selection import _job_key, _task2_on_page
 from src.tools.linkedin_resume_gate import close_easy_apply_form
-from src.tools.linkedin_status_overlay import begin_human_turn, emit_step, end_human_turn
+from src.tools.linkedin_status_overlay import (
+    begin_human_turn,
+    emit_step,
+    end_human_turn,
+    release_interaction_lock,
+)
 from src.tools.linkedin_submission import (
     is_dismiss_label,
     looks_like_submission,
@@ -338,13 +343,20 @@ async def await_human_submit(
     """Task 8 wait with the page unlocked for the human's submit click."""
     run = get_run(run_id)
     page = run.page if run is not None else None
-    await begin_human_turn(page)
+    result = ""
     try:
-        return await _await_human_submit(
+        await begin_human_turn(page)
+        result = await _await_human_submit(
             run_id, settings, progress=progress, title=title, company=company
         )
+        return result
     finally:
-        await end_human_turn(page)
+        if result == "submitted":
+            await end_human_turn(page)
+        else:
+            # Timeout, disconnection, cancellation, or a failed observation ends
+            # automation; leave the retained page interactive for manual review.
+            await release_interaction_lock(page)
 
 
 __all__ = [

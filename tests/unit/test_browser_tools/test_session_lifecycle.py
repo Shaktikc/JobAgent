@@ -6,6 +6,7 @@ import pytest
 
 from src.state import DEFAULT_LOGIN_URL, Task4Outcome
 from src.tools import browser as browser_tools
+from src.tools.browser import orchestration, runs
 from src.tools.linkedin import build_jobs_search_url
 
 from .fakes import FakeElement, FakePage, FakeSession
@@ -34,7 +35,7 @@ async def test_run_agent_registers_and_closes_the_session(
         "li.jobs-search-results__list-item": [_job_card(page, 0, "Backend Engineer")],
     }
     session = FakeSession(page)
-    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+    monkeypatch.setattr(orchestration, "build_browser", lambda settings: session)
 
     result = await browser_tools.run_agent(
         DEFAULT_LOGIN_URL,
@@ -67,7 +68,7 @@ async def test_start_tasks_keeps_the_session_open(
         "li.jobs-search-results__list-item": [_job_card(page, 0, "Backend Engineer")],
     }
     session = FakeSession(page)
-    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+    monkeypatch.setattr(orchestration, "build_browser", lambda settings: session)
 
     _outcome, run_id = await browser_tools.start_tasks(
         DEFAULT_LOGIN_URL,
@@ -171,8 +172,8 @@ async def test_release_run_waits_for_the_human_at_the_terminal_step(
     async def fake_close(run_id):
         calls["closed"] = run_id
 
-    monkeypatch.setattr(browser_tools, "wait_for_human_close", fake_wait)
-    monkeypatch.setattr(browser_tools, "close_run", fake_close)
+    monkeypatch.setattr(runs, "wait_for_human_close", fake_wait)
+    monkeypatch.setattr(runs, "close_run", fake_close)
 
     released = await browser_tools.release_run(
         "run-1", Task4Outcome(reached_terminal_step=True), _settings(tmp_path)
@@ -195,8 +196,8 @@ async def test_release_run_closes_when_not_at_the_terminal_step(
     async def fake_close(run_id):
         calls["closed"] = run_id
 
-    monkeypatch.setattr(browser_tools, "wait_for_human_close", fake_wait)
-    monkeypatch.setattr(browser_tools, "close_run", fake_close)
+    monkeypatch.setattr(runs, "wait_for_human_close", fake_wait)
+    monkeypatch.setattr(runs, "close_run", fake_close)
 
     released = await browser_tools.release_run("run-1", Task4Outcome(), _settings(tmp_path))
 

@@ -20,6 +20,7 @@ import shutil
 import pytest
 
 from src.configuration import Settings, load_settings
+from src.llm_model_routing import resume_llm_settings
 from src.state import JobDescription
 from src.tools.linkedin_best_matching_resume import ensure_resume, list_resume_files
 from src.tools.resume_descriptions import description_for, load_descriptions
@@ -31,10 +32,11 @@ pytestmark = [
     pytest.mark.skipif(
         not os.environ.get("AUTOJOB_RESUME_LIVE")
         or not SOURCE_FILES
-        or not SETTINGS.llm.configured,
+        or not resume_llm_settings(SETTINGS).configured,
         reason=(
             "set AUTOJOB_RESUME_LIVE=1, populate resumes/, and configure the LLM "
-            "(OPENROUTER_API_KEY + AUTOJOB_LLM_MODEL) to run this live test"
+            "(OPENROUTER_API_KEY + AUTOJOB_RESUME_LLM_MODEL or AUTOJOB_LLM_MODEL) "
+            "to run this live test"
         ),
     ),
     pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning"),

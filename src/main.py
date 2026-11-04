@@ -251,16 +251,15 @@ def _recursion_limit(settings) -> int:
 
 
 def _log_models(settings) -> None:
-    """Print the per-purpose model routing once at startup (Task 14).
+    """Print resolved general, Task 3/10, and repair models (Tasks 14/23)."""
+    from src.llm_model_routing import answer_llm_settings, resume_llm_settings
 
-    The general model drives every non-healing LLM call; the self-healing model
-    drives the repair wrapper. They are configured independently, so naming both
-    here makes each run's routing auditable without reading the code.
-    """
     general = settings.llm.model or "(not configured)"
+    resume = resume_llm_settings(settings).model or "(not configured)"
+    answers = answer_llm_settings(settings).model or "(not configured)"
     repair = settings.self_healing.repair_model
     print(
-        f"models      : general={general} self-healing={repair} "
+        f"models      : general={general} task3={resume} task10={answers} self-healing={repair} "
         f"opencode={resolve_repair_model(repair)}"
     )
 

@@ -22,6 +22,7 @@ import json
 import re
 
 from src.configuration import LLMSettings, Settings
+from src.llm_model_routing import answer_llm_settings
 from src.tools.answers import normalize_question
 from src.tools.derived_answers import (
     DerivedAnswer,
@@ -394,10 +395,11 @@ def build_reasoning_answer_chooser(
     cache_path=None,
 ) -> ReasoningAnswerChooser | None:
     """Return the reasoning chooser, or ``None`` when no model is configured."""
-    if not settings.llm.configured:
+    llm = answer_llm_settings(settings)
+    if not llm.configured:
         return None
     return ReasoningAnswerChooser(
-        settings.llm, answers, cache_path or settings.derived_answers_file
+        llm, answers, cache_path or settings.derived_answers_file
     )
 
 

@@ -8,22 +8,38 @@ text, and never borrow markers from options or neighbouring questions.
 QUESTION_LABEL_JS = r"""const questionControls =
     'input,select,textarea,[role="radio"],[role="checkbox"]';
   const questionGroups = 'fieldset,[role="radiogroup"],[role="group"]';
+  const labelNodeVisible = (node) => {
+    if (!node) return false;
+    for (let p = node; p; p = p.parentElement) {
+      const style = getComputedStyle(p);
+      if (p.hidden || style.display === 'none' || style.visibility === 'hidden'
+          || style.visibility === 'collapse' || style.opacity === '0') return false;
+    }
+    return true;
+  };
   const visibleLabelText = (node) => {
-    if (!node || !node.getClientRects().length) return '';
+    if (!labelNodeVisible(node) || !node.getClientRects().length) return '';
     const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
     const parts = [];
     while (walker.nextNode()) {
       const text = walker.currentNode;
-      let hidden = false;
-      for (let p = text.parentElement; p; p = p.parentElement) {
-        const style = getComputedStyle(p);
-        if (p.hidden || style.display === 'none' || style.visibility === 'hidden'
-            || style.visibility === 'collapse' || style.opacity === '0') {
-          hidden = true;
-          break;
+      if (labelNodeVisible(text.parentElement) && !text.parentElement.closest(questionControls)) {
+        parts.push(text.textContent);
+      }
+    }
+    // Classic LinkedIn labels draw '*' in CSS rather than a DOM text node.
+    // Inspect only this label's rendered pseudo-elements, never metadata or
+    // neighbouring helpers. Hidden generated markers do not require a field.
+    for (const el of [node, ...node.querySelectorAll('*')]) {
+      if (!labelNodeVisible(el) || el.closest(questionControls)) continue;
+      for (const pseudo of ['::before', '::after']) {
+        const style = getComputedStyle(el, pseudo);
+        const content = style.content.match(/^(['"])(.*)\1$/);
+        if (content && content[2].includes('*') && style.display !== 'none'
+            && !['hidden', 'collapse'].includes(style.visibility) && style.opacity !== '0') {
+          parts.push('*');
         }
       }
-      if (!hidden && !text.parentElement.closest(questionControls)) parts.push(text.textContent);
     }
     return norm(parts.join(' '));
   };

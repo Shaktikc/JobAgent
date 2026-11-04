@@ -7,7 +7,8 @@ configured LLM, it is gated behind an explicit opt-in variable:
     AUTOJOB_RESUME_LIVE=1 uv run pytest tests/integration/test_resume_selection.py -s
 
 Skipped unless ``AUTOJOB_RESUME_LIVE`` is set, ``resumes/`` is populated, and the
-LLM is configured (``OPENROUTER_API_KEY`` + ``AUTOJOB_LLM_MODEL``).
+resume LLM is configured (``OPENROUTER_API_KEY`` + ``AUTOJOB_RESUME_LLM_MODEL``
+or the general ``AUTOJOB_LLM_MODEL``).
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import os
 import pytest
 
 from src.configuration import load_settings
+from src.llm_model_routing import resume_llm_settings
 from src.state import JobDescription
 from src.tools.linkedin_best_matching_resume import list_resume_files
 from src.tools.resume_descriptions import (
@@ -30,10 +32,13 @@ SETTINGS = load_settings()
 RESUME_FILES = list_resume_files(SETTINGS.resumes_dir)
 
 pytestmark = pytest.mark.skipif(
-    not os.environ.get("AUTOJOB_RESUME_LIVE") or not RESUME_FILES or not SETTINGS.llm.configured,
+    not os.environ.get("AUTOJOB_RESUME_LIVE")
+    or not RESUME_FILES
+    or not resume_llm_settings(SETTINGS).configured,
     reason=(
         "set AUTOJOB_RESUME_LIVE=1, populate resumes/, and configure the LLM "
-        "(OPENROUTER_API_KEY + AUTOJOB_LLM_MODEL) to run this live test"
+        "(OPENROUTER_API_KEY + AUTOJOB_RESUME_LLM_MODEL or AUTOJOB_LLM_MODEL) "
+        "to run this live test"
     ),
 )
 

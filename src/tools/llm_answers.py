@@ -30,6 +30,7 @@ from typing import Protocol
 from pydantic import BaseModel, Field
 
 from src.configuration import LLMSettings, Settings
+from src.llm_model_routing import answer_llm_settings
 from src.tools.answers import normalize_question
 
 
@@ -210,9 +211,10 @@ class LLMAnswerChooser:
 
 def build_answer_chooser(settings: Settings, answers: dict[str, str]) -> AnswerChooser | None:
     """Return the LLM chooser, or ``None`` when no model is configured."""
-    if not settings.llm.configured:
+    llm = answer_llm_settings(settings)
+    if not llm.configured:
         return None
-    return LLMAnswerChooser(settings.llm, answers)
+    return LLMAnswerChooser(llm, answers)
 
 
 __all__ = [

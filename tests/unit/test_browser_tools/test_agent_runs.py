@@ -9,6 +9,7 @@ import pytest
 from src.state import DEFAULT_LOGIN_URL
 from src.tools import browser as browser_tools
 from src.tools import linkedin_search as linkedin_tools
+from src.tools.browser import orchestration
 from src.tools.linkedin import build_jobs_search_url
 
 from .fakes import FakeElement, FakePage, FakeSession
@@ -158,7 +159,7 @@ async def test_run_agent_runs_both_tasks(monkeypatch: pytest.MonkeyPatch, tmp_pa
         "li.jobs-search-results__list-item": [_job_card(page, 0, "Backend Engineer")],
     }
     session = FakeSession(page)
-    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+    monkeypatch.setattr(orchestration, "build_browser", lambda settings: session)
 
     result = await browser_tools.run_agent(
         DEFAULT_LOGIN_URL,
@@ -181,7 +182,7 @@ async def test_run_agent_skips_task2_when_task1_fails(
 ) -> None:
     page = FakePage(login_payload={"path": "/login", "nav": False, "loginForm": True})
     session = FakeSession(page)
-    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+    monkeypatch.setattr(orchestration, "build_browser", lambda settings: session)
 
     async def fake_wait(_page, *, timeout_seconds, poll_seconds):
         return False
@@ -212,7 +213,7 @@ async def test_run_agent_captures_screenshot_when_apply_fails(
         "li.jobs-search-results__list-item": [_job_card(page, 0, "External Job")],
     }
     session = FakeSession(page)
-    monkeypatch.setattr(browser_tools, "build_browser", lambda settings: session)
+    monkeypatch.setattr(orchestration, "build_browser", lambda settings: session)
 
     result = await browser_tools.run_agent(
         DEFAULT_LOGIN_URL,

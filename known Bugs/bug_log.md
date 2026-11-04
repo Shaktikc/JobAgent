@@ -33,6 +33,7 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | [`task_20_bugs.md`](task_20_bugs.md) | Historical validation-skip bugs; Task 20 code removed by user request |
 | [`task_21_bugs.md`](task_21_bugs.md) | Visible question labels, universal no-asterisk filtering and optional-field preservation |
 | [`task_22_bugs.md`](task_22_bugs.md) | Automatic submission preflight and manual-mode compatibility |
+| [`task_23_bugs.md`](task_23_bugs.md) | Independent task models and required-label issues exposed by live verification |
 | [`self_healing_skill_bugs.md`](self_healing_skill_bugs.md) | Repair skill location and attachment |
 | [`self_healing_bugs.md`](self_healing_bugs.md) | Self-healing loop: auto-captured Easy Apply crashes, recovery, same-job resume |
 | [`general_bugs.md`](general_bugs.md) | Browser session, profile/CDP, CLI, cleanup, build, security, tests |
@@ -173,6 +174,10 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | BUG-109 | Task 22 — confirmation | re-rendered semantic and verified-title cards missed a successful submission | 🟢 Fixed | live CORTO probe + Chromium regressions; uncommitted, base `128eb75` |
 | BUG-110 | Task 22 — click geometry | offscreen Submit was clicked at coordinates calculated before scrolling | 🟢 Fixed | pre-scroll + exactly-once click regression; uncommitted, base `128eb75` |
 | BUG-111 | Task 22 — failure reporting | unconfirmed automatic attempts looked completed and retained no evidence | 🟢 Fixed | needs_review + diagnostic evidence regressions; uncommitted, base `128eb75` |
+| BUG-112 | Task 23/21 — generated markers | CSS asterisks were lost, so required questions never reached Task 10 | 🟢 Fixed | 14 browser regressions + real LinkedIn two-model fill; uncommitted, base `b560bb6` |
+| BUG-113 | Task 22/9 — review input handoff | final review or a stopped manual wait left mouse/keyboard ignored | 🟢 Fixed | 811 tests + 17 browser checks; real LinkedIn input verified; uncommitted, base `b560bb6` |
+
+| BUG-114 | Task 22/4 — resume click geometry | offscreen upload/listed resume controls were missed, blocking automatic submission | 🟢 Fixed | two reproduced browser failures; 13 browser checks + 811 tests; uncommitted, base `b560bb6` |
 
 ## Template for new entries
 
