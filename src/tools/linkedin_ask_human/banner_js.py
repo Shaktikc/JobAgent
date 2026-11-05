@@ -47,7 +47,7 @@ _SHOW_UNKNOWN_JS = r"""
     instruction.id = 'autojob-unknown-instruction';
     instruction.textContent =
       'Answer it in the form on the page (type or choose an option). '
-      + 'The answer is saved as soon as you give it.';
+      + 'Finish with blur, Enter, or Done. For multiple choices, click Done.';
     instruction.style.cssText = 'margin-bottom:8px;color:#555;font-size:13px';
     const status = document.createElement('div');
     status.id = 'autojob-unknown-status';
@@ -61,6 +61,17 @@ _SHOW_UNKNOWN_JS = r"""
     skip.type = 'button';
     skip.textContent = 'Skip';
     skip.style.cssText = 'padding:6px 12px;border:1px solid #666;border-radius:4px;cursor:pointer';
+    const done = document.createElement('button');
+    done.id = 'autojob-unknown-done';
+    done.type = 'button';
+    done.textContent = 'Done';
+    done.disabled = true;
+    done.style.cssText = skip.style.cssText;
+    done.addEventListener('click', () => {
+      const state = window.__autojobFormAnswer;
+      if (state) { state.done = true; state.confirmed = true; state.activity = Date.now(); }
+    });
+    row.appendChild(done);
     row.appendChild(skip);
     box.appendChild(heading);
     box.appendChild(q);
@@ -76,6 +87,7 @@ _SHOW_UNKNOWN_JS = r"""
     if (typeof box.showPopover === 'function') box.showPopover();
   } catch (e) { /* already open, or unsupported: fixed + max z-index still applies */ }
   box.setAttribute('data-autojob-state', 'pending');
+  document.getElementById('autojob-unknown-done').disabled = true;
   const q = document.getElementById('autojob-unknown-question');
   if (q) q.textContent = question || 'this question';
   const hintEl = document.getElementById('autojob-unknown-hint');
@@ -113,6 +125,7 @@ _HIDE_UNKNOWN_JS = r"""
   if (state) {
     state.value = '';
     state.done = false;
+    state.confirmed = false;
   }
   return true;
 }

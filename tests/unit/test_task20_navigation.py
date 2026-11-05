@@ -27,7 +27,9 @@ async def run_navigation(monkeypatch, reject_after_retry=False, correction_error
         state["clicks"] += 1
 
     async def marker(*args):
-        return SimpleNamespace(click=click)
+        async def evaluate(*args):
+            pass
+        return SimpleNamespace(click=click, evaluate=evaluate)
 
     async def read(*args):
         return (

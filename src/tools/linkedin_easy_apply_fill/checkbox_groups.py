@@ -269,10 +269,10 @@ async def fill_checkbox_group(
             {"type": "checkbox", "options": options, "markers": markers, "name": record.name},
         )
         if answered is not None:
-            # Read the whole ticked set (the human may tick several boxes), not
-            # just the one the banner's first event carried.
+            # Task 26 returns the complete selection captured at Done. Later
+            # edits must not replace that confirmed snapshot in the store.
             ticked = await read_ticked_options(page, markers)
-            value = ", ".join(ticked) if ticked else str(answered).strip()
+            value = str(answered).strip()
             _remember_answer(settings, answers, human, question, value)
             answer, record.answered_by, record.rationale = value, "human", ""
             selected = selected_options(value, options)

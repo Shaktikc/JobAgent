@@ -35,10 +35,14 @@ _WATCH_FORM_ANSWER_JS = (
   if (previous && previous.installed) {
     previous.value = '';
     previous.done = false;
+    previous.confirmed = false;
+    previous.activity = 0;
     previous.scope = allowed;
+    previous.controls = [];
     return true;
   }
-  const state = { installed: true, value: '', done: false, scope: allowed };
+  const state = { installed: true, value: '', done: false, confirmed: false,
+    activity: 0, scope: allowed };
   window[KEY] = state;
 
   const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
@@ -61,6 +65,7 @@ _WATCH_FORM_ANSWER_JS = (
   };
 
   const inScope = (node, el) => {
+    if ((state.controls || []).includes(el)) return true;
     if (!state.scope.length) return true;  // no scope: accept any control
     const holders = [node, el].filter(Boolean).map(
       (n) => n.closest && n.closest('[data-autojob-fill]')
@@ -104,9 +109,10 @@ _WATCH_FORM_ANSWER_JS = (
     const el = resolveControl(node);
     if (!el || !inScope(node, el)) return;
     const value = readValue(el);
-    if (!value) return;  // ignore empty edits and unrelated blur events
+    state.activity = (state.activity || 0) + 1;
     state.value = value;
-    if (finished) state.done = true;
+    state.done = !!finished;
+    state.confirmed = false;
   };
 
   document.addEventListener('input', (e) => record(e.target, false), true);
@@ -114,7 +120,19 @@ _WATCH_FORM_ANSWER_JS = (
   document.addEventListener('click', (e) => {
     // Read after the page's own click handler sets the control's checked state.
     const node = e.target;
-    setTimeout(() => record(node, true), 0);
+    const control = resolveControl(node);
+    if (control && control.matches('input[type="radio"],input[type="checkbox"],'
+        + '[role="radio"],[role="checkbox"]')) {
+      setTimeout(() => record(node, true), 0);
+    }
+  }, true);
+  document.addEventListener('focusin', (e) => {
+    const el = resolveControl(e.target);
+    if (el && inScope(e.target, el)) {
+      state.activity = (state.activity || 0) + 1;
+      state.done = false;
+      state.confirmed = false;
+    }
   }, true);
   document.addEventListener('focusout', (e) => record(e.target, true), true);
   document.addEventListener('keydown', (e) => {
@@ -207,37 +225,43 @@ _READ_FORM_ANSWER_JS = (
   const consider = (el) => {
     if (!el || seen.indexOf(el) !== -1) return '';
     seen.push(el);
-    return readControl(el).value;
+    const result = readControl(el);
+    if (result.value) atomic = result.atomic;
+    return result.value;
   };
 
   let live = '', atomic = false;
+  const pickedLive = [];
   // 1) The question's marked control(s): covers ``div[role=radio]`` and inputs.
   for (const m of list) {
     const host = document.querySelector('[data-autojob-fill="' + esc(m) + '"]');
     if (!host) continue;
     const value = consider(resolveControl(host));
-    if (value) { live = value; atomic = true; break; }
+    if (value) {
+      if (!pickedLive.includes(value)) pickedLive.push(value);
+      live = pickedLive.join(', ');
+    }
   }
   // 2) Fall back to the group's controls by name: a native input keeps a stable
   //    ``name`` even when React re-renders the marked wrapper away. Read the
   //    wrapper (its text is the option) and the input itself.
-  if (!live && groupName) {
+  if (groupName) {
     const selector = 'input[name="' + esc(groupName) + '"],'
       + '[role="radio"][name="' + esc(groupName) + '"],'
       + '[role="checkbox"][name="' + esc(groupName) + '"]';
     document.querySelectorAll(selector).forEach((el) => {
-      if (live) return;
       // Prefer the wrapper (its visible text is the option) over the bare input.
       const wrapper = el.closest('[role="radio"], [role="checkbox"]') || el;
       const value = consider(wrapper) || consider(resolveControl(el));
-      if (value) { live = value; atomic = true; }
+      if (value && !pickedLive.includes(value)) pickedLive.push(value);
+      live = pickedLive.join(', ');
     });
   }
   // 3) Fall back to the group's *question* (or its option labels): a checkbox
   //    group has no name on LinkedIn's SDUI layout, and React re-renders the group
   //    on every tick, dropping the marker. The question text and option labels are
   //    owned by the renderer, so they still identify the live ticks (BUG-059).
-  if (!live && wanted.length) {
+  if (wanted.length && (!live || wanted.length > 1)) {
     const choiceSel = '[role="checkbox"],[role="radio"],'
       + 'input[type="checkbox"],input[type="radio"]';
     const want = bare(question || '');
@@ -259,7 +283,9 @@ _READ_FORM_ANSWER_JS = (
     if (box) {
       const picked = [];
       box.querySelectorAll(choiceSel).forEach((el) => {
-        const value = readControl(resolveControl(el)).value;
+        const control = resolveControl(el);
+        if (!seen.includes(control)) seen.push(control);
+        const value = readControl(control).value;
         if (!value || wantedBare.indexOf(bare(value)) === -1) return;
         if (picked.indexOf(value) === -1) picked.push(value);
       });
@@ -273,10 +299,18 @@ _READ_FORM_ANSWER_JS = (
   // (BUG-037: the right-to-work choice leaked into the next question).
   const recorded = (state.scope || []).map(String).filter(Boolean);
   const sameScope = !recorded.length || list.join('|') === recorded.join('|');
-  const eventValue = sameScope ? norm(state.value || '') : '';
+  if (sameScope) state.controls = seen;
+  const editing = seen.some(el => el === document.activeElement
+    || el.contains(document.activeElement));
+  const multi = seen.filter(el => el.matches(
+    'input[type="checkbox"],[role="checkbox"]')).length > 1;
+  const value = live;
   return JSON.stringify({
-    value: eventValue || live,
-    done: (sameScope && !!state.done) || (atomic && !!live)
+    value,
+    activity: sameScope ? state.activity || 0 : 0,
+    done: multi ? sameScope && !!state.confirmed && !!live
+      : (sameScope && !!state.done) || (atomic && !!live && !editing)
+        || (!state.activity && !!live && !editing)
   });
 }
 """

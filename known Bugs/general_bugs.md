@@ -279,7 +279,7 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   next-page-change check, and the "never open a job just by paginating" rule.
   The final note now says "no openable Easy Apply job was found" instead of
   claiming every job was Applied.
-- **Status:** ?? Fixed
+- **Status:** 🟢 Fixed
 - **Evidence:** `src/tools/linkedin_job_selection.py` (`_task2_on_page`),
   `tests/unit/test_browser_tools.py`
   (`test_task2_paginates_when_unapplied_cards_have_no_easy_apply`), plus the
@@ -407,3 +407,12 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   real paused application: install → watch tick in flight → `begin_human_turn` →
   the last write stayed `ignore=false` after the tick, and a native
   (Windows `SendInput`) Shift keydown reached the page. Uncommitted.
+
+
+### BUG-123 — Classic live fixture expects navigation past an unknown required City
+
+- **Symptom:** `test_task4_fills_form_and_prefers_listed_resume` reports two known fields instead of three and remains on step 1.
+- **Root cause:** The fixture labels City with `*`, provides no answer, and disables human prompting. Required-answer recovery now stops before reaching the experience field on step 2; the fixture also lacks a real job link for skip recording.
+- **Fix:** Pending; reconcile this older fixture with Task 24 required-answer semantics in its owning work. Task 26 completion is not invoked in this scenario.
+- **Status:** 🔴 Open.
+- **Evidence:** Two live Chromium reproductions on 2026-11-05; `tests/integration/test_fill_form_live/test_classic.py:218` and `common.py` (ask_human=False). Broader browser run: 23 passed, 1 failed. No code fix or commit; base `addac8f`.

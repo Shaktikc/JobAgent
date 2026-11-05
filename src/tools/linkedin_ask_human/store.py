@@ -1,4 +1,4 @@
-"""Task 5: persist a human answer (early save + remembered store entry).
+"""Task 5: persist completed human answers and update the in-memory store.
 
 Split out of :mod:`src.tools.linkedin_ask_human` so each module stays small.
 """
@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from src.configuration import Settings
 from src.state import Task5Outcome
-from src.tools.answers import answer_echoes_question, normalize_question, save_answer
+from src.tools.answers import answer_echoes_question, load_answers, normalize_question, save_answer
 from src.tools.browser import _append_note
 from src.tools.forms import is_prompt_answer
 
@@ -18,12 +18,10 @@ def _store_answer(
     answer: str,
     human: Task5Outcome | None,
 ) -> None:
-    """Persist an answer the instant it is seen (Task 5's early save).
+    """Persist a completed answer; the wait loop enforces completion before calling.
 
-    The caller still records the answer through :func:`_remember_answer` when the
-    wait returns; this early write is the safety net that guarantees an answer the
-    human gave is kept even if the run stops before that. It writes silently (no
-    duplicate note) and never raises into the wait.
+    The fill caller also updates its in-memory mapping through `_remember_answer`.
+    Write failures are reported in the human outcome without crashing the wait.
     """
     if (
         not normalize_question(question)
@@ -35,7 +33,7 @@ def _store_answer(
         return
     try:
         save_answer(settings.answers_file, question, answer)
-    except OSError as exc:  # noqa: BLE001 - a failed early write must not stop the wait
+    except OSError as exc:  # noqa: BLE001 - a failed write must not stop the wait
         if human is not None:
             human.notes = _append_note(human.notes, f"could not save {question!r}: {exc}")
 
@@ -60,7 +58,8 @@ def _remember_answer(
     previous = answers.get(key)
     answers[key] = answer
     try:
-        save_answer(settings.answers_file, question, answer)
+        if load_answers(settings.answers_file).get(key) != answer:
+            save_answer(settings.answers_file, question, answer)
     except OSError as exc:  # noqa: BLE001 - a failed write must not stop the fill
         if human is not None:
             human.notes = _append_note(human.notes, f"could not save {question!r}: {exc}")

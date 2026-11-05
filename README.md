@@ -155,6 +155,11 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
      (`AUTOJOB_SELF_HEAL_MAX_ATTEMPTS`, default `3`); on exhaustion the evidence is
      preserved and the run stops. With no repair command configured it performs
      runtime recovery only.
+   - **Task 25 (inside fill):** invalid-input recovery first tries a truthful
+     number/text conversion, such as `2 years` → `2`, or `2` → `2 years` when the
+     question supplies the unit. Ambiguous or constraint-violating conversions
+     use the existing correction/skip flow, with metadata-only conversion outcomes.
+     See [answer type conversion](docs/task25-answer-type-conversion.md).
    - **Task 20 (inside fill):** a visible invalid-input error gets one correction
      pass and one navigation retry, using truthful answers and the live field's
      constraints. A successful correction continues the same application. If no
@@ -171,6 +176,8 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
      no input of its own), reads the value you enter, fills the field, and saves
      the question → answer mapping. Task 4.1 reuses that answer next run — and, as
      a human-confirmed answer, it always takes precedence over a derived one.
+     Text is saved only after blur, Enter, or **Done**. Use **Done** after selecting
+     multiple checkboxes. Skip and inactivity timeout discard unfinished answers.
      Choice
      fields (selects/radios) list their allowed options in the banner, and an
      answer that matches a visible option label is mapped to the right value.
@@ -186,6 +193,13 @@ The graph is `START -> ingest -> browse -> match -> fill -> await_submit -> next
      Set `AUTOJOB_SESSION_ASK_HUMAN=false` to leave unknown questions unanswered
      instead of prompting. Questions you skip or leave unanswered are recorded and
      can be answered on a later run.
+   - **Task 24 (inside fill):** missing required answers, including “This field is
+     required” on radio groups, use the existing grounded chooser and then the same
+     human banner. Recovery checks the actual controls after re-renders and retries
+     Next/Review once. Each question gets one automatic attempt and one prompt per
+     step, with a five-question recovery cap. Unresolved answers use Task 20's
+     durable log and safe skip path. Optional questions stay untouched and recovery
+     never submits. See [required-answer recovery](docs/task24-required-answer-recovery.md).
 5. **await_submit** — **Tasks 8/22:** in manual mode, leaves the browser open on the
    terminal step and **waits for you to submit** the application yourself.
    In automatic mode, checks required answers, validation, and the current
@@ -563,7 +577,8 @@ src/
       field_filling.py             Fill one step's required fields (LLM / Task 5 answers)
       checkbox_groups.py           Answer a checkbox (multi-select) question as one group
       resume_attachment.py         Attach the Task 3 resume (listed option or CDP upload)
-      form_walk.py                 Walk the form step by step, stopping before Submit
+      form_walk/                   Walk dynamic steps; core and rendering readiness
+      step_state.py                Stable step identity and required-question notes
     llm_answers.py   Task 4.1: LLM classifies a question and picks the stored answer
     llm_answer_reasoning.py  Task 10: LLM matches *or derives* an answer, with grounding
     derived_answers.py  Task 10.3: cache of answers the LLM derived from the store

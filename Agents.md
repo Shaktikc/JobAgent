@@ -16,13 +16,6 @@
   check, and not "in the same change as the finished work". Never leave a task
   marked "Not started" while it is being worked on, and never leave a
   user-verified completed task marked "Not started" or "In progress".
-- **Interrelated code sync (important — never skip):** whenever you change code
-  for any task (for example a bug fix), also update any interrelated code that
-  the change could affect, including code used by other tasks. Do not leave
-  other parts of the codebase inconsistent — a change is only complete when
-  every caller, shared helper, test (`monkeypatch` targets included), doc, and
-  config that depends on it has been reviewed and updated or confirmed
-  unaffected.
 - Always verify that changed code works by testing it (run the relevant tests,
   build, or a manual check) before reporting it as ready for user verification.
   Your own testing never makes a task done — only the user's confirmation does.
@@ -45,7 +38,16 @@
   left as-is unless the human explicitly asks to split them. See
   [File-size limit](#file-size-limit-required) below.
 
-  
+## Interrelated code sync (important — never skip)
+
+Whenever you change code for any task (for example a bug fix), also update any
+interrelated code that the change could affect, including code used by other
+tasks. Do not leave other parts of the codebase inconsistent — a change is only
+complete when every caller, shared helper, test (`monkeypatch` targets included),
+doc, and config that depends on it has been reviewed and updated or confirmed
+unaffected.
+
+
 ## Live browser verification (required)
 
 - Always do the testing in a live browser to verify that the task actually works.

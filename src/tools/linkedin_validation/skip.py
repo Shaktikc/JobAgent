@@ -31,6 +31,12 @@ async def persist_and_close(page, state, outcome, settings, notify) -> None:
             "correction_attempted": result.correction_attempted,
             "retry_count": result.retry_count,
             "correction_failure": result.correction_failure,
+            "required_answer_attempts": [
+                row.model_dump() for row in result.required_answer_attempts
+            ],
+            "type_conversion_attempts": [
+                row.model_dump() for row in result.type_conversion_attempts
+            ],
         }
         append_skip(path, record)
         result.logged, result.log_path = True, str(path)

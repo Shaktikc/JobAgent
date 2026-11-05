@@ -2,6 +2,7 @@
 
 import re
 from decimal import Decimal, InvalidOperation
+from fractions import Fraction
 
 
 def _number(value: str) -> str | None:
@@ -59,9 +60,11 @@ def _within_constraints(field: dict, value: str, numeric: bool) -> bool:
             if step != "any":
                 base = Decimal(str(minimum or field.get("default_value") or "0"))
                 increment = Decimal(str(step))
-                if increment <= 0 or (number - base) % increment:
+                # Decimal arithmetic uses a finite context and can round away
+                # fractional digits before modulo. Step checks must stay exact.
+                if increment <= 0 or (Fraction(number) - Fraction(base)) % Fraction(increment):
                     return False
-        except (InvalidOperation, ValueError, ZeroDivisionError):
+        except (InvalidOperation, ValueError, ZeroDivisionError, OverflowError):
             return False
     return bool(value)
 

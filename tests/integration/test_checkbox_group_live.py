@@ -197,6 +197,9 @@ async def test_sdui_checkbox_group_is_one_question_and_keeps_the_human_ticks(
             assert str(clicked).lower() == "true", option
             await asyncio.sleep(0.4)
 
+        assert not fill_task.done()
+        assert browser_tools.load_answers(settings.answers_file) == {}
+        await page.evaluate("() => document.getElementById('autojob-unknown-done').click()")
         outcome = await asyncio.wait_for(fill_task, timeout=60)
         state = json.loads(await page.evaluate(_READ_STATE_JS))
         stored = browser_tools.load_answers(settings.answers_file)

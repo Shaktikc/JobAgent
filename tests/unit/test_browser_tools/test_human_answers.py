@@ -125,7 +125,7 @@ async def test_task5_is_off_when_disabled(monkeypatch: pytest.MonkeyPatch, tmp_p
         called = True
         return "Sydney"
 
-    monkeypatch.setattr(fill_tools.form_walk, "ask_human_for_answer", fake_ask)
+    monkeypatch.setattr(fill_tools.form_walk.core, "ask_human_for_answer", fake_ask)
     human = Task5Outcome()
 
     outcome = await browser_tools._task4_on_page(

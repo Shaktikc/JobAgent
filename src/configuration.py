@@ -133,6 +133,8 @@ class SessionSettings(BaseModel):
     # cannot choose an answer for a question. Off means those questions are left
     # unanswered instead of prompting.
     ask_human: bool = True
+    # Inactivity limit: focusing/editing an unknown answer restarts this wait.
+    # Only completed answers survive timeout; pending input is discarded.
     ask_timeout_seconds: float = Field(default=300.0, gt=0)
     ask_poll_seconds: float = Field(default=1.0, gt=0)
     # Before launching, recover a profile lock left by a crashed/interrupted run

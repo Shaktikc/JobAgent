@@ -185,7 +185,7 @@ async def test_job_context_answers_a_job_question_and_leaves_salary_to_task5(
         asked.append(question)
         return None
 
-    monkeypatch.setattr(form_walk, "ask_human_for_answer", fake_ask)
+    monkeypatch.setattr(form_walk.core, "ask_human_for_answer", fake_ask)
 
     browser = browser_tools.build_browser(settings)
     await browser.start()

@@ -60,8 +60,8 @@ async def test_task5_empty_form_edit_keeps_waiting(tmp_path) -> None:
     assert human.timed_out == 1
 
 
-async def test_task5_stores_the_answer_before_the_edit_is_finished(tmp_path) -> None:
-    """A typed answer is persisted as soon as it appears, even with no blur."""
+async def test_task5_never_stores_an_unfinished_answer(tmp_path) -> None:
+    """Recovery must not save or use a partial answer when the wait times out."""
     page = _Task5BannerPage(answer="Sydney", done=False)
     human = Task5Outcome()
     settings = _settings(
@@ -72,11 +72,11 @@ async def test_task5_stores_the_answer_before_the_edit_is_finished(tmp_path) -> 
         page, "City", "text", "", settings, lambda _m: None, human
     )
 
-    # The value is used at the end of the wait and was stored immediately.
-    assert answer == "Sydney"
-    assert human.answered == 1
-    assert human.timed_out == 0
-    assert browser_tools.load_answers(settings.answers_file)["city"] == "Sydney"
+    assert answer is None
+    assert human.answered == 0
+    assert human.timed_out == 1
+    assert browser_tools.load_answers(settings.answers_file) == {}
+    assert not page.saved
 
 
 async def test_task5_asks_questions_in_form_order(

@@ -25,3 +25,6 @@ Each task lives in its own file. This index links to them.
 - [Task 21 — Skip every Easy Apply question without an asterisk](task_21.md) — ✅ Done
 - [Task 22 — Choose automatic or manual application submission at startup](task_22.md) — 🟡 In progress
 - [Task 23 — Use separate LLM models for Task 3 and Task 10](task_23.md) — 🟡 In progress
+- [Task 24 — On a required-question validation error, answer it or ask the human, then continue without crashing](task_24.md) — 🟡 In progress
+- [Task 25 — On invalid input, convert the answer's type (number ↔ text) before giving up](task_25.md) — 🟡 In progress
+- [Task 26 — Save an unknown answer only after the human finishes answering](task_26.md) — 🟡 In progress

@@ -18,7 +18,7 @@ _QUERY = r"""(fields) => {
   };
   const norm = value => (value || '').replace(/\s+/g, ' ').trim();
   const rejection = text => new RegExp(
-    'invalid input|please (?:enter|select|provide)|required field|must be|exceeds|too long'
+    'invalid input|please (?:enter|select|provide)|\\brequired\\b|must be|exceeds|too long'
     + '|valid (?:number|email|value)|between \\d', 'i').test(text);
   const selectors = '[role="alert"],.artdeco-inline-feedback__message,'
     + '[data-testid*="helper-text"],[id*="error"],.artdeco-inline-feedback--error';
@@ -28,35 +28,57 @@ _QUERY = r"""(fields) => {
     .filter(node => visible(node) && (node.matches(selectors)
       ? explicitError(node) || rejection(norm(node.innerText))
         || (el !== root && node.getAttribute('role') === 'alert')
-      : /^invalid input[.!]?$/i.test(norm(node.innerText))));
-  const values = fields.map(f => String(f.value || '')).concat(
-    Array.from(root.querySelectorAll('input,select,textarea')).map(el => String(el.value || ''))
+      : /^(?:invalid input|this field is required|required)[.!]?$/i.test(norm(node.innerText))));
+  const values = fields.filter(f => !['radio','checkbox'].includes(f.kind))
+    .map(f => String(f.value || '')).concat(
+    Array.from(root.querySelectorAll('input:not([type="radio"]):not([type="checkbox"]),'
+      + 'select,textarea')).map(el => String(el.value || ''))
   ).filter(Boolean)
     .sort((a,b) => b.length - a.length);
   const redact = text => values.reduce(
     (result, value) => result.split(value).join('[redacted]'), text);
-  const used = new Set(), issues = [];
-  for (const field of fields) {
+  const controls = fields.map(field => {
     const host = root.querySelector('[data-autojob-fill="' + field.marker + '"]');
-    const el = host && (host.control || host.querySelector('input,select,textarea') || host);
+    const el = host && (host.closest('[role="radio"],[role="checkbox"]')
+      || host.control || host.querySelector('input,select,textarea') || host);
+    return {field, host, el};
+  });
+  const sameQuestion = (a, b) => {
+    if (a === b) return true;
+    if (!['radio','checkbox'].includes(a.kind) || a.kind !== b.kind) return false;
+    return a.question === b.question && !!a.question
+      && (a.kind === 'checkbox' || a.name === b.name);
+  };
+  const owns = (box, field) => !controls.some(row => row.el && box.contains(row.el)
+    && !sameQuestion(row.field, field));
+  const ownsFeedback = (node, field) => {
+    for (let box = node.parentElement; box && box !== root; box = box.parentElement) {
+      if (controls.some(row => row.el && box.contains(row.el))) return owns(box, field);
+    }
+    return true; // An explicit reference to form-level feedback has no other local owner.
+  };
+  const used = new Set(), issues = [];
+  for (const {field, host, el} of controls) {
     if (!visible(host) || !el) continue;
     const references = ((el.getAttribute('aria-describedby') || '') + ' '
       + (el.getAttribute('aria-errormessage') || '')).split(/\s+/).filter(Boolean);
     const errorId = el.getAttribute('aria-errormessage');
     let messages = references.map(id => document.getElementById(id))
-      .filter(node => root.contains(node) && visible(node) && (node.id === errorId
+      .filter(node => root.contains(node) && visible(node) && ownsFeedback(node, field)
+        && (node.id === errorId
         || explicitError(node) || rejection(norm(node.innerText))
         || node.getAttribute('role') === 'alert'));
     let local = el.parentElement;
-    for (let depth = 0; !messages.length && local && local !== root && depth < 4; depth++) {
+    for (let depth = 0; !messages.length && local && local !== root && depth < 16; depth++) {
       // Stop before borrowing another question's feedback.
-      const inputs = local.querySelectorAll('input:not([type="hidden"]),textarea,select');
-      if (inputs.length > 1 && field.kind !== 'radio' && field.kind !== 'checkbox') break;
+      if (!owns(local, field)) break;
       messages = feedback(local);
       if (!messages.length && local.parentElement !== root) local = local.parentElement;
       else break;
     }
-    const invalid = el.getAttribute('aria-invalid') === 'true' || el.matches(':user-invalid');
+    const group = el.closest('fieldset,[role="group"],[role="radiogroup"]');
+    const invalid = el.getAttribute('aria-invalid') === 'true' || el.matches(':user-invalid')
+      || (group && owns(group, field) && group.getAttribute('aria-invalid') === 'true');
     if (!invalid && !messages.length) continue;
     messages.forEach(node => used.add(node));
     let limit = el.maxLength >= 0 ? el.maxLength : null;

@@ -6,7 +6,17 @@ choices, lengths, patterns and numeric bounds are discovered from the live form.
 Required questions still follow Task 21: only their own visible `*` permits
 filling. Optional inputs remain untouched.
 
-Corrections normalize a supported value or ask the existing grounded chooser for
+[Task 24](task24-required-answer-recovery.md) handles missing required answers
+before factual-value correction: it uses the existing chooser and, if needed,
+the Task 5 banner. Unknown facts may be supplied by the human; invalid existing
+values still use this task's one-correction discipline.
+
+[Task 25](task25-answer-type-conversion.md) first tries a truthful number/text
+conversion, respecting the current control's constraints and the same retry
+budget. Successful conversions continue without a skip. Persistent failures add
+metadata-only `type_conversion_attempts` to the existing skip record.
+
+Other corrections normalize a supported value or ask the existing grounded chooser for
 a concise equivalent. A second, conservative check requires all factual
 components in order, allowing only grammatical filler to be removed. Changed
 numbers, removed qualifiers/negation and omitted or new facts are rejected.
@@ -20,7 +30,9 @@ An unresolved validation is written to `data/invalid_input_skips.json` before
 discarding the application. The file is a JSON array of metadata-only records:
 timestamp, canonical job link/ID, available title/company, reason `invalid_input`,
 field labels and redacted errors, correction attempted/retry count, and failure
-reason. Existing entries are retained; the replacement document is flushed and
+reason. Task 24 adds metadata-only `required_answer_attempts` (question,
+automatic attempt, human prompt, failure reason). Existing entries are retained;
+the replacement document is flushed and
 atomically installed. An unreadable journal is never overwritten. Older retired
 `.jsonl` journals remain historical and are not modified by this feature.
 

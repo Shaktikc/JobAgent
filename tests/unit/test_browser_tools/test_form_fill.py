@@ -142,7 +142,8 @@ async def test_task4_fills_form_and_selects_listed_resume(tmp_path) -> None:
     assert outcome.steps_advanced == 0
     # Only Submit remains, so this is the terminal step: the browser is left open
     # for the human (see cleanup).
-    assert outcome.reached_terminal_step is True
+    assert outcome.reached_terminal_step is False
+    assert "City" in outcome.notes  # A required unknown cannot be reported ready for Submit.
     assert page.button_elements["b0"].clicked is False
 
 

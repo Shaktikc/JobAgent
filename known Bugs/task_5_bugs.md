@@ -148,3 +148,10 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   for the three selected groups and `{"value":"","done":false}` for the
   unanswered AWS group. Existing role-radio, native-radio, and SDUI checkbox live
   tests also pass. (uncommitted)
+
+
+### Task 26 follow-up — BUG-122
+
+Completion gating supersedes the former early-save/settle behavior. See
+[BUG-122](task_26_bugs.md) for the root cause, fix, and real LinkedIn evidence.
+Prompt and question-echo guards from BUG-037/BUG-082 remain covered.

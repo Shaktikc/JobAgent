@@ -22,6 +22,9 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 
 | File | Scope |
 |------|-------|
+| [`task_26_bugs.md`](task_26_bugs.md) | Completed human answers, inactivity, Done and persistence |
+| [`task_25_bugs.md`](task_25_bugs.md) | Truthful answer type conversion, numeric text controls and exact constraints |
+| [`task_24_bugs.md`](task_24_bugs.md) | Required-question detection and bounded answer recovery |
 | [`task_1_bugs.md`](task_1_bugs.md) | Login, job search, "Try AI job search", Easy Apply filter |
 | [`task_2_bugs.md`](task_2_bugs.md) | Select a job, find/click the Easy Apply button |
 | [`task_3_bugs.md`](task_3_bugs.md) | Read the job description, pick the best resume |
@@ -178,6 +181,16 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | BUG-113 | Task 22/9 — review input handoff | final review or a stopped manual wait left mouse/keyboard ignored | 🟢 Fixed | 811 tests + 17 browser checks; real LinkedIn input verified; uncommitted, base `b560bb6` |
 
 | BUG-114 | Task 22/4 — resume click geometry | offscreen upload/listed resume controls were missed, blocking automatic submission | 🟢 Fixed | two reproduced browser failures; 13 browser checks + 811 tests; uncommitted, base `b560bb6` |
+| BUG-115 | Task 24 — required answers | missing required-group feedback never reaches answer recovery | 🟢 Fixed | 832 tests; Chromium checks; exact real Bluebird recovery + safe skip; uncommitted, base `addac8f` |
+| BUG-116 | Task 24/5/26 — human completion | partial text is saved or reused after Skip/timeout | 🟢 Fixed | completion/recovery regressions + Chromium typing and checkbox checks; uncommitted, base `addac8f` |
+| BUG-117 | Task 24 — recovery navigation | an offscreen footer can consume the correction retry by scrolling | 🟢 Fixed | offscreen-footer browser regression + real LinkedIn recovery; uncommitted, base `addac8f` |
+| BUG-118 | Task 25 — type conversion | truthful rejected answers lack a prioritised number/text repair and conversion audit | 🟢 Fixed | Task 25 regressions + real LinkedIn review; uncommitted, base `addac8f` |
+| BUG-119 | Task 25 — numeric sanitisation | erased numeric input bypasses the original entered fact | 🟢 Fixed | failing then passing native-number Chromium case; uncommitted, base `addac8f` |
+| BUG-120 | Task 25 — SDUI numeric text | numeric questions expose only text controls and generic invalid feedback | 🟢 Fixed | real Bluebird failure then `7 years` → `7` accepted; uncommitted, base `addac8f` |
+| BUG-121 | Task 25/20 — numeric step | finite Decimal precision admits a forbidden fractional tail | 🟢 Fixed | precision regression + shared constraint tests; uncommitted, base `addac8f` |
+
+| BUG-122 | Task 26 — completion gating | unfinished answers and premature checkbox completion | 🟢 Fixed | Unit/Chromium regressions and real LinkedIn; uncommitted, base `addac8f` |
+| BUG-123 | General — classic browser fixture | required unknown City prevents the expected second step | 🔴 Open | Reproduced twice; Task 26 prompt disabled in fixture |
 
 ## Template for new entries
 

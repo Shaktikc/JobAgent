@@ -10,18 +10,23 @@ application** remains) or a step stops advancing. It never clicks Submit.
 from __future__ import annotations
 
 import asyncio
-import time
 
 from src.configuration import Settings
-from src.state import FormField, JobAnswerContext, Task4Outcome, Task5Outcome
+from src.state import JobAnswerContext, Task4Outcome, Task5Outcome
 from src.tools.browser import _append_note, _marker_element, _pace, _safe
-from src.tools.forms import looks_like_next, looks_like_submit, pick_next_button
+from src.tools.forms import looks_like_next, pick_next_button
 from src.tools.job_context_answers import build_fill_chooser
 from src.tools.linkedin_ask_human import ask_human_for_answer
 from src.tools.linkedin_easy_apply_fill.field_filling import _choice_hint, _fill_step
 from src.tools.linkedin_easy_apply_fill.form_queries import read_form, read_form_buttons
 from src.tools.linkedin_easy_apply_fill.resume_attachment import _attach_resume
+from src.tools.linkedin_easy_apply_fill.step_state import (
+    _blocked_note,
+    _blocking_questions,
+    _form_signature,
+)
 from src.tools.linkedin_status_overlay import emit_step
+from src.tools.linkedin_validation.conversion_flow import finish_conversions
 from src.tools.linkedin_validation.correction import (
     RecheckCorrectedStep,
     RejectedUnknownAnswer,
@@ -30,118 +35,17 @@ from src.tools.linkedin_validation.correction import (
 )
 from src.tools.linkedin_validation.detection import read_rejections
 from src.tools.linkedin_validation.navigation import finish_advance
+from src.tools.linkedin_validation.required_answers import AnswerAttempts
+from src.tools.linkedin_validation.required_controls import unanswered_issues
 from src.tools.linkedin_validation.skip import persist_and_close
 from src.tools.llm_answers import AnswerChooser
+
+from .readiness import _step_when_ready
 
 # How many steps of a multi-step Easy Apply form to walk before stopping. The
 # form is dynamic, so this is only a safety cap: the walk stops as soon as there
 # is no Next button or the step stops changing.
 _MAX_FORM_STEPS = 10
-
-
-def _form_signature(title: str, fields: list[dict], step: str = "") -> str:
-    """A stable fingerprint of a form step, to detect that Next did not advance.
-
-    ``step`` is the step identity from :func:`read_form` (the modal's progress
-    indicator plus its headings). It matters because LinkedIn's review/edit steps
-    hold no fillable controls: without ``step``, two such steps would fingerprint
-    identically and the walk would stop as if Next had not advanced.
-    """
-    parts = [title or "", step or ""]
-    for field in fields:
-        parts.append(
-            "|".join(str(field.get(key, "")) for key in ("kind", "question", "name", "option"))
-        )
-    return "\n".join(parts)
-
-
-def _step_has_controls(fields: list[dict], buttons: list[dict]) -> bool:
-    """True when a read step has rendered something the walk can act on.
-
-    LinkedIn's newer SDUI Easy Apply renders the ``<dialog>`` and its heading
-    before the contact fields and navigation footer. Such an empty shell is *not*
-    a terminal step: it must be re-read until the step renders. A step is ready
-    when it has fillable fields or a navigation/submit button (a dismiss button
-    is not navigation).
-    """
-    if fields:
-        return True
-    return any(
-        looks_like_next(str(button.get("text") or ""))
-        or looks_like_submit(str(button.get("text") or ""))
-        for button in buttons
-    )
-
-
-async def _step_when_ready(
-    page,
-    settings: Settings,
-    opened: bool,
-    title: str,
-    fields: list[dict],
-    step: str,
-) -> tuple[bool, str, list[dict], str, bool, list[dict] | None]:
-    """Wait for a just-opened Easy Apply step to finish rendering (BUG-056).
-
-    The modal's heading can appear well before its fields and footer, and an empty
-    read used to look like the terminal step (no Next) — so the walk stopped with
-    no resume and no fields. Poll for real controls up to the easy-apply timeout
-    and report ``ready=False`` when the form never renders them.
-
-    When the step has no fields the buttons read here are returned so the caller
-    can reuse them after filling (nothing was filled), instead of reading them a
-    second time; a fake/lagging page that advances its button state on every read
-    would otherwise look like the step had changed.
-    """
-    if not opened or fields:
-        return opened, title, fields, step, bool(opened), None
-
-    buttons = await read_form_buttons(page)
-    if _step_has_controls(fields, buttons):
-        return opened, title, fields, step, True, buttons
-
-    deadline = time.monotonic() + settings.session.easy_apply_timeout_seconds
-    while time.monotonic() < deadline:
-        await asyncio.sleep(min(0.5, max(deadline - time.monotonic(), 0)))
-        opened, title, fields, step = await read_form(page)
-        if not opened:
-            return opened, title, fields, step, False, buttons
-        if fields:
-            return opened, title, fields, step, True, None
-        buttons = await read_form_buttons(page)
-        if _step_has_controls(fields, buttons):
-            return opened, title, fields, step, True, buttons
-    return opened, title, fields, step, False, buttons
-
-
-def _blocking_questions(records: list[FormField]) -> list[str]:
-    """Required questions on a step that are still unanswered or unfilled.
-
-    A field can be *known* (an answer was chosen) but not *filled* (the click or
-    input failed). LinkedIn still blocks **Review**/Next on it, so it must be
-    reported alongside a genuinely unknown question.
-    """
-    blocking: list[str] = []
-    for record in records:
-        if not record.required or (record.known and record.filled):
-            continue
-        question = record.question or record.name
-        if record.error:
-            question = f"{question} ({record.error})"
-        if question and question not in blocking:
-            blocking.append(question)
-    return blocking
-
-
-def _blocked_note(prefix: str, blocking: list[str]) -> str:
-    """A clear "why the form stopped" note, naming the required unknown answers."""
-    if blocking:
-        return (
-            f"{prefix}; required questions are unanswered: "
-            + ", ".join(blocking)
-            + " - stopping before Submit"
-        )
-    return f"{prefix}; stopping before Submit"
 
 
 async def _blur_active(page) -> None:
@@ -194,7 +98,14 @@ async def _task4_on_page(
 
         async def _ask_question(question: str, field: dict) -> str | None:
             await reject_before_human_prompt(
-                page, fields, question, chooser, outcome, notify, corrected_steps, signature,
+                page,
+                fields,
+                question,
+                chooser,
+                outcome,
+                notify,
+                corrected_steps,
+                signature,
             )
             markers = field.get("markers")
             if markers is None and field.get("marker") is not None:
@@ -219,6 +130,7 @@ async def _task4_on_page(
 
         asker = _ask_question
 
+    attempts = AnswerAttempts(settings, human, chooser, asker, notify, answers)
     previous: str | None = None
     pending_advance = False
     blocking: list[str] = []
@@ -244,9 +156,19 @@ async def _task4_on_page(
         )
         if pending_advance:
             opened, title, fields, step = await finish_advance(
-                page, (opened, title, fields, step), previous, settings, notify,
-                outcome, chooser, corrected_steps, read=read_form, buttons=read_form_buttons,
-                signature_of=_form_signature, blur=_blur_active,
+                page,
+                (opened, title, fields, step),
+                previous,
+                settings,
+                notify,
+                outcome,
+                chooser,
+                corrected_steps,
+                read=read_form,
+                buttons=read_form_buttons,
+                signature_of=_form_signature,
+                blur=_blur_active,
+                required_attempts=attempts,
             )
             signature = _form_signature(title, fields, step)
             if outcome.validation.issues:
@@ -280,19 +202,38 @@ async def _task4_on_page(
             break
         signature = _form_signature(title, fields, step)
         previous = signature
+        attempts.step = signature
 
         outcome.form_open = True
         outcome.fields_enumerated += len(fields)
         try:
             known, filled, unknown, records = await _fill_step(
-                page, fields, answers, settings, ask=asker, human=human,
-                chooser=chooser, status=notify,
+                page,
+                fields,
+                answers,
+                settings,
+                ask=attempts.ask,
+                human=human,
+                chooser=attempts.choose,
+                status=notify,
             )
         except RecheckCorrectedStep:
             continue
         except RejectedUnknownAnswer as exc:
             outcome.validation = failure(
-                exc.issues, attempted=exc.attempted, reason=exc.reason,
+                exc.issues,
+                attempted=exc.attempted,
+                reason=exc.reason,
+                previous=outcome.validation,
+            )
+            break
+        except Exception as exc:
+            issues = unanswered_issues(fields) or [
+                {"question": "", "message": "The required answer could not be resolved"},
+            ]
+            outcome.validation = failure(
+                issues, reason=f"answer resolution failed ({type(exc).__name__})",
+                previous=outcome.validation,
             )
             break
         outcome.known_fields += known
@@ -305,13 +246,50 @@ async def _task4_on_page(
 
         buttons = ready_buttons if ready_buttons is not None else await read_form_buttons(page)
         button = pick_next_button(buttons)
-        if button is None and await read_rejections(page, fields):
+        try:
+            rejected = await read_rejections(page, fields)
+        except Exception as exc:
+            outcome.validation = failure(
+                unanswered_issues(fields)
+                or [{"question": "", "message": "Validation read failed"}],
+                reason=f"validation read failed ({type(exc).__name__})",
+                previous=outcome.validation,
+            )
+            break
+        if rejected or _blocking_questions(records):
+            if any(looks_like_next(b.get("text", "")) for b in buttons):
+                outcome.notes = _append_note(
+                    outcome.notes,
+                    _blocked_note(
+                        "the only navigation button is disabled"
+                        if button is None
+                        else "required questions need an answer",
+                        _blocking_questions(records),
+                    ),
+                )
             current = await finish_advance(
-                page, (opened, title, fields, step), previous, settings, notify,
-                outcome, chooser, corrected_steps, read=read_form, buttons=read_form_buttons,
-                signature_of=_form_signature, blur=_blur_active,
+                page,
+                (opened, title, fields, step),
+                previous,
+                settings,
+                notify,
+                outcome,
+                chooser,
+                corrected_steps,
+                read=read_form,
+                buttons=read_form_buttons,
+                signature_of=_form_signature,
+                blur=_blur_active,
+                required_attempts=attempts,
             )
             if outcome.validation.issues:
+                break
+            if not current[0]:
+                outcome.validation = failure(
+                    rejected or unanswered_issues(fields),
+                    reason="form closed during required-answer recovery",
+                    previous=outcome.validation,
+                )
                 break
             if _form_signature(current[1], current[2], current[3]) != previous:
                 pending_advance = True
@@ -338,7 +316,7 @@ async def _task4_on_page(
                 )
             break
 
-        element = await _marker_element(page, "data-autojob-btn", button["marker"])
+        element = await _safe(_marker_element(page, "data-autojob-btn", button["marker"]))
         if element is None:
             outcome.notes = _append_note(
                 outcome.notes, "navigation button disappeared before it could be clicked"
@@ -363,9 +341,21 @@ async def _task4_on_page(
         )
 
     if outcome.validation.issues:
+        finish_conversions(outcome.validation)
+        outcome.validation.required_answer_attempts = attempts.audit()
+        outcome.notes = _append_note(
+            outcome.notes,
+            _blocked_note(
+                "form did not advance",
+                [issue.question for issue in outcome.validation.issues],
+            ),
+        )
         await persist_and_close(
-            page, {"job_description": context.job_description} if context else {},
-            outcome, settings, notify,
+            page,
+            {"job_description": context.job_description} if context else {},
+            outcome,
+            settings,
+            notify,
         )
     outcome.page_url = await _safe(page.get_url(), None)
     return outcome

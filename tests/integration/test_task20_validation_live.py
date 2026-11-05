@@ -107,7 +107,7 @@ async def test_walker_corrects_once_then_recovers_or_reports_rejection(tmp_path,
         await browser.kill()
 
 
-async def test_unknown_rejected_answer_does_not_wait_for_human(tmp_path, monkeypatch):
+async def test_missing_required_answer_asks_human_once_before_safe_stop(tmp_path, monkeypatch):
     settings = Settings(
         data_dir=tmp_path / "data",
         session=SessionSettings(
@@ -134,11 +134,14 @@ async def test_unknown_rejected_answer_does_not_wait_for_human(tmp_path, monkeyp
         async def unknown(question, kind, options):
             return QuestionDecision(question=question)
 
-        async def forbidden(*args, **kwargs):
-            pytest.fail("a rejected unknown answer must be skipped, not sent to a human prompt")
+        prompts = []
+
+        async def skipped(page, question, *args, **kwargs):
+            prompts.append(question)
+            return None
 
         monkeypatch.setattr(
-            "src.tools.linkedin_easy_apply_fill.form_walk.ask_human_for_answer", forbidden
+            "src.tools.linkedin_easy_apply_fill.form_walk.core.ask_human_for_answer", skipped
         )
         outcome = await _task4_on_page(
             page,
@@ -152,5 +155,6 @@ async def test_unknown_rejected_answer_does_not_wait_for_human(tmp_path, monkeyp
         assert outcome.validation.issues
         assert not outcome.validation.retry_count
         assert not outcome.reached_terminal_step
+        assert prompts == ["Secret unknown question*"]
     finally:
         await browser.kill()

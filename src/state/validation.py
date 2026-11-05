@@ -2,10 +2,19 @@
 
 from pydantic import BaseModel, Field
 
+from src.state.type_conversion import TypeConversionAttempt
+
 
 class ValidationIssue(BaseModel):
     question: str = ""
     message: str = ""
+
+
+class RequiredAnswerAttempt(BaseModel):
+    question: str = ""
+    automatic_attempted: bool = False
+    human_prompted: bool = False
+    failure: str = ""
 
 
 class ValidationFailure(BaseModel):
@@ -13,6 +22,8 @@ class ValidationFailure(BaseModel):
     correction_attempted: bool = False
     retry_count: int = 0
     correction_failure: str = ""
+    required_answer_attempts: list[RequiredAnswerAttempt] = Field(default_factory=list)
+    type_conversion_attempts: list[TypeConversionAttempt] = Field(default_factory=list)
     job_url: str = ""
     job_id: str = ""
     log_path: str = ""

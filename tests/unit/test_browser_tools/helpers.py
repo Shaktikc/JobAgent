@@ -143,7 +143,7 @@ def _human_asker(
                     task5.answered_questions.append(question)
         return answer
 
-    monkeypatch.setattr(fill_tools.form_walk, "ask_human_for_answer", fake_ask)
+    monkeypatch.setattr(fill_tools.form_walk.core, "ask_human_for_answer", fake_ask)
 
 
 def _store_chooser(answers: dict[str, str]):

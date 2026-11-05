@@ -51,8 +51,8 @@ async def test_task4_stops_when_dynamic_form_does_not_advance(tmp_path) -> None:
     # The note names the required answers that blocked Next, for a clear stop.
     assert "Email address" in outcome.notes
     assert "Mobile phone number" in outcome.notes
-    # It tried once and stopped (no blind retry loop).
-    assert page.button_elements["b0"].clicked is True
+    # Required-answer preflight now stops before clicking an unresolved step.
+    assert page.button_elements["b0"].clicked is False
 
 
 async def test_task4_stops_clearly_when_next_is_disabled(tmp_path) -> None:

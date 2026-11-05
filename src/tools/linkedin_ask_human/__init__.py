@@ -3,9 +3,9 @@
 1. Receive a form question the LLM (Task 4.1/10) could not answer from the store.
 2. Show a visible browser banner saying the agent does not know the answer, pause
    the run, and read the answer the human types into (or chooses on) the form
-   control itself. The answer is stored the moment it is seen (not only when the
-   wait ends) and the banner confirms with a "saved" message, so nothing is lost
-   to a timeout or a manual submit.
+   control itself. The answer is stored only after completion (blur, Enter, or
+   Done), then the banner confirms with a "saved" message. An inactivity timeout
+   or Skip discards unfinished values. Checkbox groups require Done.
 3. Remember the question -> answer mapping so Task 4.1/10 can reuse it next time.
 
 The banner has no input: the human edits the real form control and this module

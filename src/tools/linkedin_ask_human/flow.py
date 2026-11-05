@@ -2,8 +2,8 @@
 
 Split out of :mod:`src.tools.linkedin_ask_human` so each module stays small.
 The run pauses here for an unknown question instead of guessing: the human
-answers in the real form control, the answer is stored the moment it is seen,
-and the banner confirms it was saved.
+answers in the real form control, the completed answer is stored, and the
+banner confirms it was saved. Unfinished values never leave the wait loop.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from src.configuration import Settings
 from src.state import Task5Outcome
 from src.tools.answers import answer_echoes_question
 from src.tools.browser import _append_note, _loads, _safe
+from src.tools.forms import is_prompt_answer
 from src.tools.linkedin_ask_human.answer_js import (
     _READ_FORM_ANSWER_JS,
     _WATCH_FORM_ANSWER_JS,
@@ -28,16 +29,13 @@ from src.tools.linkedin_ask_human.banner_js import (
     _SAVED_VISIBLE_SECONDS,
     _SHOW_UNKNOWN_JS,
 )
+from src.tools.linkedin_ask_human.completion_js import _UPDATE_PENDING_JS
 from src.tools.linkedin_ask_human.store import _store_answer
 from src.tools.linkedin_status_overlay import emit_step
 
 # A question whose "label" is really a raw form id (e.g. ``radio-group-_r_1t_``)
 # means the label could not be read from the markup.
 _UNLABELED_QUESTION_RE = re.compile(r"radio-group[-_]|(?:^|[-_])r_[0-9a-z]+_", re.IGNORECASE)
-
-# How long a multi-select answer must stay unchanged before the banner closes: the
-# human ticks one box at a time, so an immediate close would miss later ticks.
-_MULTI_SELECT_SETTLE_SECONDS = 1.5
 
 
 def _looks_unlabeled(question: str) -> bool:
@@ -54,9 +52,7 @@ async def _dump_question_context(
         return
     try:
         payload = _loads(
-            await _safe(
-                page.evaluate(_DUMP_HOSTS_JS, list(markers or []), str(name or "")), ""
-            )
+            await _safe(page.evaluate(_DUMP_HOSTS_JS, list(markers or []), str(name or "")), "")
         )
         html = str(payload.get("html") or "")
         if not html:
@@ -102,8 +98,8 @@ async def ask_human_for_answer(
     ``markers`` are the form markers (``data-autojob-fill``) of the question's
     control(s). They scope the watcher so an unrelated edit is never captured.
 
-    The answer is stored the moment it is seen — well before the wait ends — and
-    the banner shows a "saved" confirmation so the human knows it was kept.
+    Only a completed answer is stored or returned, using the watcher's completion
+    signal. The banner confirms the saved final value.
     """
     human = human if human is not None else Task5Outcome()
     human.enabled = True
@@ -118,18 +114,12 @@ async def ask_human_for_answer(
         return None
 
     kind = f" ({field_type})" if field_type else ""
-    notify(
-        f"Task 5: I do not know {question!r}{kind}; answer it in the form "
-        "field in the browser."
-    )
+    notify(f"Task 5: I do not know {question!r}{kind}; answer it in the form field in the browser.")
     emit_step(
         notify,
-        f"Waiting for you - I do not know {question!r}{kind}; "
-        "answer it in the form on the page.",
+        f"Waiting for you - I do not know {question!r}{kind}; answer it in the form on the page.",
     )
-    await _dump_question_context(
-        page, question, markers, name, field_type, settings, notify
-    )
+    await _dump_question_context(page, question, markers, name, field_type, settings, notify)
     markers_arg = list(markers or [])
     name_arg = str(name or "")
     options_arg = list(options or [])
@@ -137,16 +127,16 @@ async def ask_human_for_answer(
     # already holds an answer, take it now instead of waiting for a fresh edit.
     pre = _loads(
         await _safe(
-            page.evaluate(
-                _READ_FORM_ANSWER_JS, markers_arg, name_arg, question, options_arg
-            ),
+            page.evaluate(_READ_FORM_ANSWER_JS, markers_arg, name_arg, question, options_arg),
             "",
         )
     )
     pre_answer = str(pre.get("value") or "").strip()
-    if pre_answer and answer_echoes_question(question, pre_answer):
+    if pre_answer and (
+        answer_echoes_question(question, pre_answer) or is_prompt_answer(pre_answer)
+    ):
         pre_answer = ""  # a misread choice/aria-label is not an answer (BUG-082)
-    if pre_answer:
+    if pre_answer and pre.get("done"):
         _store_answer(settings, question, pre_answer, human)
         await _finish_question(page, pre_answer)
         human.answered += 1
@@ -156,13 +146,9 @@ async def ask_human_for_answer(
         return pre_answer
 
     deadline = time.monotonic() + settings.session.ask_timeout_seconds
-    last_saved = ""
-    # A "select all that apply" question is usually answered one box at a time, so
-    # a tick alone does not mean the human is finished. Wait for the selection to
-    # settle before closing the banner, or the later ticks are missed (BUG-059).
-    multi = len(options_arg) > 1
-    settle_until = 0.0
-    while time.monotonic() < deadline:
+    activity = pre.get("activity")
+    pending = pre_answer
+    while True:
         payload = _loads(await _safe(page.evaluate(_READ_UNKNOWN_JS), ""))
         if str(payload.get("state") or "") == "skipped":
             await _safe(page.evaluate(_HIDE_UNKNOWN_JS))
@@ -171,47 +157,34 @@ async def ask_human_for_answer(
             return None
         answer_payload = _loads(
             await _safe(
-                page.evaluate(
-                    _READ_FORM_ANSWER_JS, markers_arg, name_arg, question, options_arg
-                ),
+                page.evaluate(_READ_FORM_ANSWER_JS, markers_arg, name_arg, question, options_arg),
                 "",
             )
         )
         answer = str(answer_payload.get("value") or "").strip()
-        if answer and answer_echoes_question(question, answer):
+        if answer and (answer_echoes_question(question, answer) or is_prompt_answer(answer)):
             answer = ""  # never treat the question text as the human's answer
-        if answer and answer != last_saved:
-            # Persist immediately, before the wait even finishes, so the answer is
-            # never lost to a timeout, a skip, or a manual submit.
-            _store_answer(settings, question, answer, human)
-            last_saved = answer
-            if multi:
-                settle_until = time.monotonic() + _MULTI_SELECT_SETTLE_SECONDS
-            # Confirm in the banner that the answer has been saved.
-            await _safe(page.evaluate(_MARK_SAVED_JS, answer))
+        if answer_payload.get("activity") != activity or answer != pending:
+            activity = answer_payload.get("activity")
+            pending = answer
+            deadline = time.monotonic() + settings.session.ask_timeout_seconds
+        await _safe(page.evaluate(_UPDATE_PENDING_JS, answer))
         if answer and answer_payload.get("done"):
-            if multi and time.monotonic() < settle_until:
-                await asyncio.sleep(settings.session.ask_poll_seconds)
-                continue
+            _store_answer(settings, question, answer, human)
             await _finish_question(page, answer)
             human.answered += 1
             if question not in human.answered_questions:
                 human.answered_questions.append(question)
             notify(f"Task 5: got an answer for {question!r} from the form.")
             return answer
+        if time.monotonic() >= deadline:
+            break
         await asyncio.sleep(settings.session.ask_poll_seconds)
 
-    if last_saved:
-        # The human answered but never signalled they finished (e.g. no blur, or a
-        # custom control): keep the answer we already stored and use it.
-        await _finish_question(page, last_saved)
-        human.answered += 1
-        if question not in human.answered_questions:
-            human.answered_questions.append(question)
-        notify(f"Task 5: using the answer for {question!r} typed on the form.")
-        return last_saved
     await _safe(page.evaluate(_HIDE_UNKNOWN_JS))
     human.timed_out += 1
-    human.notes = _append_note(human.notes, f"timed out waiting for an answer to {question!r}")
-    notify(f"Task 5: timed out waiting for an answer to {question!r}.")
+    human.notes = _append_note(
+        human.notes, f"timed out waiting for you to finish answering {question!r}"
+    )
+    notify(f"Task 5: timed out waiting for you to finish answering {question!r}.")
     return None

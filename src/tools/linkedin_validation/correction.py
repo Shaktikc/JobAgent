@@ -4,8 +4,16 @@ import json
 
 from src.state.validation import ValidationFailure, ValidationIssue
 from src.tools.browser import _marker_element
+from src.tools.linkedin_status_overlay import emit_step
 from src.tools.linkedin_validation.constraints import corrected_value, preserves_facts
+from src.tools.linkedin_validation.conversion_flow import (
+    conversion_source,
+    has_conversion,
+    plan_conversion,
+    recheck_conversion,
+)
 from src.tools.linkedin_validation.detection import read_rejections
+from src.tools.linkedin_validation.required_controls import is_missing_issue
 
 
 class RejectedUnknownAnswer(Exception):
@@ -22,7 +30,10 @@ class RecheckCorrectedStep(Exception):
     """Re-enumerate a repaired field rather than misreporting it as a human answer."""
 
 
-def failure(issues, attempted=False, retries=0, reason="validation persisted after correction"):
+def failure(
+    issues, attempted=False, retries=0, reason="validation persisted after correction",
+    *, previous=None,
+):
     return ValidationFailure(
         issues=[
             ValidationIssue(question=row["question"], message=row["message"]) for row in issues
@@ -30,6 +41,7 @@ def failure(issues, attempted=False, retries=0, reason="validation persisted aft
         correction_attempted=attempted,
         retry_count=retries,
         correction_failure=reason,
+        type_conversion_attempts=previous.type_conversion_attempts if previous is not None else [],
     )
 
 
@@ -51,7 +63,8 @@ async def correct_rejections(page, issues, chooser, outcome, notify) -> tuple[bo
 
     attempted = False
     handled = set()
-    for issue in issues:
+    # All type repairs run before the grounded chooser for other rejections.
+    for issue in sorted(issues, key=lambda row: not has_conversion(row, outcome)):
         field = issue.get("field") or {}
         key = (field.get("question"), field.get("name"), field.get("kind"))
         if key in handled:
@@ -75,8 +88,9 @@ async def correct_rejections(page, issues, chooser, outcome, notify) -> tuple[bo
         record = next(
             (row for row in reversed(outcome.fields) if row.question == field.get("question")), None
         )
-        source = str(field.get("value") or (record.value if record else ""))
-        answer = _valid_answer(field, source)
+        source = conversion_source(field, outcome)
+        converted, conversion = plan_conversion(field, source, outcome)
+        answer = converted if converted is not None else _valid_answer(field, source)
         if answer is None and chooser is not None:
             constraints = {
                 key: field[key]
@@ -120,11 +134,20 @@ async def correct_rejections(page, issues, chooser, outcome, notify) -> tuple[bo
         element = await _marker_element(page, "data-autojob-fill", current["marker"])
         if element is None:
             return False, attempted
+        if converted is not None:
+            answer = await recheck_conversion(element, field, source, converted)
+            if answer is None:
+                return False, attempted
+            conversion.attempted = True
+            conversion.outcome = "entry_failed"
+            emit_step(notify, f"Type conversion: {json.dumps(source)} -> {json.dumps(answer)}")
         notify("Task 20: re-entering a valid answer for a rejected required field.")
         attempted = True
         ok, _ = await _fill_field(element, current, answer)
         if not ok:
             return False, attempted
+        if converted is not None:
+            conversion.outcome = "entered"
         if record is not None:
             outcome.known_fields += int(not record.known)
             outcome.filled_fields += int(not record.filled)
@@ -145,7 +168,8 @@ async def reject_before_human_prompt(
     signature,
 ) -> None:
     """An unknown rejected answer cannot be repaired by waiting indefinitely."""
-    issues = await read_rejections(page, fields)
+    issues = [row for row in await read_rejections(page, fields)
+              if not is_missing_issue(row, fields) or has_conversion(row, outcome)]
     if not issues:
         return
     current_rejected = any(row["question"] == question for row in issues)

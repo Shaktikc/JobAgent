@@ -39,6 +39,9 @@ class _FakeButton:
         if self._on_click is not None:
             self._on_click()
 
+    async def evaluate(self, *_args):
+        return None
+
 
 class _FakeForm:
     """A tiny in-memory Easy Apply form: ``steps`` is one payload per step and
@@ -302,7 +305,7 @@ async def test_task4_human_answered_radio_survives_a_stale_marker(monkeypatch, t
     async def fake_ask(page, question_, field_type, hint, settings, notify, task5=None, **kwargs):
         return "Yes"
 
-    monkeypatch.setattr(fill_tools.form_walk, "ask_human_for_answer", fake_ask)
+    monkeypatch.setattr(fill_tools.form_walk.core, "ask_human_for_answer", fake_ask)
 
     outcome = await fill_tools._task4_on_page(
         form, None, None, {}, _settings(tmp_path, ask_human=True), lambda _m: None
