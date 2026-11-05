@@ -44,15 +44,22 @@ OpenAI-compatible LLM endpoint.
 
 ## Why it's interesting
 
-Most "AI apply" tools hand the whole task to an LLM and hope for the best.
+JobAgent uses a **hybrid automation approach**. Asking a browser agent to reason
+through every click and keystroke adds latency and consumes LLM tokens. The
+hybrid design keeps repetitive browser actions deterministic and reserves LLM
+calls for focused tasks, reducing the need for model calls during navigation.
 JobAgent splits the work:
 
-- **Deterministic browser automation** handles the clicking, typing, pagination,
-  and form navigation.
-- **The LLM only makes judgement calls** — which resume fits, and which stored
-  answer answers a question.
+- **Deterministic browser automation** handles clicking, typing, pagination,
+  and form navigation through browser-use's CDP controls. Playwright's CLI is
+  used to install Chromium during setup; the application uses browser-use for
+  these browser interactions. Controls are discovered at runtime to handle
+  dynamic Easy Apply forms.
+- **LLMs handle focused tasks:** resume profiling and selection, matching or
+  deriving supported answers, answering job-specific questions, and self-healing
+  through the optional OpenCode repair hook.
 - **Your answers become reusable memory.** When JobAgent asks you a question,
-  it saves your completed answer in `data/answers.json`. When the same or a
+  the application saves your completed answer in `data/answers.json`. When the same or a
   similar question appears later, the LLM can reuse the relevant stored answer.
   If it cannot find or derive a supported answer, it asks you in the browser.
 - **Focused LLM tasks improve reliability.** Resume matching, answer selection,
@@ -176,8 +183,9 @@ uv sync
 # 2. Create your local environment file (optional; defaults are safe)
 cp .env.example .env
 
-# 3. Add one or more resumes (.pdf, .docx, .txt, .md)
-#    to the resumes/ folder
+# 3. Create the resumes folder in the project root (if it does not exist)
+mkdir resumes
+# Copy your resume files into resumes/ (see "Adding your resumes" below)
 
 # 4. Validate the whole graph offline
 uv run jobagent --dry-run
@@ -193,12 +201,48 @@ uv run jobagent --no-dry-run
 On the first real run, log in to LinkedIn in the Chromium window that opens. The
 persistent profile in `data/profile` keeps you logged in for later runs.
 
-To add a resume later, drop it in `resumes/new/`. The next matching run describes
-it and moves it into `resumes/`, or you can do that immediately:
+### Adding your resumes
+
+1. Open the project root — the folder containing `README.md` and `pyproject.toml`.
+2. Create a folder named `resumes` if it does not already exist.
+3. Copy one or more of your existing resumes directly into that folder. Supported
+   formats are `.pdf`, `.docx`, `.txt`, and `.md`. Use a PDF with selectable text;
+   the current PDF reader extracts text and does not perform OCR on scanned images.
+
+For example:
+
+```text
+JobAgent/
+  README.md
+  pyproject.toml
+  resumes/
+    software_engineer.pdf
+    data_analyst.docx
+```
+
+Use descriptive filenames to make your resumes easy to identify. The matcher
+reads their contents, builds LLM profiles, and selects the best match for each
+job; it does not choose by filename alone. Keep the initial files directly in
+`resumes/`, since the resume pool does not scan nested folders. Configure your
+LLM API key and model as described in [Configuration](#configuration) before a
+real matching run. The offline dry run does not profile your resumes.
+
+To add a resume later, create `resumes/new/` if needed and copy the new file
+there. This is a special intake folder: the next matching run describes the
+resume and moves it into `resumes/` without changing its contents. You can also
+process the intake folder immediately:
 
 ```bash
 uv run jobagent --describe-new-resumes
 ```
+
+If profiling fails, the file stays in `resumes/new/` so you can fix the reported
+error and retry. This command processes the intake folder, not files already
+in the main resume pool.
+
+To use a different resume folder, pass `--resumes-dir /path/to/resumes` or set
+`AUTOJOB_RESUMES_DIR` in `.env`. Its intake folder defaults to `new/` inside that
+folder unless `AUTOJOB_NEW_RESUMES_DIR` is explicitly configured.
 
 ## Configuration
 
