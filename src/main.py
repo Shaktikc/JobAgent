@@ -16,6 +16,7 @@ from src.date_range import (
 )
 from src.date_range_choice import choose_date_range
 from src.graph import graph
+from src.search_query_choice import choose_search_query
 from src.state import (
     DEFAULT_LOGIN_URL,
     DEFAULT_SEARCH_QUERY,
@@ -55,8 +56,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--query",
-        default=DEFAULT_SEARCH_QUERY,
-        help=f"Job search query (default: {DEFAULT_SEARCH_QUERY!r})",
+        default=None,
+        help=f"Job search query; asked when omitted (default: {DEFAULT_SEARCH_QUERY!r}).",
     )
     parser.add_argument(
         "--date-range",
@@ -270,7 +271,7 @@ async def _run(args: argparse.Namespace) -> ApplyState:
     resumes_dir = args.resumes_dir or str(settings.resumes_dir)
     state = new_state(
         args.url,
-        search_query=args.query,
+        search_query=choose_search_query(args.query, interactive=False),
         dry_run=args.dry_run,
         resumes_dir=resumes_dir,
         date_range=args.date_range or DEFAULT_DATE_RANGE,
@@ -360,9 +361,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: could not process new resumes: {exc}", file=sys.stderr)
             return 1
 
-    # Task 17: ask which range to scan first. A non-interactive stdin (tests,
-    # piped output, LangGraph Studio) keeps the Past 24 hours default.
+    # Ask what to search before asking how recent (Tasks 18/17).
     try:
+        load_settings()  # Load login settings before the startup questions.
+        args.query = choose_search_query(
+            args.query, interactive=False if args.dry_run else None
+        )
         args.date_range = choose_date_range(args.date_range)
         args.submission_mode = choose_submission_mode(args.submission_mode)
     except ValueError as exc:

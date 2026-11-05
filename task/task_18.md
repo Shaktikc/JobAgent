@@ -1,6 +1,6 @@
 # Task 18 — Ask for the job search query at startup
 
-**Status:** ⬜ Not started
+**Status:** 🟡 In progress
 
 **Goal:** Every time the agent runs, it asks the human **what job to search
 for** before launching the browser, then uses that answer as the LinkedIn jobs

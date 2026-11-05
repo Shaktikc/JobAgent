@@ -19,7 +19,7 @@ Each task lives in its own file. This index links to them.
 - [Task 15 — Auto-describe resumes in the new-resumes folder, then move them into resumes/ (Task 3.2)](task_15.md) — ✅ Done
 - [Task 16 — Apply only when an existing resume is a strong LLM match; skip unmatched jobs](task_16.md) — 🟡 In progress
 - [Task 17 — Fall back to "Past week" when the Past 24 hours results are exhausted; skips uncapped by default](task_17.md) — ✅ Done
-- [Task 18 — Ask for the job search query at startup](task_18.md) — ⬜ Not started
+- [Task 18 — Ask for the job search query at startup](task_18.md) — 🟡 In progress
 - [Task 19 — Ignore years-of-experience requirements when matching a job](task_19.md) — ✅ Done
 - [Task 20 — Correct invalid Easy Apply inputs; log and skip unresolved applications](task_20.md) — 🟡 In progress
 - [Task 21 — Skip every Easy Apply question without an asterisk](task_21.md) — ✅ Done

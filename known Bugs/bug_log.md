@@ -22,6 +22,7 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 
 | File | Scope |
 |------|-------|
+| [`task_18_bugs.md`](task_18_bugs.md) | Startup query live verification (TASK18-001) |
 | [`task_26_bugs.md`](task_26_bugs.md) | Completed human answers, inactivity, Done and persistence |
 | [`task_25_bugs.md`](task_25_bugs.md) | Truthful answer type conversion, numeric text controls and exact constraints |
 | [`task_24_bugs.md`](task_24_bugs.md) | Required-question detection and bounded answer recovery |
