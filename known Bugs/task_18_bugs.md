@@ -15,4 +15,4 @@
   live check passed against LinkedIn using `data engineer` (24 results, three
   verified input fills, correct query URL); local transcript:
   `data/verification/task18-live.log`. No application was opened
-  or submitted. Commit: included in the Task 18 implementation commit; hash recorded below after commit.
+  or submitted. Commit: `fbba030` (Task 18 implementation and live-test fix).

@@ -19,11 +19,28 @@ OpenAI-compatible LLM endpoint.
 > The core features have been tested and are working, but the app is still
 > under development. LinkedIn changes its UI often, so the agent discovers each
 > Easy Apply form at runtime instead of relying on fixed steps or selectors.
+
+**Next planned improvement:** I plan to integrate
+> [LangSmith](https://www.langchain.com/langsmith-platform) to trace agent steps
+> and LLM calls, debug failures, evaluate prompt and model changes, and monitor
+> latency, token usage, and costs. This will help me test improvements and catch
+> regressions as JobAgent develops.
 >
-> **Next planned feature:** when the agent starts, it will ask which job you
-> want to search for. Currently, it searches for **"software engineer"** by
-> default. You can already search for a different role using `--query`, for
-> example: `uv run jobagent --no-dry-run --query "data analyst"`.
+> **Development tasks:** The [`task/` folder](task/task.md) documents the tasks
+> I worked through step by step to develop these features. A task marked
+> **🟡 In progress** means I have not yet finished thoroughly testing and
+> reviewing its code. Even if the implementation is in place, it stays in
+> progress until I have verified that it works.
+>
+> **Job search at startup:** interactive browser runs ask what job to search
+> for, then the date range. Enter keeps **"software engineer"**. Whitespace is
+> normalized while your wording and capitalization are preserved. `--query`
+> skips only the query question; `--date-range` skips only the date question.
+> Dry runs, non-interactive runs, and maintenance modes do not ask for a query.
+> EOF/Ctrl+C at the query question also uses the default. Example:
+> `uv run jobagent --no-dry-run --query "data analyst"`.
+>
+>
 
 ## Why it's interesting
 
