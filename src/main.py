@@ -37,7 +37,7 @@ def _date_range_argument(value: str) -> str:
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        prog="autojob",
+        prog="jobagent",
         description=(
             "Log in to LinkedIn, choose Past 24 hours or Past week, search jobs, "
             "select the Easy Apply filter, open a job's Easy Apply form, pick the "
@@ -98,7 +98,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--clean-profile",
         action="store_true",
         help=(
-            "Close leftover AutoJobApply browser processes still holding the profile "
+            "Close leftover JobAgent browser processes still holding the profile "
             "(e.g. after an interrupted run) and exit."
         ),
     )

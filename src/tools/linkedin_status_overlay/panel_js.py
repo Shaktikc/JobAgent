@@ -19,7 +19,7 @@ _UPDATE_STATUS_JS = r"""
     box.id = 'autojob-status';
     box.setAttribute('role', 'status');
     box.setAttribute('aria-live', 'polite');
-    box.setAttribute('aria-label', 'AutoJobApply progress');
+    box.setAttribute('aria-label', 'JobAgent progress');
     box.setAttribute('popover', 'manual');
     box.style.cssText = [
       'position:fixed', 'inset:auto auto 24px 24px', 'margin:0',
@@ -36,7 +36,7 @@ _UPDATE_STATUS_JS = r"""
     ].join(';');
     const heading = document.createElement('div');
     heading.id = 'autojob-status-heading';
-    heading.textContent = 'AutoJobApply is working';
+    heading.textContent = 'JobAgent is working';
     heading.style.cssText = 'font-weight:600;color:#0a66c2;margin-bottom:6px';
     const current = document.createElement('div');
     current.id = 'autojob-status-current';
@@ -70,8 +70,8 @@ _UPDATE_STATUS_JS = r"""
   const heading = document.getElementById('autojob-status-heading');
   if (heading) {
     heading.textContent = isLLM
-      ? 'AutoJobApply - the LLM is working'
-      : 'AutoJobApply is working';
+      ? 'JobAgent - the LLM is working'
+      : 'JobAgent is working';
     heading.style.color = isLLM ? '#6a3fb5' : '#0a66c2';
   }
   return true;

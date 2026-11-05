@@ -1,4 +1,4 @@
-# AutoJobApply
+# JobAgent
 
 **An AI-powered LinkedIn Easy Apply assistant.** It searches for jobs, picks the
 resume that fits best, and fills out the application in a real browser — and it
@@ -22,7 +22,7 @@ OpenAI-compatible LLM endpoint.
 ## Why it's interesting
 
 Most "AI apply" tools hand the whole task to an LLM and hope for the best.
-AutoJobApply splits the work:
+JobAgent splits the work:
 
 - **Deterministic browser automation** handles the clicking, typing, pagination,
   and form navigation.
@@ -145,14 +145,14 @@ cp .env.example .env
 #    to the resumes/ folder
 
 # 4. Validate the whole graph offline
-uv run autojob --dry-run
+uv run jobagent --dry-run
 
 # 5. For a real run, install the browser layer once
 uv sync --extra browser
 uvx playwright install chromium
 
 # 6. Launch the agent
-uv run autojob --no-dry-run
+uv run jobagent --no-dry-run
 ```
 
 On the first real run, log in to LinkedIn in the Chromium window that opens. The
@@ -162,7 +162,7 @@ To add a resume later, drop it in `resumes/new/`. The next matching run describe
 it and moves it into `resumes/`, or you can do that immediately:
 
 ```bash
-uv run autojob --describe-new-resumes
+uv run jobagent --describe-new-resumes
 ```
 
 ## Configuration
@@ -222,21 +222,21 @@ written to either file.
 
 ```bash
 # Offline wiring check (default)
-uv run autojob --dry-run
+uv run jobagent --dry-run
 
 # Real run: asks for date range and submission mode
-uv run autojob --no-dry-run
-uv run autojob --no-dry-run --date-range week
-uv run autojob --no-dry-run --query "software engineer" --resumes-dir ./resumes
+uv run jobagent --no-dry-run
+uv run jobagent --no-dry-run --date-range week
+uv run jobagent --no-dry-run --query "software engineer" --resumes-dir ./resumes
 
 # Skip the submission prompt
-uv run autojob --no-dry-run --submission-mode auto
-uv run autojob --no-dry-run --submission-mode manual
+uv run jobagent --no-dry-run --submission-mode auto
+uv run jobagent --no-dry-run --submission-mode manual
 
 # Resume intake, profile cleanup, raw JSON output
-uv run autojob --describe-new-resumes
-uv run autojob --clean-profile
-uv run autojob --json
+uv run jobagent --describe-new-resumes
+uv run jobagent --clean-profile
+uv run jobagent --json
 ```
 
 `--date-range` accepts `24h`/`past_24_hours` or `week`/`past_week`. When omitted,
@@ -320,9 +320,9 @@ session.
 
 ## Troubleshooting
 
-- **"another browser is already using the AutoJobApply profile"** — a previous
+- **"another browser is already using the JobAgent profile"** — a previous
   run still owns `data/profile`. Close that window or run
-  `uv run autojob --clean-profile`. Only browsers using the dedicated profile are
+  `uv run jobagent --clean-profile`. Only browsers using the dedicated profile are
   closed; your normal Chrome is untouched.
 - **"Browser process … exited before CDP became available"** — a crashed run
   left a stale single-instance lock. The next launch clears it automatically. If a
@@ -338,3 +338,6 @@ session.
 - [Validation recovery](docs/task20-validation-recovery.md)
 - [Answer completion feedback](docs/task26-answer-completion.md)
 - [Resume matching verification](docs/task16-verification.md)
+
+The `autojob` command remains available as an alias. Existing `AUTOJOB_*`
+settings remain supported.

@@ -1,4 +1,4 @@
-"""Verify optional-question skipping in the dedicated AutoJobApply LinkedIn browser.
+"""Verify optional-question skipping in the dedicated JobAgent LinkedIn browser.
 
 Default: run the production fill filter with an unknown chooser, without filling
 required answers or navigating. --walk enables the normal human-answer flow and

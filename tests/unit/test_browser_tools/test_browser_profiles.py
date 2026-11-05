@@ -122,7 +122,7 @@ def test_build_browser_refuses_to_kill_a_live_browser_holding_the_profile(
 
     monkeypatch.setattr(profiles, "terminate_profile_browsers", fake_terminate)
 
-    with pytest.raises(RuntimeError, match="already using the AutoJobApply profile"):
+    with pytest.raises(RuntimeError, match="already using the JobAgent profile"):
         browser_tools.build_browser(settings)
 
     # The live browser was left untouched, so the other run keeps its CDP link.

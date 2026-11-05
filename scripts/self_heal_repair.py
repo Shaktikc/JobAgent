@@ -65,7 +65,7 @@ def build_prompt(
     """Build the repair instruction sent to the OpenCode agent."""
     bug = bug_id or "the recorded bug"
     return (
-        f"You are the AutoJobApply self-healing repair agent. A live LinkedIn "
+        f"You are the JobAgent self-healing repair agent. A live LinkedIn "
         f"Easy Apply run just failed and the self-healing loop stopped on a "
         f"structural error. Fix the code so the same step works next time.\n\n"
         f"Failure: {bug}, category `{category or 'unknown'}`, fingerprint "

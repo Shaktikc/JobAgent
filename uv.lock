@@ -142,7 +142,7 @@ wheels = [
 ]
 
 [[package]]
-name = "autojobapply"
+name = "jobagent"
 version = "0.8.2"
 source = { editable = "." }
 dependencies = [

@@ -136,7 +136,7 @@ def build_browser(settings: Settings):
         if live:
             pids = ", ".join(str(pid) for pid in live)
             raise RuntimeError(
-                "another browser is already using the AutoJobApply profile "
+                "another browser is already using the JobAgent profile "
                 f"{settings.profile_dir} (process id(s): {pids}). Close that "
                 "window (or wait for the other run to finish), then retry; to "
                 "force-close it run `autojob --clean-profile`."

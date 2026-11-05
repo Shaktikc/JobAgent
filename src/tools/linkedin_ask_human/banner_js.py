@@ -22,7 +22,7 @@ _SHOW_UNKNOWN_JS = r"""
     box = document.createElement('div');
     box.id = 'autojob-unknown';
     box.setAttribute('role', 'alertdialog');
-    box.setAttribute('aria-label', 'AutoJobApply needs an answer');
+    box.setAttribute('aria-label', 'JobAgent needs an answer');
     // Render in the browser's top layer so LinkedIn's modal (its own high z-index
     // and stacking context) can never cover the banner. The ``popover`` top layer,
     // unlike a modal ``<dialog>``, leaves the rest of the page interactive.
@@ -35,7 +35,7 @@ _SHOW_UNKNOWN_JS = r"""
       "font:14px/1.4 -apple-system,'Segoe UI',Roboto,Arial,sans-serif"
     ].join(';');
     const heading = document.createElement('div');
-    heading.textContent = 'AutoJobApply does not know this answer';
+    heading.textContent = 'JobAgent does not know this answer';
     heading.style.cssText = 'font-weight:600;color:#b24020;margin-bottom:8px';
     const q = document.createElement('div');
     q.id = 'autojob-unknown-question';

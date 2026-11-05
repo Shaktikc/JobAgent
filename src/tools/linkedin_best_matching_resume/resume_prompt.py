@@ -29,7 +29,7 @@ _SHOW_RESUME_JS = r"""
     box = document.createElement('div');
     box.id = 'autojob-resume';
     box.setAttribute('role', 'dialog');
-    box.setAttribute('aria-label', 'AutoJobApply needs a resume');
+    box.setAttribute('aria-label', 'JobAgent needs a resume');
     box.style.cssText = [
       'position:fixed', 'right:24px', 'bottom:24px', 'z-index:2147483647',
       'max-width:420px', 'background:#ffffff', 'color:#1a1a1a',
@@ -38,7 +38,7 @@ _SHOW_RESUME_JS = r"""
       "font:14px/1.4 -apple-system,'Segoe UI',Roboto,Arial,sans-serif"
     ].join(';');
     const heading = document.createElement('div');
-    heading.textContent = 'AutoJobApply needs a resume';
+    heading.textContent = 'JobAgent needs a resume';
     heading.style.cssText = 'font-weight:600;color:#b24020;margin-bottom:8px';
     const msg = document.createElement('div');
     msg.id = 'autojob-resume-message';

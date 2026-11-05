@@ -1,6 +1,6 @@
 """Exercise one real required-phone validation and restore its known value.
 
-Use only the dedicated AutoJobApply browser with an open contact step. The
+Use only the dedicated JobAgent browser with an open contact step. The
 existing phone number stays in memory: clearing it triggers required-field
 feedback, then production recovery re-enters the same known value and advances.
 No answer is invented, no final application is submitted, and no value is logged.
