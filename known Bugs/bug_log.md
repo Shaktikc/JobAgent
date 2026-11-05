@@ -192,7 +192,10 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 | BUG-122 | Task 26 — completion gating | unfinished answers and premature checkbox completion | 🟢 Fixed | Unit/Chromium regressions and real LinkedIn; uncommitted, base `addac8f` |
 | BUG-123 | General — classic browser fixture | required unknown City prevents the expected second step | 🔴 Open | Reproduced twice; Task 26 prompt disabled in fixture |
 
+Task 26 follow-up: [BUG-124](task_26_bugs.md) — 🟢 Fixed — native-modal inertness redirected Done clicks to LinkedIn's backdrop. Real pointer regression and live WNS verification passed; uncommitted, base `0f63da8`.
+
 ## Template for new entries
+
 
 Add the entry to the file for its task (or `general_bugs.md`), and add a row to
 this index.

@@ -79,10 +79,15 @@ _SHOW_UNKNOWN_JS = r"""
     box.appendChild(instruction);
     box.appendChild(status);
     box.appendChild(row);
-    document.documentElement.appendChild(box);
     skip.addEventListener('click', () => box.setAttribute('data-autojob-state', 'skipped'));
   }
-  if (!box.isConnected) document.documentElement.appendChild(box);
+  // A popover outside a native modal is painted but remains inert. Physical
+  // clicks then hit the dialog backdrop and trigger LinkedIn's discard prompt.
+  // Keep the banner in the modal's DOM subtree as well as the top layer.
+  const dialogs = Array.from(document.querySelectorAll('dialog[open]'));
+  const parent = dialogs.reverse().find(dialog => dialog.matches(':modal'))
+    || document.documentElement;
+  if (box.parentElement !== parent) parent.appendChild(box);
   try {
     if (typeof box.showPopover === 'function') box.showPopover();
   } catch (e) { /* already open, or unsupported: fixed + max z-index still applies */ }

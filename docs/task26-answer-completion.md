@@ -4,6 +4,13 @@ Task 26 keeps unknown answers pending until a completion signal. Text supports c
 blur, Enter, or Done. Single choices commit on change/click; checkbox groups require
 Done. The banner enables Done only when a valid non-empty answer is detected.
 
+The pending message lists detected checkbox choices and explicitly says to click
+Done to save and continue. On LinkedIn's native modal layout, the banner is mounted
+inside the modal and shown in the top layer. A top-layer popover outside the modal
+can look visible but be inert: real clicks hit LinkedIn's backdrop and open its
+Save/Discard prompt (BUG-124). Regression checks therefore use real CDP mouse
+clicks for Done and Skip, rather than only JavaScript `.click()`.
+
 `AUTOJOB_SESSION_ASK_TIMEOUT_SECONDS` measures inactivity. Focus, edits, and ticks
 extend the wait. Skip and inactivity discard pending input without storing or
 returning it. Already committed, unfocused text can be adopted. The answer schema

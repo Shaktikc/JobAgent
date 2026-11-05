@@ -152,6 +152,10 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 
 ### Task 26 follow-up — BUG-122
 
+See also [BUG-124](task_26_bugs.md): the Done/Skip banner must be a descendant
+of the native modal to receive physical clicks. Verified with CDP mouse input
+and the real WNS form; JavaScript `.click()` alone cannot verify this behavior.
+
 Completion gating supersedes the former early-save/settle behavior. See
 [BUG-122](task_26_bugs.md) for the root cause, fix, and real LinkedIn evidence.
 Prompt and question-echo guards from BUG-037/BUG-082 remain covered.

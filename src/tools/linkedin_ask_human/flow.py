@@ -168,7 +168,11 @@ async def ask_human_for_answer(
             activity = answer_payload.get("activity")
             pending = answer
             deadline = time.monotonic() + settings.session.ask_timeout_seconds
-        await _safe(page.evaluate(_UPDATE_PENDING_JS, answer))
+        await _safe(
+            page.evaluate(
+                _UPDATE_PENDING_JS, answer, field_type == "checkbox" and len(options_arg) > 1
+            )
+        )
         if answer and answer_payload.get("done"):
             _store_answer(settings, question, answer, human)
             await _finish_question(page, answer)
