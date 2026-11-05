@@ -15,9 +15,15 @@ Built with [LangGraph](https://langchain-ai.github.io/langgraph/),
 [browser-use](https://github.com/browser-use/browser-use) (CDP), and any
 OpenAI-compatible LLM endpoint.
 
-> **Status:** personal project, actively developed. LinkedIn changes its UI
-> often, so the agent discovers each Easy Apply form at runtime instead of
-> relying on fixed steps or selectors.
+> **Status:** I am actively developing JobAgent and working to fix known bugs.
+> The core features have been tested and are working, but the app is still
+> under development. LinkedIn changes its UI often, so the agent discovers each
+> Easy Apply form at runtime instead of relying on fixed steps or selectors.
+>
+> **Next planned feature:** when the agent starts, it will ask which job you
+> want to search for. Currently, it searches for **"software engineer"** by
+> default. You can already search for a different role using `--query`, for
+> example: `uv run jobagent --no-dry-run --query "data analyst"`.
 
 ## Why it's interesting
 
