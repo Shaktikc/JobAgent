@@ -51,13 +51,23 @@ JobAgent splits the work:
   and form navigation.
 - **The LLM only makes judgement calls** — which resume fits, and which stored
   answer answers a question.
-- **Every answer is grounded.** The model must copy a stored value or derive one
-  from stored facts, and cite the keys it used. It never invents an answer.
-- **When it doesn't know something, it asks you** — directly in the browser —
-  and remembers your answer for next time.
+- **Your answers become reusable memory.** When JobAgent asks you a question,
+  it saves your completed answer in `data/answers.json`. When the same or a
+  similar question appears later, the LLM can reuse the relevant stored answer.
+  If it cannot find or derive a supported answer, it asks you in the browser.
+- **Focused LLM tasks improve reliability.** Resume matching, answer selection,
+  and self-healing have separate responsibilities and task-specific context.
+  You can configure different models for these purposes, keeping each focused
+  on its own task to support better resume matches and more accurate answers.
+  Resume matching and answer selection use the general model when no override
+  is configured; this design reduces hallucination risk rather than guaranteeing
+  error-free output.
 
 ## Highlights
 
+- **Grounded answers reduce hallucinations.** Answer selection uses stored
+  facts and cites the keys it used; job-specific answers use your resume and
+  the job description as evidence.
 - 🔎 Searches LinkedIn (using its AI job search when available) and applies the
   **Easy Apply** + **date posted** filters.
 - 📄 Profiles every resume with an LLM and applies only when the match is
@@ -73,9 +83,11 @@ JobAgent splits the work:
   from the current job description and your resume, with cited evidence.
 - 🖥️ Shows a **live status panel** on the LinkedIn page describing each step and
   every LLM decision.
-- 🛠️ **Self-heals** structural form failures: captures evidence, logs a bug,
-  optionally invokes an OpenCode repair agent, then reopens the same job.
-- 🔁 Repeats for the next unapplied job, skipping jobs already marked
+- **Self-healing through loop engineering:** LinkedIn's Easy Apply fields,
+  controls, and steps vary between jobs. The optional recovery loop can attempt
+  corrections to the agent's automation code when the OpenCode repair hook is
+  configured. See [Self-healing](#self-healing) for the repair loop and setup.
+- Repeats for the next unapplied job, skipping jobs already marked
   **Applied** and paginating when a page is exhausted.
 - 🧪 Runs end-to-end in **dry-run** mode with no browser and no network.
 
@@ -277,6 +289,19 @@ uv run langgraph dev
 
 ## Self-healing
 
+### Loop engineering
+
+> **Adapting to dynamic Easy Apply forms:** LinkedIn's fields, controls, and
+> steps vary between jobs. I built an optional self-healing loop to recover
+> from structural failures and attempt corrections to the agent's own
+> automation code when the repair hook is configured.
+>
+> **Capture → Diagnose and repair → Test → Reload → Retry**
+>
+> Code repair requires the **OpenCode repair hook**; enabling recovery alone
+> does not enable code changes. If the loop cannot recover within its attempt
+> limit, it stops and preserves the evidence for review.
+
 When a fill stops for a structural reason (no resume control, a step that won't
 advance, a missing button, an exception), the agent:
 
@@ -292,6 +317,7 @@ An optional repair hook can hand the bundle to the OpenCode agent, run its
 tests, and reload the browser/fill modules before retrying:
 
 ```env
+AUTOJOB_SELF_HEAL_ENABLED=true
 AUTOJOB_SELF_HEAL_REPAIR_COMMAND=uv run python scripts/self_heal_repair.py
 AUTOJOB_SELF_HEAL_TEST_COMMAND=uv run pytest -q
 ```
