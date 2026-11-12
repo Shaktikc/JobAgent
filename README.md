@@ -203,9 +203,8 @@ persistent profile in `data/profile` keeps you logged in for later runs.
 
 ### Adding your resumes
 
-1. Open the project root — the folder containing `README.md` and `pyproject.toml`.
-2. Create a folder named `resumes` if it does not already exist.
-3. Copy one or more of your existing resumes directly into that folder. Supported
+1. Create a folder named `resumes` if it does not already exist.
+2. Copy one or more of your existing resumes directly into that folder. Supported
    formats are `.pdf`, `.docx`, `.txt`, and `.md`. Use a PDF with selectable text;
    the current PDF reader extracts text and does not perform OCR on scanned images.
 
@@ -213,8 +212,6 @@ For example:
 
 ```text
 JobAgent/
-  README.md
-  pyproject.toml
   resumes/
     software_engineer.pdf
     data_analyst.docx
