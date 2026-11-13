@@ -32,7 +32,7 @@ async def cleanup(state: ApplyState) -> ApplyState:
     if not run_id:
         return {}
 
-    from src.tools.browser import close_run, release_run  # lazy: needs the `browser` extra
+    from src.tools.browser import close_run, get_reporter, release_run  # lazy: browser extra
 
     if state.get("task8") is not None:
         # Task 8's loop already waited for the human on each job; release once.
@@ -43,7 +43,9 @@ async def cleanup(state: ApplyState) -> ApplyState:
         return {"log": ["cleanup: browser left open (Task 8 loop finished)"]}
 
     try:
-        released = await release_run(run_id, state.get("task4"), progress=print)
+        released = await release_run(
+            run_id, state.get("task4"), progress=get_reporter(run_id) or print
+        )
     except Exception as exc:  # noqa: BLE001 - never let cleanup fail the run
         return {"errors": [f"cleanup: {exc}"], "log": ["cleanup: browser release failed"]}
     return {"log": [_RELEASE_LOG.get(released, "cleanup: browser left open (run released)")]}

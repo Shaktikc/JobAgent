@@ -220,6 +220,7 @@ async def reopen_same_job(
     run = get_run(run_id)
     if run is None:
         return ReopenResult(reason="the fresh browser run was not registered")
+    notify = getattr(run, "reporter", None) or notify
     try:
         opened, task2 = await _open_target(run.page, target, settings, notify)
         if not opened:

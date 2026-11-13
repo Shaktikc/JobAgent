@@ -88,10 +88,10 @@ async def test_cancellation_while_initial_unlock_is_pending_finishes_the_unlock(
 
 async def test_pending_reporter_install_cannot_relock_a_direct_final_review_wait(tmp_path):
     page = _Page()
-    reporter = status.StatusReporter()
+    announced = asyncio.Event()
+    reporter = status.StatusReporter(emit=lambda _: announced.set())
     reporter.bind_page(page)
     run_id, session = _register(page, reporter)
-    announced = asyncio.Event()
     observed = []
 
     async def inspect_handoff():
@@ -106,7 +106,7 @@ async def test_pending_reporter_install_cannot_relock_a_direct_final_review_wait
         # the queued installer run first and hides the late-installation race.
         async with asyncio.timeout(1):
             result = await browser_tools.wait_for_human_close(
-                run_id, _settings(tmp_path), progress=lambda _: announced.set(),
+                run_id, _settings(tmp_path),
             )
         await asyncio.wait_for(observer, 1)
         assert result is True

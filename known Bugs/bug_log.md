@@ -22,6 +22,7 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 
 | File | Scope |
 |------|-------|
+| [task_28_bugs.md](task_28_bugs.md) | Task 28: latest runtime log and visible-window sizing; BUG-125, BUG-126 🟢 Fixed |
 | [`task_18_bugs.md`](task_18_bugs.md) | Startup query live verification (TASK18-001) |
 | [`task_26_bugs.md`](task_26_bugs.md) | Completed human answers, inactivity, Done and persistence |
 | [`task_25_bugs.md`](task_25_bugs.md) | Truthful answer type conversion, numeric text controls and exact constraints |

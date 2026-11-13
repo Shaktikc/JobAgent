@@ -28,6 +28,7 @@ from src.tools.linkedin_status_overlay.panel_js import (
     _UPDATE_STATUS_JS,
     _format_llm,
 )
+from src.tools.linkedin_status_overlay.panel_text import sanitize_panel_text
 from src.tools.linkedin_status_overlay.status_reporter import (
     StatusReporter,
     emit_llm,
@@ -48,4 +49,5 @@ __all__ = [
     "ensure_interaction_lock",
     "release_all_interaction_locks",
     "release_interaction_lock",
+    "sanitize_panel_text",
 ]

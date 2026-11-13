@@ -148,7 +148,12 @@ def build_browser(settings: Settings):
     return Browser(
         headless=settings.session.headless,
         user_data_dir=str(settings.profile_dir),
-        viewport=settings.session.viewport,
+        # A fixed emulated viewport can extend below a headed window/taskbar.
+        # Let the real content area size the page so bottom-fixed feedback is
+        # visible after launch, resize, and Windows display scaling (BUG-126).
+        viewport=settings.session.viewport if settings.session.headless else None,
+        no_viewport=not settings.session.headless,
+        window_size=None if settings.session.headless else settings.session.viewport,
         user_agent=settings.session.user_agent,
         # The agent never closes the browser (see ``close_run``): keep the Chromium
         # process alive when our CDP handle is released, so a failure or a finished

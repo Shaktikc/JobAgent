@@ -102,15 +102,15 @@ async def _reopen_results(
     if not url.startswith(("http://", "https://")):
         return ReopenResult(reason="no results page URL was recorded for the reopen")
 
-    notify("self-heal: reopening the results page in a fresh browser...")
+    reporter = StatusReporter(emit=notify)
+    reporter("self-heal: reopening the results page in a fresh browser...")
     session = build_browser(settings)
     await session.start()
     try:
         page = await session.new_page()
-        reporter = StatusReporter(emit=notify)
-        reporter.bind_page(page)
         await page.goto(url)
         await _wait_for_load(page, settings.session.easy_apply_timeout_seconds)
+        reporter.bind_page(page)
         run_id = uuid4().hex
         _ACTIVE_RUNS[run_id] = _Run(session=session, page=page, reporter=reporter)
         task2 = Task2Outcome(job_title=target.title, page_url=url)

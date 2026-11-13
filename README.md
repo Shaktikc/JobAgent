@@ -88,8 +88,14 @@ JobAgent splits the work:
   confirmation.
 - ✍️ Answers job-specific free-text questions ("Why do you want to work here?")
   from the current job description and your resume, with cited evidence.
-- 🖥️ Shows a **live status panel** on the LinkedIn page describing each step and
-  every LLM decision.
+- 🖥️ Shows the **latest agent/LLM log line** in a live status panel on LinkedIn,
+  replacing the previous line in place. LLM activity is purple and waiting for
+  you is amber. Panel text collapses whitespace, redacts obvious credentials,
+  and is capped at 280 characters; terminal output stays unchanged. Task 28
+  supersedes Task 9's earlier CLI-only treatment of technical log details.
+  Visible browser sessions fit the actual window so the panel stays above the
+  window edge when resized. Viewport width/height settings control the initial
+  visible window size; headless sessions retain a fixed viewport.
 - **Self-healing through loop engineering:** LinkedIn's Easy Apply fields,
   controls, and steps vary between jobs. The optional recovery loop can attempt
   corrections to the agent's automation code when the OpenCode repair hook is

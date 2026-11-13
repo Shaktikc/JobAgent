@@ -1,16 +1,4 @@
-"""Task 9: push agent/LLM status to the CLI and the on-page panel.
-
-:class:`StatusReporter` is created in :func:`src.tools.browser.start_tasks` (as
-soon as the page exists) and stored on the run, so later modules reach it via
-``get_reporter(run_id)``. It wraps the existing CLI ``notify`` callback: calling
-the reporter still prints to the CLI exactly as before, while :meth:`step` and
-:meth:`llm` additionally update the on-page panel. The module-level
-:func:`emit_step` / :func:`emit_llm` helpers work whether the status object is a
-full reporter or a plain ``notify`` callable, so existing test fakes keep working.
-
-Split out of :mod:`src.tools.linkedin_status_overlay` so each module stays small;
-the package re-exports the public names.
-"""
+"""Mirror runtime logs to the CLI and a best-effort latest-activity panel."""
 
 from __future__ import annotations
 
@@ -28,25 +16,29 @@ from src.tools.linkedin_status_overlay.panel_js import (
     _UPDATE_STATUS_JS,
     _format_llm,
 )
+from src.tools.linkedin_status_overlay.panel_text import sanitize_panel_text
 
 
 class StatusReporter:
-    """Pushes agent/LLM status to the CLI and the on-page panel (Task 9).
-
-    The reporter is **callable**, so it can stand in anywhere the old
-    ``progress``/``notify`` callback was passed; calling it prints to the CLI only
-    (technical detail), while :meth:`step` and :meth:`llm` also update the panel
-    with plain-language, human-facing text.
-    """
+    """Callable CLI callback with serialized, coalesced panel updates."""
 
     def __init__(self, emit=None, page=None) -> None:
         self.emit = emit or (lambda _message: None)
         self._page = page
         self._lock_task: asyncio.Task | None = None
+        self._pump_task: asyncio.Task | None = None
+        self._pending: tuple[str, str] | None = None
+        self._latest: tuple[str, str] | None = None
+        self._rendered = None
+        self._closed = False
 
     def bind_page(self, page) -> None:
         """Attach the live page and install the automation interaction lock."""
         self._page = page
+        self._closed = False
+        self._rendered = None
+        if self._latest is not None:
+            self._update(*self._latest)
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -54,8 +46,9 @@ class StatusReporter:
         self._lock_task = loop.create_task(ensure_interaction_lock(page))
 
     def __call__(self, message: str) -> None:
-        """Technical notify line: CLI only (matches the old ``notify`` callback)."""
+        """Mirror a runtime log line without changing the CLI output."""
         self.emit(message)
+        self._update("agent", message)
 
     def step(self, message: str) -> None:
         """Plain-language agent step: printed and shown on the page."""
@@ -69,23 +62,31 @@ class StatusReporter:
         self._update("llm", text)
 
     def _update(self, actor: str, message: str) -> None:
-        page = self._page
-        if page is None or not message:
+        message = sanitize_panel_text(message)
+        if message.startswith("Waiting for you"):
+            actor = "waiting"
+        self._latest = (actor, message)
+        if self._closed or self._page is None or not message:
             return
-        self._schedule(page, _UPDATE_STATUS_JS, actor, message)
-
-    def _schedule(self, page, js: str, *args) -> None:
+        self._pending = self._latest
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            return  # no event loop: CLI-only, never block the caller
-        loop.create_task(self._evaluate(page, js, *args))
+            return  # CLI-only; never block for a panel update
+        if self._pump_task is None or self._pump_task.done():
+            self._pump_task = loop.create_task(self._pump())
 
-    async def _evaluate(self, page, js: str, *args) -> None:
-        try:
-            await page.evaluate(js, *args)
-        except Exception:  # noqa: BLE001 - the panel is best-effort feedback
-            pass
+    async def _pump(self) -> None:
+        while self._pending is not None and not self._closed:
+            value, self._pending = self._pending, None
+            page = self._page
+            if page is None or self._rendered == (page, value):
+                continue
+            try:
+                await page.evaluate(_UPDATE_STATUS_JS, *value)
+            except Exception:  # noqa: BLE001 - best-effort panel, CLI still works
+                continue
+            self._rendered = (page, value)
 
     async def release_input(self) -> None:
         """Drain installation before the final handoff can release the lock."""
@@ -105,6 +106,12 @@ class StatusReporter:
 
     async def clear(self) -> None:
         """Remove the panel from the page (called once the run ends)."""
+        self._closed = True
+        self._pending = self._latest = self._rendered = None
+        pump, self._pump_task = self._pump_task, None
+        if pump is not None:
+            pump.cancel()
+            await asyncio.gather(pump, return_exceptions=True)
         page = self._page
         if page is None:
             return

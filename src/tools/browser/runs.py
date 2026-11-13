@@ -124,7 +124,7 @@ async def wait_for_human_close(
     indefinitely.
     """
     settings = settings or load_settings()
-    notify = progress or (lambda _message: None)
+    notify = get_reporter(run_id) or progress or (lambda _message: None)
     run = get_run(run_id)
     if run is None:
         return True
@@ -142,7 +142,7 @@ async def wait_for_human_close(
         "submit the application yourself, then close the browser window to "
         "finish the run."
     )
-    emit_step(progress, "Waiting for you - review and submit the application in the page.")
+    emit_step(notify, "Waiting for you - review and submit the application in the page.")
     deadline = None if timeout <= 0 else time.monotonic() + timeout
     while True:
         if not run_is_connected(run_id):

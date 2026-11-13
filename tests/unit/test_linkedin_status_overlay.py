@@ -58,7 +58,7 @@ async def test_llm_is_prefixed_and_marked_as_the_llm() -> None:
     assert args[1] == emitted[0]
 
 
-async def test_call_is_cli_only_not_the_panel() -> None:
+async def test_call_prints_and_updates_the_panel() -> None:
     page = _FakePage()
     emitted: list[str] = []
     reporter = _reporter(page, emitted)
@@ -67,7 +67,7 @@ async def test_call_is_cli_only_not_the_panel() -> None:
     await _drain()
 
     assert emitted == ["Task 2: 12 job(s) in the list."]
-    assert page.calls == []  # technical detail does not clutter the panel
+    assert page.calls == [(status._UPDATE_STATUS_JS, ("agent", emitted[0]))]
 
 
 async def test_clear_removes_the_panel() -> None:

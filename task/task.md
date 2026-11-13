@@ -28,3 +28,4 @@ Each task lives in its own file. This index links to them.
 - [Task 24 — On a required-question validation error, answer it or ask the human, then continue without crashing](task_24.md) — 🟡 In progress
 - [Task 25 — On invalid input, convert the answer's type (number ↔ text) before giving up](task_25.md) — 🟡 In progress
 - [Task 26 — Save an unknown answer only after the human finishes answering](task_26.md) — 🟡 In progress
+- [Task 28 — Show the latest agent log line in the on-page status panel (no generic placeholder)](task_28.md) — ✅ Done

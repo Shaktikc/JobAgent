@@ -23,7 +23,9 @@ _UPDATE_STATUS_JS = r"""
     box.setAttribute('popover', 'manual');
     box.style.cssText = [
       'position:fixed', 'inset:auto auto 24px 24px', 'margin:0',
-      'z-index:2147483647', 'max-width:460px', 'min-width:280px',
+      'z-index:2147483647', 'width:min(460px, calc(100vw - 48px))',
+      'box-sizing:border-box', 'max-height:40vh', 'overflow:hidden',
+      'overflow-wrap:anywhere',
       // Feedback only: never intercept a click. The panel is a top-layer popover
       // with the maximum z-index, so without this it can sit over the Easy Apply
       // footer's Next button and swallow the CDP click, leaving the form stuck on
@@ -66,13 +68,15 @@ _UPDATE_STATUS_JS = r"""
   if (current) current.textContent = message || '';
 
   const isLLM = actor === 'llm';
-  box.style.borderColor = isLLM ? '#6a3fb5' : '#0a66c2';
+  const isWaiting = actor === 'waiting';
+  const color = isWaiting ? '#946200' : (isLLM ? '#6a3fb5' : '#0a66c2');
+  box.style.borderColor = color;
   const heading = document.getElementById('autojob-status-heading');
   if (heading) {
-    heading.textContent = isLLM
+    heading.textContent = isWaiting ? 'JobAgent - waiting for you' : isLLM
       ? 'JobAgent - the LLM is working'
-      : 'JobAgent is working';
-    heading.style.color = isLLM ? '#6a3fb5' : '#0a66c2';
+      : 'JobAgent - latest activity';
+    heading.style.color = color;
   }
   return true;
 }

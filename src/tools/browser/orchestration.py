@@ -65,7 +65,7 @@ async def start_tasks(
     settings = settings or load_settings()
     notify = progress or (lambda _message: None)
     # Task 9: one reporter per run. It prints to the CLI (like the old ``notify``)
-    # and, once bound to the page, mirrors plain-language agent/LLM status onto an
+    # and, once bound to the page, mirrors the latest runtime log line onto an
     # on-page panel. It is stored on the run so later nodes reach it by run id.
     reporter = StatusReporter(emit=notify)
     session = build_browser(settings)
