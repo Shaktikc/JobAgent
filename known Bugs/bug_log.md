@@ -196,6 +196,8 @@ stable — link to `BUG-NNN` from commits, PRs, or task notes.
 
 Task 26 follow-up: [BUG-124](task_26_bugs.md) — 🟢 Fixed — native-modal inertness redirected Done clicks to LinkedIn's backdrop. Real pointer regression and live WNS verification passed; uncommitted, base `0f63da8`.
 
+| BUG-125 | Task 5 — consent capture | single unnamed checkbox disappears from answer tracking after re-render | 🟢 Fixed | Chromium regression and real NCS LinkedIn before/after reader check; uncommitted, base `d30dd2e` |
+
 ## Template for new entries
 
 

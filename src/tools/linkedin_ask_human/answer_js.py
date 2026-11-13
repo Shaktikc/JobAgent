@@ -274,7 +274,9 @@ _READ_FORM_ANSWER_JS = (
         if (bare(node.innerText) !== want) continue;
         let up = node.parentElement;
         for (let i = 0; i < 4 && up && up !== document.body; i++) {
-          if (up.querySelectorAll(choiceSel).length > 1) { box = up; break; }
+          // A required consent question can contain just one unnamed checkbox.
+          // React replaces its marker on tick just as it does for larger groups.
+          if (up.querySelectorAll(choiceSel).length > 0) { box = up; break; }
           up = up.parentElement;
         }
         if (box) break;

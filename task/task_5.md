@@ -1,6 +1,6 @@
 # Task 5 — Ask the human for unknown answers, remember them, and show UI feedback
 
-**Status:** ✅ Done
+**Status:** 🟡 In progress
 
 **Goal:** When the form asks a question the agent cannot answer with confidence,
 pause and wait for the human's answer. Store the answer in the answer store so

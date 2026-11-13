@@ -159,3 +159,24 @@ and the real WNS form; JavaScript `.click()` alone cannot verify this behavior.
 Completion gating supersedes the former early-save/settle behavior. See
 [BUG-122](task_26_bugs.md) for the root cause, fix, and real LinkedIn evidence.
 Prompt and question-echo guards from BUG-037/BUG-082 remain covered.
+
+### BUG-125 — Single consent checkbox is checked but its answer stays empty
+
+- **Symptom:** On NCS Australia's Easy Apply privacy question, ticking “I consent”
+  leaves the unknown-answer banner waiting with Done disabled.
+- **Root cause:** LinkedIn re-renders the unnamed checkbox and drops its
+  `data-autojob-fill` marker. The question-text fallback required more than one
+  choice, so it could not recover this single control. Recorded click activity
+  existed, but the live answer remained empty.
+- **Fix:** Recover the nearest ancestor containing at least one choice for the
+  matching question, retaining the allowed-option filter and live checked-state
+  checks. No consent is inferred from stale event values.
+- **Status:** 🟢 Fixed
+- **Evidence:** `src/tools/linkedin_ask_human/answer_js.py`;
+  `tests/integration/test_human_consent_live.py` reproduces the failure before
+  the fix, checks checked/unchecked controls and an unrelated checked consent,
+  and verifies persistence through `ask_human_for_answer`. On the real NCS form
+  (job 4488824165), old reader returned an empty value; fixed reader returned
+  `{"value":"I consent","activity":4,"done":true}` for the same checked input.
+  Existing completion-gating and human-answer checks pass. Uncommitted; base
+  commit `d30dd2e`. User verification pending; Task 5 remains in progress.
