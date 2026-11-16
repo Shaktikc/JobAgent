@@ -103,3 +103,11 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   `test_find_easy_apply_filter_from_real_linkedin_dom`,
   `test_find_easy_apply_filter_never_returns_the_apply_button`,
   `test_find_easy_apply_filter_skips_apply_button_by_class`.
+
+### BUG-T1-REPEAT ? AI search repeated three times
+
+- **Symptom:** The supplied screenshot shows three AI entry clicks and three repeated searches.
+- **Root cause:** The detour treated a still-visible entry control as a reason to retry, up to three times, even after finding results.
+- **Fix:** Limit the optional AI transition to one click and one repeated query; proceed to filters. Preserve the exported limit for existing callers. Split the oversized live test module into a package.
+- **Status:** 🟢 Fixed.
+- **Evidence:** `src/tools/linkedin_search/ai_search.py`; two regression assertions failed before the fix; all 114 browser unit tests and five Chromium fixture checks pass. `tests/integration/test_task1_ai_search_live/` verifies one click and two total searches with a persistent button. Real LinkedIn run on 2026-11-13: 25 results, ai_job_search_clicks=1, exactly one repeat message, Easy Apply selected, date filter applied via URL fallback. Browser teardown emitted closed-pipe warnings after the successful outcome. Commit: uncommitted.

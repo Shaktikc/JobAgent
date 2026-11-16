@@ -63,13 +63,13 @@ async def test_run_task1_repeats_search_when_ai_click_navigates(
     assert outcome.easy_apply_filter_selected is True
 
 
-async def test_run_task1_reclicks_ai_job_search_while_it_reappears(
+async def test_run_task1_searches_once_after_persistent_ai_button(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     page = FakePage(results_count=25)
     ai_button = FakeElement("Try AI job search")
     filt = _filter_element(page)
-    # The button never goes away; the loop must stop at the safety cap.
+    # A persistent control must not restart a successful search.
     page.ai_buttons = [ai_button]
     page.by_selector = {
         "input.jobs-search-box__keyboard-text-input": [
@@ -96,19 +96,19 @@ async def test_run_task1_reclicks_ai_job_search_while_it_reappears(
         _settings(tmp_path, login_timeout_seconds=5, post_click_wait_seconds=0),
     )
 
-    assert outcome.ai_job_search_clicks == browser_tools._MAX_AI_JOB_SEARCH_CLICKS
-    # The search runs once initially and once after each AI click.
-    assert calls == ["software engineer"] * (1 + browser_tools._MAX_AI_JOB_SEARCH_CLICKS)
+    assert outcome.ai_job_search_clicks == 1
+    # The initial search is followed by exactly one AI search.
+    assert calls == ["software engineer", "software engineer"]
     assert outcome.easy_apply_filter_selected is True
 
 
-async def test_run_task1_stops_reclicking_when_ai_button_disappears(
+async def test_run_task1_does_not_revisit_ai_button(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     page = FakePage(results_count=25)
     ai_button = FakeElement("Try AI job search")
     filt = _filter_element(page)
-    # Present for two clicks, then gone; the loop stops on its own.
+    # The control may reappear, but the detour is already complete.
     page.ai_buttons_queue = [[ai_button], [ai_button], []]
     page.by_selector = {
         "input.jobs-search-box__keyboard-text-input": [
@@ -135,8 +135,8 @@ async def test_run_task1_stops_reclicking_when_ai_button_disappears(
         _settings(tmp_path, login_timeout_seconds=5, post_click_wait_seconds=0),
     )
 
-    assert outcome.ai_job_search_clicks == 2
-    assert calls == ["software engineer", "software engineer", "software engineer"]
+    assert outcome.ai_job_search_clicks == 1
+    assert calls == ["software engineer", "software engineer"]
     assert outcome.easy_apply_filter_selected is True
 
 

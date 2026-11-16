@@ -1,7 +1,7 @@
 """Task 1's optional "Try AI job search" detour.
 
 Runtime-scans the page for LinkedIn's AI job search entry point, clicks it, and
-repeats the configured query (a capped number of times) while staying in AI
+repeats the configured query once while staying in AI
 mode. The low-level CDP primitives come from :mod:`src.tools.browser`.
 """
 
@@ -57,7 +57,9 @@ _AI_CANDIDATES_QUERY = r"""
 }
 """
 
-_MAX_AI_JOB_SEARCH_CLICKS = 3
+# The entry control can remain visible after a successful transition.
+# Its presence is not evidence that another search is needed.
+_MAX_AI_JOB_SEARCH_CLICKS = 1
 
 
 async def _read_ai_candidates(page) -> list[dict]:
@@ -136,10 +138,9 @@ async def run_ai_job_search_detour(
     """Click the optional "Try AI job search" control and repeat the search.
 
     The control is optional: when it is absent the search is performed only once.
-    When present, each click is followed by a repeat search, retried while the
-    control reappears — up to ``_MAX_AI_JOB_SEARCH_CLICKS`` so a persistent
-    control can never loop forever. Once clicked the run stays in AI mode and
-    never navigates back to the classic jobs search.
+    When present, click and repeat the query exactly once, then proceed to
+    filters even if the entry control remains visible. Stay in AI mode and
+    never navigate back to the classic jobs search.
     """
     for _ in range(_MAX_AI_JOB_SEARCH_CLICKS):
         ai_button = await wait_for_ai_job_search_button(page, settings)

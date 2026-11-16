@@ -213,3 +213,5 @@ this index.
 - **Status:** 🟢 Fixed | 🟡 Fixed (superseded) | 🔴 Open | ⚪ Won't fix
 - **Evidence:** <source files, tests, and commit(s)>
 ```
+
+| BUG-T1-REPEAT | [Task 1](task_1_bugs.md) | AI search repeated three times | 🟢 Fixed; verified on LinkedIn | Uncommitted |

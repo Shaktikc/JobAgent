@@ -1,6 +1,6 @@
 # Task 1 — Log in to LinkedIn, search the chosen job query, select Easy Apply
 
-**Status:** ✅ Done
+**Status:** 🟡 In progress
 
 **Goal:** Launch the browser, open the LinkedIn login page, wait for the user to
 log in successfully, search for the **job query resolved at startup** (Task 18),

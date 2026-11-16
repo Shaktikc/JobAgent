@@ -2,7 +2,7 @@
 
 Each task lives in its own file. This index links to them.
 
-- [Task 1 — Log in to LinkedIn, search the chosen job query, select Easy Apply](task_1.md) — ✅ Done
+- [Task 1 — Log in to LinkedIn, search the chosen job query, select Easy Apply](task_1.md) — 🟡 In progress
 - [Task 2 — Select Easy Apply from the job list](task_2.md) — ✅ Done
 - [Task 3 — Read the job description and pick the best-matching resume (LLM)](task_3.md) — ✅ Done
 - [Task 4 — Open Easy Apply and start filling the application form](task_4.md) — ✅ Done
