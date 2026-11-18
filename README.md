@@ -50,11 +50,12 @@ hybrid design keeps repetitive browser actions deterministic and reserves LLM
 calls for focused tasks, reducing the need for model calls during navigation.
 JobAgent splits the work:
 
-- **Deterministic browser automation** handles clicking, typing, pagination,
-  and form navigation through browser-use's CDP controls. Playwright's CLI is
-  used to install Chromium during setup; the application uses browser-use for
-  these browser interactions. Controls are discovered at runtime to handle
-  dynamic Easy Apply forms.
+- **Deterministic browser automation.** I use the Playwright CLI to install
+  Chromium. At runtime, JobAgent reads the controls on each Easy Apply step
+  and uses browser-use over the Chrome DevTools Protocol (CDP) to fill fields
+  and click buttons. For example, the resume picker can appear on different
+  steps across jobs. When JobAgent finds it, the same selection logic runs
+  wherever it appears.
 - **LLMs handle focused tasks:** resume profiling and selection, matching or
   deriving supported answers, answering job-specific questions, and self-healing
   through the optional OpenCode repair hook.
