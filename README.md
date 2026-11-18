@@ -12,8 +12,9 @@ filling, and — when you enable it — submission too. Manual review remains th
 default; automatic submission is opt-in per run.
 
 Built with [LangGraph](https://langchain-ai.github.io/langgraph/),
-[browser-use](https://github.com/browser-use/browser-use) (CDP), and any
-OpenAI-compatible LLM endpoint.
+[browser-use](https://github.com/browser-use/browser-use) for CDP automation,
+[Playwright](https://playwright.dev/) for Chromium setup, and
+[OpenRouter](https://openrouter.ai/) for LLM access.
 
 > **Status:** I am actively developing JobAgent and working to fix known bugs.
 > The core features have been tested and are working, but the app is still
