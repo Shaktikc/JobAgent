@@ -73,3 +73,13 @@
   `test_constraint_checks_do_not_round_and_use_the_discovered_step_base` failed
   before the fix. The Task 20 constraint tests and Task 25 focused tests pass.
   Commit: uncommitted, base `addac8f`.
+
+
+## Subtask 25.1 ? Over-limit text falls through to skip
+
+- **Symptom:** A rejected over-limit free-text answer cannot recover automatically.
+- **Root cause:** Fact-preserving correction rejects all truncation.
+- **Fix:** Added a constrained prefix fallback, live-control recheck, and metadata audit.
+- **Status:** Open ? implementation and live verification remain incomplete.
+- **Evidence:** `tests/unit/test_task25_length_limit.py`; 70 focused tests passed.
+  Commit: uncommitted; live verification pending.

@@ -13,6 +13,7 @@ from src.tools.linkedin_validation.conversion_flow import (
     recheck_conversion,
 )
 from src.tools.linkedin_validation.detection import read_rejections
+from src.tools.linkedin_validation.length_flow import plan_shortening, recheck_shortening
 from src.tools.linkedin_validation.required_controls import is_missing_issue
 
 
@@ -31,13 +32,18 @@ class RecheckCorrectedStep(Exception):
 
 
 def failure(
-    issues, attempted=False, retries=0, reason="validation persisted after correction",
-    *, previous=None,
+    issues,
+    attempted=False,
+    retries=0,
+    reason="validation persisted after correction",
+    *,
+    previous=None,
 ):
     return ValidationFailure(
         issues=[
             ValidationIssue(question=row["question"], message=row["message"]) for row in issues
         ],
+        text_shortening_attempts=previous.text_shortening_attempts if previous is not None else [],
         correction_attempted=attempted,
         retry_count=retries,
         correction_failure=reason,
@@ -115,6 +121,9 @@ async def correct_rejections(page, issues, chooser, outcome, notify) -> tuple[bo
             )
             if decision.decided and preserves_facts(source, decision.answer):
                 answer = _valid_answer(field, decision.answer)
+        shortening = None
+        if answer is None:
+            answer, shortening = plan_shortening(field, source, outcome)
         if answer is None:
             return False, attempted
         # The answer call or a previous input event may have replaced all controls.
@@ -134,6 +143,17 @@ async def correct_rejections(page, issues, chooser, outcome, notify) -> tuple[bo
         element = await _marker_element(page, "data-autojob-fill", current["marker"])
         if element is None:
             return False, attempted
+        if shortening is not None:
+            answer = await recheck_shortening(element, field, source, answer)
+            if answer is None:
+                return False, attempted
+            shortening.attempted = True
+            shortening.outcome = "entry_failed"
+            emit_step(
+                notify,
+                f"Character limit: shortened rejected answer from {shortening.original_length} "
+                f"to {shortening.shortened_length} characters.",
+            )
         if converted is not None:
             answer = await recheck_conversion(element, field, source, converted)
             if answer is None:
@@ -146,6 +166,8 @@ async def correct_rejections(page, issues, chooser, outcome, notify) -> tuple[bo
         ok, _ = await _fill_field(element, current, answer)
         if not ok:
             return False, attempted
+        if shortening is not None:
+            shortening.outcome = "entered"
         if converted is not None:
             conversion.outcome = "entered"
         if record is not None:
@@ -168,8 +190,11 @@ async def reject_before_human_prompt(
     signature,
 ) -> None:
     """An unknown rejected answer cannot be repaired by waiting indefinitely."""
-    issues = [row for row in await read_rejections(page, fields)
-              if not is_missing_issue(row, fields) or has_conversion(row, outcome)]
+    issues = [
+        row
+        for row in await read_rejections(page, fields)
+        if not is_missing_issue(row, fields) or has_conversion(row, outcome)
+    ]
     if not issues:
         return
     current_rejected = any(row["question"] == question for row in issues)

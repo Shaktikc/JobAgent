@@ -2,6 +2,7 @@
 
 from pydantic import BaseModel, Field
 
+from src.state.text_shortening import TextShorteningAttempt
 from src.state.type_conversion import TypeConversionAttempt
 
 
@@ -24,6 +25,7 @@ class ValidationFailure(BaseModel):
     correction_failure: str = ""
     required_answer_attempts: list[RequiredAnswerAttempt] = Field(default_factory=list)
     type_conversion_attempts: list[TypeConversionAttempt] = Field(default_factory=list)
+    text_shortening_attempts: list[TextShorteningAttempt] = Field(default_factory=list)
     job_url: str = ""
     job_id: str = ""
     log_path: str = ""

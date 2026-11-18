@@ -56,7 +56,7 @@ async def recheck_conversion(element, field, source, candidate):
 
 def finish_conversions(validation, *, advanced=False):
     """A successful navigation accepts the repair; no extra retry is permitted."""
-    for audit in validation.type_conversion_attempts:
+    for audit in [*validation.type_conversion_attempts, *validation.text_shortening_attempts]:
         if audit.outcome == "entered":
             audit.outcome = (
                 "accepted"

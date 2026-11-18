@@ -215,3 +215,5 @@ this index.
 ```
 
 | BUG-T1-REPEAT | [Task 1](task_1_bugs.md) | AI search repeated three times | 🟢 Fixed; verified on LinkedIn | Uncommitted |
+
+- Subtask 25.1: over-limit text recovery ? Open; see [Task 25 bugs](task_25_bugs.md).
