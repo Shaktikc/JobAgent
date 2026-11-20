@@ -1,6 +1,6 @@
 # Task 26 — Save an unknown answer only after the human finishes answering
 
-**Status:** 🟡 In progress
+**Status:** ✅ Done
 
 **Goal:** When Task 5 asks the human to answer an unknown Easy Apply question, do
 not persist, confirm, or use the answer while the human is still typing or still

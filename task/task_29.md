@@ -1,6 +1,6 @@
 # Task 29 — Log every discarded Easy Apply form with a pre-discard screenshot
 
-**Status:** ?? In progress
+**Status:** ✅ Done
 
 **Reported problem**
 

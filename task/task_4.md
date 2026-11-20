@@ -1,6 +1,6 @@
 # Task 4 — Open Easy Apply and start filling the application form
 
-**Status:** 🟡 In progress
+**Status:** ✅ Done
 
 **Goal:** Open the Easy Apply form and begin filling it: attach the resume chosen
 in Task 3 and populate every field whose answer is already known. Do **not**
@@ -116,7 +116,7 @@ question become unknown and get handed to **Task 5**.
 
 ## Subtask 4.2 — Leave the browser open at the last step and wait for the human
 
-**Status:** 🟡 In progress — implemented; pending review
+**Status:** ✅ Done
 
 **Goal:** When the Easy Apply walk reaches its **terminal step** (only the
 **Submit application** button remains), do **not** close the browser. Keep the

@@ -1,6 +1,6 @@
 # Task 23 — Use separate LLM models for Task 3 and Task 10
 
-**Status:** 🟡 In progress
+**Status:** ✅ Done
 
 **Goal:** Allow Task 3 (resume descriptions and best-resume selection) and
 Task 10 (matching or deriving answers from `data/answers.json`) to use different,

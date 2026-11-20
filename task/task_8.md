@@ -1,6 +1,6 @@
 # Task 8 — After the human submits a job, open the next one and repeat
 
-**Status:** 🟡 In progress
+**Status:** ✅ Done
 
 **Goal:** The agent fills an application to its **last step** (only **Submit
 application** remains) and the human reviews and submits (or applies to) that

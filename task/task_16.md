@@ -1,6 +1,6 @@
 # Task 16 — Apply only when an existing resume is a strong/partial match; skip unmatched jobs
 
-**Status:** 🟡 In progress
+**Status:** ✅ Done
 
 **Goal:** Add a **strict resume-gated apply** mode. When it is enabled (the default),
 the agent applies to a job **only** when the LLM's (Task 3.2) per-candidate

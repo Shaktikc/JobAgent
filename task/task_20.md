@@ -1,6 +1,6 @@
 # Task 20 — Correct invalid Easy Apply inputs; log and skip unresolved applications
 
-**Status:** 🟡 In progress
+**Status:** ✅ Done
 
 **Goal:** When LinkedIn Easy Apply displays an invalid-input validation error,
 try to fix the rejected fields by entering valid input and retrying the current

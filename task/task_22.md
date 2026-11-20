@@ -1,6 +1,6 @@
 # Task 22 — Choose automatic or manual application submission at startup
 
-**Status:** 🟡 In progress
+**Status:** ✅ Done
 
 **Goal:** Before the agent starts, ask whether it should submit completed Easy Apply
 applications automatically or leave each application ready for the human to

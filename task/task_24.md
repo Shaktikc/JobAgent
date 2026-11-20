@@ -1,6 +1,6 @@
 # Task 24 — On a required-question validation error, answer it or ask the human, then continue without crashing
 
-**Status:** 🟡 In progress
+**Status:** ✅ Done
 
 **Goal:** When an Easy Apply step reports a required-question validation error
 (for example **"This field is required"**) after the agent fills the step and

@@ -1,6 +1,6 @@
 # Task 25 — On invalid input, convert the answer's type (number ↔ text) before giving up
 
-**Status:** 🟡 In progress
+**Status:** ✅ Done
 
 **Goal:** When an Easy Apply field is rejected with an invalid-input error and the
 answer is otherwise truthful and correct, first try to fix the answer's *type* —
@@ -118,7 +118,7 @@ before falling back to any other correction or to Task 20's log-and-skip path.
 
 ## Subtask 25.1 — On invalid input, shorten an over-limit answer to the field's discovered maximum length
 
-**Status:** 🟡 In progress — requirement added; implementation and verification pending
+**Status:** ✅ Done
 
 **Goal:** When a required Easy Apply text field rejects its answer with a
 visible invalid-input / too-long error and the field has a discovered maximum
