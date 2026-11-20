@@ -29,6 +29,7 @@ class Task4Outcome(BaseModel):
     unknown_fields: list[str] = Field(default_factory=list)
     resume_attached: bool = False
     resume_selection: str = ""  # "listed" or "uploaded"
+    skipped_missing_resume: bool = False
     resume_listed_name: str = ""
     resume_path: str = ""
     upload_attempted: bool = False

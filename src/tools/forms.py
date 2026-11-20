@@ -216,7 +216,7 @@ STEP_IDENTITY_JS = r"""const stepIdentity = (modal) => {
 # combobox, not a plain text input). Setting the input's value alone leaves the
 # field uncommitted, so Next stays on the step and the suggestion list toggles the
 # modal text (BUG-056). This clicks the suggestion matching the value once the
-# list renders, and blurs the field so the following Next click is not swallowed.
+# list renders, before the form walker blurs the field and clicks Next.
 TYPEAHEAD_COMMIT_JS = r"""
 (value) => {
   const autocomplete = (this.getAttribute('aria-autocomplete') || '').toLowerCase();
@@ -229,16 +229,14 @@ TYPEAHEAD_COMMIT_JS = r"""
   const wanted = norm(value);
   const first = wanted.split(/[,/(]/)[0].trim();
   const pick = () => {
-    const ids = (this.getAttribute('aria-owns') || '').split(/\s+/).filter(Boolean);
-    let options = [];
-    ids.forEach((id) => {
-      const list = document.getElementById(id);
-      if (list) options.push(...list.querySelectorAll('[role="option"], li'));
-    });
-    if (!options.length) {
-      options = Array.from(document.querySelectorAll('[role="option"]'))
-        .filter((option) => option.getClientRects().length);
-    }
+    const ids = ['aria-controls', 'aria-owns'].flatMap((attr) =>
+      (this.getAttribute(attr) || '').split(/\s+/).filter(Boolean));
+    const lists = ids.map((id) => document.getElementById(id)).filter(Boolean);
+    const root = this.closest('dialog, [role="dialog"], form') || this.parentElement;
+    const options = (ids.length
+      ? lists.flatMap((list) => Array.from(list.querySelectorAll('[role="option"], li')))
+      : Array.from(root.querySelectorAll('[role="option"]')))
+      .filter((option) => option.getClientRects().length);
     const scored = options.map((option) => {
       const text = norm(option.innerText);
       let score = -1;
@@ -250,21 +248,28 @@ TYPEAHEAD_COMMIT_JS = r"""
     if (!scored.length) return false;
     scored.sort((a, b) => b.score - a.score);
     const option = scored[0].option;
+    const target = option.querySelector('button, [role="button"]') || option;
     ['mousedown', 'mouseup', 'click'].forEach((type) =>
-      option.dispatchEvent(new MouseEvent(type, {
+      target.dispatchEvent(new MouseEvent(type, {
         bubbles: true, cancelable: true, view: window
       }))
     );
-    setTimeout(() => { if (this.blur) this.blur(); }, 0);
     return true;
   };
   if (pick()) return 'clicked';
-  // Suggestions can render after the input/change event; watch briefly for them.
-  const observer = new MutationObserver(() => {
-    if (pick()) observer.disconnect();
+  return new Promise((resolve) => {
+    const observer = new MutationObserver(() => {
+      if (pick()) {
+        observer.disconnect();
+        clearTimeout(timer);
+        resolve('clicked');
+      }
+    });
+    const timer = setTimeout(() => {
+      observer.disconnect();
+      resolve('unmatched');
+    }, 3000);
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true });
   });
-  observer.observe(document.body, { childList: true, subtree: true });
-  setTimeout(() => observer.disconnect(), 3000);
-  return 'watching';
 }
 """

@@ -163,7 +163,7 @@ class SessionSettings(BaseModel):
     auto_submit_timeout_seconds: float = Field(default=30.0, gt=0)
     # Task 8: how many jobs one run may submit before the loop stops. 0 = keep
     # going until no unapplied job remains (or the human stops).
-    max_jobs_per_run: int = Field(default=35, ge=0)
+    max_jobs_per_run: int = Field(default=0, ge=0)
 
     @property
     def viewport(self) -> dict[str, int]:
@@ -336,7 +336,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
             auto_submit_timeout_seconds=_get_float(
                 "AUTOJOB_SESSION_AUTO_SUBMIT_TIMEOUT_SECONDS", 30.0,
             ),
-            max_jobs_per_run=_get_int("AUTOJOB_SESSION_MAX_JOBS", 35),
+            max_jobs_per_run=_get_int("AUTOJOB_SESSION_MAX_JOBS", 0),
         ),
         llm=LLMSettings(
             api_key=_get_str("OPENROUTER_API_KEY") or _get_str("AUTOJOB_LLM_API_KEY"),

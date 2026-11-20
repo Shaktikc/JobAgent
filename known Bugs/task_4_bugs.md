@@ -306,3 +306,11 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   `LinkedIn Job Ad, LinkedIn Social Post, Google Search` (record `filled=True`); a
   stored answer ticked `LinkedIn Job Ad` + `Google Search` with no banner. Node
   parsed every injected script (`node --check`). Commit `2d26b71`.
+
+### BUG-127 — Metro Finance contact step stalls after entering the city
+
+- **Symptom:** Six fields were counted as filled, but Next stayed on the contact step.
+- **Root cause:** The autocomplete helper returned while suggestions were still loading. LinkedIn placed the click handler on a button inside the option, so clicking the wrapper missed it.
+- **Fix:** Wait for a matching visible option, click its nested button when present, and report a fill failure when the suggestion times out.
+- **Status:** 🟢 Fixed
+- **Evidence:** src/tools/forms.py and src/tools/linkedin_easy_apply_fill/field_filling.py. The delayed nested-button fixture in tests/integration/test_fill_form_live/test_rendering.py passed. On November 18 the updated filler selected Sydney on LinkedIn job 4491786845 and Next advanced to page 2 of 3. Uncommitted on base 7ae0ebe.

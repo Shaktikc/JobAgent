@@ -41,7 +41,7 @@ def test_defaults_are_safe() -> None:
     # Task 16: strict resume matching is the default, with no skip cap.
     assert settings.session.require_resume_match is True
     assert settings.session.max_skipped_jobs_per_run == 0
-    assert settings.session.max_jobs_per_run == 35
+    assert settings.session.max_jobs_per_run == 0
     assert settings.self_healing.enabled is True
     assert settings.self_healing.max_repair_attempts == 3
     assert settings.self_healing.repair_model == DEFAULT_REPAIR_MODEL

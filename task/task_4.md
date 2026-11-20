@@ -1,6 +1,6 @@
 # Task 4 — Open Easy Apply and start filling the application form
 
-**Status:** ✅ Done
+**Status:** 🟡 In progress
 
 **Goal:** Open the Easy Apply form and begin filling it: attach the resume chosen
 in Task 3 and populate every field whose answer is already known. Do **not**

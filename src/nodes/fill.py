@@ -273,6 +273,12 @@ async def fill(state: ApplyState) -> ApplyState:
         skipped = record_validation_skip(state, outcome)
         skipped["log"] = log + skipped["log"]
         return {**update, **skipped}
+    if errors == ["fill: resume was not attached"] and not outcome.submission_attempted:
+        from src.nodes.missing_resume import skip_missing_resume
+
+        skipped = skip_missing_resume({**state, **update}, outcome, settings)
+        if skipped:
+            return {**update, **skipped, "log": log + skipped["log"]}
     if errors:
         update["errors"] = errors
     return update

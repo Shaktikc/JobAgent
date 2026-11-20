@@ -42,6 +42,7 @@ class Task8Outcome(BaseModel):
 
     iterations: int = 0
     jobs_applied: int = 0
+    missing_resume_skips: int = 0
     jobs: list[Task8JobRecord] = Field(default_factory=list)
     max_jobs: int = 0
     stopped_reason: str = ""

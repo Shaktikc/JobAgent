@@ -198,6 +198,10 @@ Task 26 follow-up: [BUG-124](task_26_bugs.md) — 🟢 Fixed — native-modal in
 
 | BUG-125 | Task 5 — consent capture | single unnamed checkbox disappears from answer tracking after re-render | 🟢 Fixed | Chromium regression and real NCS LinkedIn before/after reader check; uncommitted, base `d30dd2e` |
 
+| BUG-127 | [Task 4](task_4_bugs.md) | Metro Finance city suggestion was counted before selection | 🟢 Fixed | Real LinkedIn page 2/3 and Chromium regression, uncommitted on 7ae0ebe |
+
+| BUG-128 | [Task 8](task_8_bugs.md) | Missing résumé attachment ended the job scan | 🟢 Fixed | Regression and live LinkedIn next-job selection, uncommitted on 7ae0ebe |
+
 ## Template for new entries
 
 

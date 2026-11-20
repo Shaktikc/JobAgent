@@ -149,7 +149,8 @@ START → ingest → browse → match → fill → await_submit → next_job →
    next-job loop and self-healing recovery.
 6. **Repeat** — returns to the results, opens the next unapplied Easy Apply job,
    and runs the loop again. Stops after `AUTOJOB_SESSION_MAX_JOBS` submissions
-   (default `35`; `0` = until no unapplied jobs remain).
+   when a positive cap is configured. The default is unlimited. A form that finishes
+   without attaching the selected resume is skipped and the scan continues.
 7. **Cleanup & verify** — releases the session but leaves the Chromium window
    open so you can inspect it, then validates the run.
 
@@ -273,7 +274,7 @@ prints the model used for each purpose.
 | `AUTOJOB_NEW_RESUMES_DIR` | `./resumes/new` | Intake folder for new resumes |
 | `AUTOJOB_DATA_DIR` | `./data` | Browser profile, answer stores, debug output |
 | `AUTOJOB_SESSION_REQUIRE_RESUME_MATCH` | `true` | Apply only on a strong resume match |
-| `AUTOJOB_SESSION_MAX_JOBS` | `35` | Max submissions per run (`0` = unlimited) |
+| `AUTOJOB_SESSION_MAX_JOBS` | `0` | Max submissions per run (`0` = unlimited) |
 | `AUTOJOB_SESSION_ASK_HUMAN` | `true` | Prompt in-browser for unknown answers |
 | `AUTOJOB_SESSION_HEADLESS` | `false` | Run Chromium without a visible window |
 | `AUTOJOB_SESSION_KEEP_OPEN_TIMEOUT_SECONDS` | `1800` | How long to leave the browser open at the end |

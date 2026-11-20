@@ -230,6 +230,7 @@ class NextJobResult:
     task2: Task2Outcome = field(default_factory=Task2Outcome)
     description: JobDescription = field(default_factory=JobDescription)
     reason: str = ""
+    close_failed: bool = False
 
 
 def _no_job_reason(task2: Task2Outcome) -> str:
@@ -307,6 +308,7 @@ async def open_next_job(
         return NextJobResult(
             task2=Task2Outcome(notes="the Easy Apply form could not be closed"),
             reason="the Easy Apply form could not be closed",
+            close_failed=True,
         )
     if skip_job_ids and results_url:
         from src.tools.linkedin_validation.continuation import prepare_results_page

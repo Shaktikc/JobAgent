@@ -119,7 +119,9 @@ async def _fill_field(element, field: dict, answer: str) -> tuple[bool, str]:
             await element.evaluate(_FILL_INPUT_JS, str(answer))
             # A city/location combobox needs its matching suggestion clicked to
             # commit; a plain text input ignores this helper (BUG-056).
-            await _safe(element.evaluate(TYPEAHEAD_COMMIT_JS, str(answer)))
+            result = await element.evaluate(TYPEAHEAD_COMMIT_JS, str(answer))
+            if result == "unmatched":
+                return False, "No matching autocomplete suggestion appeared"
         return True, ""
     except Exception as exc:  # noqa: BLE001 - one bad field must not stop the run
         return False, f"{type(exc).__name__}: {exc}"

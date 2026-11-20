@@ -149,6 +149,14 @@ def verify(state: ApplyState) -> ApplyState:
             f"verify: automatic submission needs manual review; {task8.stopped_reason}",
             f"verify: confirmed submissions this run={task8.jobs_applied}",
         ]}
+    if (task4 and task4.skipped_missing_resume and state.get("task3")
+            and state["task3"].selected_path and task8 and task8.missing_resume_skips
+            and task8.stopped_reason and _task1_succeeded(state) and _task2_succeeded(state)
+            and _task5_succeeded(state)):
+        return {"status": "done", "log": [
+            f"verify: skipped {task8.missing_resume_skips} job(s) with no resume attached; "
+            f"stopped: {task8.stopped_reason}",
+        ]}
     if (task4 and task4.validation.skipped and task20 and task20.jobs_skipped
             and task8 and task8.stopped_reason and _task1_succeeded(state)
             and _task2_succeeded(state) and _task5_succeeded(state)):

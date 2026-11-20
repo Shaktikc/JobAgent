@@ -131,6 +131,8 @@ async def next_job(state: ApplyState) -> ApplyState:
     task20 = state.get("task20")
     skip_cap = settings.session.max_skipped_jobs_per_run
     skipped_count = (task16.jobs_skipped if task16 else 0) + (task20.jobs_skipped if task20 else 0)
+    task8 = state.get("task8")
+    skipped_count += task8.missing_resume_skips if task8 else 0
     if skip_cap and skipped_count >= skip_cap:
         task8 = state.get("task8") or Task8Outcome()
         task8.stopped_reason = f"reached the skipped-jobs cap ({skip_cap})"
@@ -163,7 +165,8 @@ async def next_job(state: ApplyState) -> ApplyState:
             task1.search_url if task1 else "", state.get("search_query", ""), date_range,
         )
         task4, task3 = state.get("task4"), state.get("task3")
-        if skipping and task4 and task4.validation.skipped and task3 and task3.selected_path:
+        if (skipping and task3 and task3.selected_path and task4
+                and (task4.validation.skipped or task4.skipped_missing_resume)):
             skip_title = ""  # This posting is excluded by ID; another may have the same title.
     result = await open_next_job(
         run_id,
@@ -214,6 +217,9 @@ async def next_job(state: ApplyState) -> ApplyState:
     task8 = state.get("task8") or Task8Outcome()
     task8.stopped_reason = result.reason or "no unapplied job could be opened"
     log.append(f"next_job: stopping - {task8.stopped_reason}")
+    if (skipping and state.get("task4") and state["task4"].skipped_missing_resume
+            and result.close_failed):
+        return {"task8": task8, "status": "failed", "errors": [result.reason], "log": log}
     return {"task8": task8, "status": "stopped", "log": log}
 
 

@@ -42,8 +42,11 @@ _LATE_DIALOG_FORM_HTML = """<!doctype html>
      'North Sydney, New South Wales, Australia'].forEach(function (text) {
       var option = document.createElement('div');
       option.setAttribute('role', 'option');
-      option.textContent = text;
-      option.addEventListener('click', function () {
+      var action = document.createElement('div');
+      action.setAttribute('role', 'button');
+      action.textContent = text;
+      option.appendChild(action);
+      action.addEventListener('click', function () {
         var input = document.getElementById('city');
         input.value = text;
         input.setAttribute('data-committed', '1');

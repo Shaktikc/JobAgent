@@ -231,23 +231,14 @@ def _summary(state: ApplyState) -> str:
     return "\n".join(lines)
 
 
-# Task 16: with no skip cap (0), LangGraph still needs a finite step budget for
-# its cycle. This is deliberately far above any realistic results list.
-_UNLIMITED_SKIP_BUDGET = 1_000_000
-
-
 def _recursion_limit(settings) -> int:
-    """LangGraph's step budget for Task 8's loop plus Task 16's skips.
-
-    Each submitted job costs several graph nodes, and each skipped job costs a
-    ``match -> next_job`` cycle. Budget both caps so a run that matches nothing
-    reaches its skip cap instead of failing on the graph recursion limit. An
-    uncapped run gets a large fixed skip budget instead of zero.
-    """
+    """Allow uncapped scans, or budget four graph nodes per skipped application."""
     cap = settings.session.max_jobs_per_run
     skip_cap = settings.session.max_skipped_jobs_per_run
-    job_budget = 300 if cap == 0 else cap * 6 + 30
-    skip_budget = skip_cap * 3 if skip_cap else _UNLIMITED_SKIP_BUDGET
+    if cap == 0 or skip_cap == 0:
+        return sys.maxsize
+    job_budget = cap * 6 + 30
+    skip_budget = skip_cap * 4
     return job_budget + skip_budget
 
 
