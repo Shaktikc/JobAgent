@@ -48,7 +48,7 @@ def freeze_submission():
 async def tracked_completion(client, **kwargs):
     try:
         response = await client.chat.completions.create(**kwargs)
-    except Exception:
+    except (Exception, asyncio.CancelledError):
         tracker.record(kwargs['model'], None)
         publish()
         raise

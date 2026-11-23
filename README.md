@@ -131,7 +131,10 @@ START → ingest → browse → match → fill → await_submit → next_job →
 4. **Fill** — walks the Easy Apply form step by step. Required (`*`) questions
    are answered from `data/answers.json`; the LLM may copy a stored answer or
    derive one the store entails. Job-specific questions use the job description
-   and selected resume. Anything unresolved is handed to you in the browser.
+   and selected resume, with one focused re-read if the first context answer fails
+   its evidence check. Before asking you, an unresolved store lookup checks the
+   exact normalized question and, if needed, asks the configured answer model
+   to re-read the current store once. You see a banner if the question stays unresolved.
    The agent attaches the resume and advances multi-step forms.
 5. **Submit** — before the browser launches (after the date-range question), you
    choose **manual** (default) or **automatic** submission for the whole run;
@@ -165,7 +168,10 @@ START → ingest → browse → match → fill → await_submit → next_job →
   terminal step. It then requires a fresh site confirmation before recording the
   application; an uncertain result stops for manual review instead of retrying.
 - **No invented answers.** LLM answers must cite stored keys or evidence from the
-  job description/resume; unsupported answers are rejected and sent to you.
+  job description/resume. The second look accepts only answers that fit the current
+  control. Derived store answers go in the derived cache. For an unresolved job-specific
+  question, the model re-reads the current job description and selected resume once
+  before prompting you. Both context attempts require evidence from the current sources.
 - **Resumes are read-only.** The agent never renames, edits, or overwrites them.
   The one exception is the intake folder, where a fully described resume is moved
   into the pool without changing its bytes.

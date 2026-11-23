@@ -1,8 +1,11 @@
 """Bounded answer attempts shared by normal filling and validation recovery."""
 
+from src.llm_model_routing import answer_llm_settings
 from src.state import FormField
 from src.state.validation import RequiredAnswerAttempt
+from src.tools.answer_second_look import SelectLabels, fits_control, second_look
 from src.tools.job_context_answers import record_decision
+from src.tools.job_context_answers.chooser import ContextAwareAnswerChooser
 from src.tools.linkedin_status_overlay import emit_step
 from src.tools.linkedin_validation.required_controls import (
     apply_answer,
@@ -14,7 +17,7 @@ from src.tools.llm_answers import QuestionDecision
 
 
 class AnswerAttempts:
-    """One chooser call and one human prompt per question per step."""
+    """Bound the initial choice, optional store re-read and human prompt per step."""
 
     def __init__(self, settings, human, chooser, ask, notify, answers=None):
         self.settings, self.human = settings, human
@@ -51,8 +54,40 @@ class AnswerAttempts:
         entry.automatic_attempted = True
         emit_step(self.notify, f"Answering {question!r} from grounded sources...")
         decision = await self.chooser(question, kind, options)
-        if decision.job_specific is True and not decision.decided:
+        context_miss = decision.job_specific is True and not decision.decided
+        if context_miss:
             entry.job_context_rejection = decision.rationale
+        if fits_control(decision.answer, kind, options):
+            return decision
+        if not self.settings.session.ask_human or self.asker is None or entry.human_prompted:
+            return decision
+        if context_miss:
+            if not self.settings.llm.configured or not isinstance(
+                self.chooser, ContextAwareAnswerChooser
+            ):
+                return decision
+            reread = await self.chooser.retry_job_context(question, kind, options)
+            if reread is None:
+                return decision
+            decision = reread
+            source = "job-context"
+        else:
+            llm = answer_llm_settings(self.settings)
+            if not self.answers or not llm.configured:
+                return decision
+            decision = await second_look(
+                llm, self.answers, question, kind, options, self.settings.derived_answers_file,
+            )
+            source = "stored"
+        entry.second_attempted = True
+        entry.second_attempt_found = decision.decided
+        if decision.decided:
+            message = f"Second look found a {source} answer for {question!r}."
+        else:
+            message = f"First pass and second look missed {question!r}: {decision.rationale}."
+            if self.human is not None:
+                self.human.notes = " ".join(filter(None, [self.human.notes, message]))
+        emit_step(self.notify, message)
         return decision
 
     async def ask(self, question, field):
@@ -118,7 +153,7 @@ async def recover_required(page, issues, outcome, attempts, read):
         options = (
             [row.get("option", "") for row in group]
             if field.get("kind") in {"radio", "checkbox"}
-            else [row.get("text", "") for row in field.get("options", [])]
+            else SelectLabels(group[0].get("options", []))
         )
         if not usable_answer(group, answer):
             decision = await attempts.choose(question, kind, options)

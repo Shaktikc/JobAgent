@@ -265,6 +265,7 @@ class FormField(BaseModel):
     rationale: str = ""  # why the LLM chose this answer
     # Task 10: provenance for an answer matched or derived from the store.
     derived: bool = False  # True when the answer was derived, not copied
+    second_look: bool = False
     source_keys: list[str] = Field(default_factory=list)  # the stored keys used
     # Task 12: provenance for a job-specific answer grounded in the job context.
     answer_source: str = ""  # "resume", "job_description", or "resume+job_description"

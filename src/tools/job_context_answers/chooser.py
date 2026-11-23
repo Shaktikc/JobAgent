@@ -15,6 +15,7 @@ from src.tools.job_context_answers.prompt import (
     build_context_messages,
     parse_context_reply,
 )
+from src.tools.job_context_answers.second_look import reread_context
 from src.tools.job_context_answers.validation import validate_context_decision
 from src.tools.llm_answer_reasoning import build_reasoning_answer_chooser
 from src.tools.llm_answers import AnswerChooser, QuestionDecision, build_answer_chooser
@@ -42,7 +43,7 @@ class JobContextChooser:
         return self._client
 
     async def __call__(
-        self, question: str, field_type: str, options: list[str]
+        self, question: str, field_type: str, options: list[str], *, second_look: bool = False
     ) -> QuestionDecision:
         """Answer ``question`` from the context, or return an unknown decision."""
         if not is_free_text_field(field_type) or is_choice_control(field_type):
@@ -58,11 +59,13 @@ class JobContextChooser:
         messages = build_context_messages(question, field_type, options, self._context)
         try:
             client = self._client_or_create()
-            response = await tracked_completion(client,
-                model=self._settings.model,
-                messages=messages,
-                temperature=self._settings.temperature,
-            )
+            if second_look:
+                response = await reread_context(client, self._settings, messages)
+            else:
+                response = await tracked_completion(
+                    client, model=self._settings.model, messages=messages,
+                    temperature=self._settings.temperature,
+                )
             text = (response.choices[0].message.content or "") if response.choices else ""
         except Exception as exc:  # noqa: BLE001 - a bad call leaves it to Task 5
             return QuestionDecision(
@@ -120,12 +123,29 @@ class ContextAwareAnswerChooser:
             return QuestionDecision(question=question)
         return await self._store(question, field_type, options)
 
-    async def _context_decision(
+    async def retry_job_context(
         self, question: str, field_type: str, options: list[str]
+    ) -> QuestionDecision | None:
+        if not self._context.sources:
+            return None
+        decision = await self._context_decision(question, field_type, options, second_look=True)
+        if not decision.decided:
+            decision.job_specific = True
+            decision.rationale = decision.rationale or "no grounded job-specific answer"
+        decision.second_look = True
+        return decision
+
+    async def _context_decision(
+        self, question: str, field_type: str, options: list[str], *, second_look: bool = False
     ) -> QuestionDecision:
         """Never let a context failure escape into the form walk."""
         try:
-            decision = await self._context_chooser(question, field_type, options)
+            if second_look:
+                decision = await self._context_chooser(
+                    question, field_type, options, second_look=True,
+                )
+            else:
+                decision = await self._context_chooser(question, field_type, options)
             if decision.job_specific is True and decision.decided:
                 # Defense in depth: a swapped/custom context chooser must still
                 # pass the same grounding guard before prose reaches a control.

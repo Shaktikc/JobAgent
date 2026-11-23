@@ -56,6 +56,7 @@ def record_decision(record: FormField, decision: QuestionDecision) -> None:
     record.matched_key = decision.matched_key
     record.rationale = decision.rationale
     record.derived = decision.derived
+    record.second_look = decision.second_look
     record.source_keys = list(decision.source_keys)
     record.answer_source = decision.context_source
     record.job_specific = decision.job_specific is True

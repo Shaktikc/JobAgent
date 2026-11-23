@@ -58,12 +58,14 @@ def _decision_line(field: FormField) -> str:
         )
         return (
             f"{field.question!r}->{field.value!r} "
-            f"(job-specific, source={field.answer_source}, evidence={evidence!r}; "
+            f"(job-specific, {'second look, ' if field.second_look else ''}"
+            f"source={field.answer_source}, evidence={evidence!r}; "
             f"{field.rationale or 'no rationale'})"
         )
     return (
         f"{field.question!r}->{field.value!r} "
         f"({'derived' if field.derived else 'matched'}"
+        f"{', second look' if field.second_look else ''}"
         f"{', sources=' + repr(field.source_keys) if field.source_keys else ''}; "
         f"key={field.matched_key!r}, {field.question_type or 'question'}: "
         f"{field.rationale or 'no rationale'})"

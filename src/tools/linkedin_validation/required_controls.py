@@ -49,7 +49,7 @@ def unanswered_issues(fields):
 
 
 def usable_answer(group, answer):
-    from src.tools.linkedin_easy_apply_fill.checkbox_groups import selected_options
+    from src.tools.answer_second_look import fits_control
     from src.tools.linkedin_easy_apply_fill.field_filling import _select_value_for
 
     if not group or answer is None or not str(answer).strip():
@@ -58,7 +58,7 @@ def usable_answer(group, answer):
     if kind == "radio":
         return any(answers_match(row.get("option", ""), answer) for row in group)
     if kind == "checkbox":
-        return bool(selected_options(answer, [row.get("option", "") for row in group]))
+        return fits_control(answer, kind, [row.get("option", "") for row in group])
     if kind == "select":
         return _select_value_for(answer, group[0].get("options") or []) is not None
     return True

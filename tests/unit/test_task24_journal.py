@@ -18,6 +18,8 @@ async def test_required_answer_attempts_are_saved_before_the_form_closes(tmp_pat
             {
                 "question": "Tools*",
                 "automatic_attempted": True,
+                "second_attempted": True,
+                "second_attempt_found": False,
                 "human_prompted": True,
                 "failure": "human skipped",
             }
@@ -36,6 +38,7 @@ async def test_required_answer_attempts_are_saved_before_the_form_closes(tmp_pat
                 RequiredAnswerAttempt(
                     question="Tools*",
                     automatic_attempted=True,
+                    second_attempted=True,
                     human_prompted=True,
                     failure="human skipped",
                 )

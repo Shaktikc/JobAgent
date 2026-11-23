@@ -14,6 +14,8 @@ class ValidationIssue(BaseModel):
 class RequiredAnswerAttempt(BaseModel):
     question: str = ""
     automatic_attempted: bool = False
+    second_attempted: bool = False
+    second_attempt_found: bool = False
     job_context_rejection: str | None = None
     human_prompted: bool = False
     failure: str = ""

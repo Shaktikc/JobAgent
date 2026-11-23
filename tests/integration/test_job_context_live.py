@@ -27,6 +27,7 @@ import json
 import os
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -227,3 +228,50 @@ async def test_job_context_answers_a_job_question_and_leaves_salary_to_task5(
     assert outcome.reached_terminal_step is False
     assert outcome.validation.issues[0].question == "What is your expected salary?*"
     assert outcome.submitted is False
+
+
+@pytest.mark.parametrize("has_sources", [False, True])
+async def test_rejected_job_question_skips_old_store_before_banner(tmp_path, has_sources):
+    from src.tools.linkedin_easy_apply_fill.field_filling import _fill_step
+    from src.tools.linkedin_validation.required_answers import AnswerAttempts
+
+    settings = _settings(tmp_path)
+    settings.llm = LLMSettings(api_key="test", model="test")
+    store = {"what attracts you to our former employer": "Old company mission"}
+    context = _context() if has_sources else JobAnswerContext()
+    chooser = ContextAwareAnswerChooser(context, settings.llm, store, _unknown_store)
+    client = MagicMock()
+    client.with_options.return_value = client
+    rejected = SimpleNamespace(message=SimpleNamespace(content='{"job_specific":true,"answer":""}'))
+    client.chat.completions.create = AsyncMock(return_value=SimpleNamespace(choices=[rejected]))
+    chooser._context_chooser._client = client
+    page_file = tmp_path / "job-question.html"
+    page_file.write_text(_FORM, encoding="utf-8")
+    browser = browser_tools.build_browser(settings)
+    await browser.start()
+    try:
+        page = await browser.new_page()
+        await page.goto(page_file.as_uri())
+        await browser_tools._wait_for_load(page, 10)
+        fields = [f for f in (await browser_tools.read_form(page))[2] if f["question"] == _QUESTION]
+        human = Task5Outcome()
+
+        async def ask(question, field):
+            from src.tools.linkedin_ask_human import ask_human_for_answer
+
+            return await ask_human_for_answer(
+                page, question, field["type"], "", settings, print, human,
+                markers=[field["marker"]],
+            )
+
+        attempts = AnswerAttempts(settings, human, chooser, ask, print, store)
+        _, _, unknown, _ = await _fill_step(
+            page, fields, store, settings, ask=attempts.ask, chooser=attempts.choose,
+        )
+        assert unknown == [_QUESTION] and human.asked == 1 and human.timed_out == 1
+        assert attempts.audit()[0].job_context_rejection
+        assert attempts.audit()[0].second_attempted == has_sources
+        assert client.chat.completions.create.await_count == (2 if has_sources else 0)
+        assert json.loads(await page.evaluate(_READ_STATE_JS))["q1"] == ""
+    finally:
+        await browser.kill()

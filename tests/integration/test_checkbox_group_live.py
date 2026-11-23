@@ -28,6 +28,7 @@ import pytest
 from src.configuration import SessionSettings, Settings
 from src.state import Task5Outcome
 from src.tools import browser as browser_tools
+from src.tools.answers import normalize_question
 from src.tools.llm_answers import QuestionDecision
 
 pytest.importorskip("browser_use")
@@ -224,8 +225,9 @@ async def test_sdui_checkbox_group_is_one_question_and_keeps_the_human_ticks(
         gc.collect()
 
 
+@pytest.mark.parametrize("force_miss", [False, True])
 async def test_stored_multi_select_answer_ticks_the_group_without_a_prompt(
-    tmp_path: Path,
+    tmp_path: Path, force_miss: bool,
 ) -> None:
     """A remembered "A, B" answer ticks both boxes and never shows the banner."""
     settings = _settings(tmp_path, ask_timeout=10.0)
@@ -243,9 +245,12 @@ async def test_stored_multi_select_answer_ticks_the_group_without_a_prompt(
             )
 
         human = Task5Outcome()
+        settings.llm.model = "test"
+        settings.llm.api_key = "test"
+        answers = {normalize_question(QUESTION): answer}
         outcome = await browser_tools._task4_on_page(
-            page, browser, None, {}, settings, lambda _m: None,
-            human=human, chooser=chooser,
+            page, browser, None, answers, settings, lambda _m: None,
+            human=human, chooser=_unknown if force_miss else chooser,
         )
         state = json.loads(await page.evaluate(_READ_STATE_JS))
 
@@ -254,6 +259,7 @@ async def test_stored_multi_select_answer_ticks_the_group_without_a_prompt(
         assert human.asked == 0
         record = outcome.fields[0]
         assert record.value == answer
+        assert record.second_look == force_miss
         assert record.filled is True and record.error == ""
     finally:
         await browser.kill()

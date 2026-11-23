@@ -11,6 +11,7 @@ from src.configuration import LLMSettings, Settings
 from src.main import _log_models
 from src.state import JobAnswerContext, JobDescription
 from src.tools.job_context_answers import build_fill_chooser
+from src.tools.linkedin_validation.required_answers import AnswerAttempts
 from src.tools.llm_answer_reasoning import build_reasoning_answer_chooser
 from src.tools.llm_answers import build_answer_chooser
 from src.tools.resume_descriptions import (
@@ -26,6 +27,12 @@ STORE = {AI_KEY: "5"}
 
 
 class RecordingClient:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        pass
+
     def __init__(self, reply, *, error=None):
         self.reply = json.dumps(reply)
         self.error = error
@@ -139,9 +146,10 @@ async def test_failed_answer_override_returns_unknown_without_switching_models(
     client = RecordingClient({}, error=RuntimeError("model unavailable"))
     install_client(monkeypatch, client)
     chooser = build_fill_chooser(settings, STORE, None)
-    decision = await chooser("Experience on AI?", "radio", ["Yes", "No"])
+    attempts = AnswerAttempts(settings, SimpleNamespace(notes=""), chooser, bool, None, STORE)
+    decision = await attempts.choose("Experience on AI?", "radio", ["Yes", "No"])
     assert not decision.decided
-    assert [call["model"] for call in client.calls] == ["provider/answers"]
+    assert [call["model"] for call in client.calls] == ["provider/answers"] * 2
 
 
 async def test_failed_resume_override_preserves_resume_error_without_switching(
@@ -179,7 +187,9 @@ async def test_ungrounded_override_answer_remains_unknown(settings, monkeypatch)
     client = RecordingClient({"answer": "Yes", "source_keys": ["nonexistent"]})
     install_client(monkeypatch, client)
     chooser = build_fill_chooser(settings, STORE, None)
-    assert not (await chooser("Experience on AI?", "radio", ["Yes", "No"])).decided
+    attempts = AnswerAttempts(settings, SimpleNamespace(notes=""), chooser, bool, None, STORE)
+    assert not (await attempts.choose("Experience on AI?", "radio", ["Yes", "No"])).decided
+    assert len(client.calls) == 2
 
 
 def test_startup_logs_each_resolved_model_without_credentials(settings, capsys):

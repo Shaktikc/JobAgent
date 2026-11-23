@@ -1,6 +1,6 @@
 # Task 31 — Take a second look in answers.json before asking the human about an unknown question
 
-**Status:** ⚪ Not started
+**Status:** 🟡 In progress
 
 **Goal:** When a required Easy Apply question is about to be handed to Task 5
 because the automatic answer chooser found no answer, make **one independent

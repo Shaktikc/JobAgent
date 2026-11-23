@@ -54,6 +54,7 @@ class QuestionDecision(BaseModel):
     # Task 10: provenance for an answer matched *or* derived from the store.
     source_keys: list[str] = Field(default_factory=list)
     derived: bool = False
+    second_look: bool = False
     source_summary: str = ""
     # Task 12: provenance for a job-specific answer grounded in the job context.
     job_specific: bool | None = None

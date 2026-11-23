@@ -227,3 +227,7 @@ this index.
 | T30-004 | [Task 30](task_30_bugs.md) | Public fallback pricing ignored by Git | 🟢 Fixed | Uncommitted |
 
 | T12-001 | [Task 12](task_12_bugs.md) | Lost job-context rejection before the human prompt | 🟢 Fixed | Uncommitted |
+
+| T12-002 | [Task 12](task_12_bugs.md) | Job-context miss prompted before a second read of available evidence | 🟢 Fixed | Uncommitted |
+
+| T31-001 / T31-002 / T31-003 | [Task 31](task_31_bugs.md) | Missed stored answers, unnecessary checkbox prompts, and live verification timing | 🟢 Fixed | Uncommitted |

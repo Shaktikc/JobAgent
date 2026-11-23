@@ -162,6 +162,10 @@ def selects_option(answer: str | None, option: str) -> bool:
     return text.lower() in {"yes", "y", "true", "1", "on"}
 
 
+def leaves_single_unchecked(answer, options):
+    return len(options) == 1 and (answer or "").strip().lower() in {"no", "n", "false", "0", "off"}
+
+
 async def read_ticked_options(
     page, markers: list[str], *, settle_seconds: float = 0.8, max_seconds: float = 4.0
 ) -> list[str]:
@@ -262,7 +266,7 @@ async def fill_checkbox_group(
     else:
         answer, selected = None, []
 
-    if not selected and ask is not None:
+    if not selected and not leaves_single_unchecked(answer, options) and ask is not None:
         markers = [g.get("marker") for g in group if g.get("marker")]
         answered = await ask(
             question,
@@ -310,7 +314,7 @@ async def fill_checkbox_group(
 
     if answer is None:
         return record, False, False, True  # nothing given: Task 5 already asked
-    if len(options) <= 1 and str(answer).strip().lower() in {"no", "n", "false", "0", "off"}:
+    if leaves_single_unchecked(answer, options):
         # "No" for a single checkbox: a valid answer that leaves the box unticked.
         record.value, record.answered_by = str(answer), record.answered_by or "human"
         record.known = record.filled = True

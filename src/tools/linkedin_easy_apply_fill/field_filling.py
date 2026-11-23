@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from src.configuration import Settings
 from src.state import FormField, Task5Outcome
+from src.tools.answer_second_look import SelectLabels
 from src.tools.browser import _marker_element, _pace, _safe
 from src.tools.forms import _SELECT_PLACEHOLDERS as _SELECT_PLACEHOLDERS  # re-export
 from src.tools.forms import (
@@ -353,7 +354,7 @@ async def _fill_step(
             filled += 1
             records.append(record)
             continue
-        option_labels = [option.get("text", "") for option in field.get("options", [])]
+        option_labels = SelectLabels(field.get("options", []))
         decision = await _decide(
             chooser, question, str(field.get("type", "")), option_labels, status
         )
