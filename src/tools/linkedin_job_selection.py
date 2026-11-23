@@ -194,6 +194,9 @@ async def _scan_page(
             break
         index, card, title, key = candidate
         tried.add(key)
+        from src.tools.token_usage.applications import record_scan
+
+        await record_scan(page, card, key)
         outcome.job_index = index
         outcome.job_title = title
         notify(f"Task 2: opening job {index + 1}: {title or '(untitled)'}")

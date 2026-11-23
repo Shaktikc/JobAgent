@@ -440,3 +440,27 @@ session.
 
 The `autojob` command remains available as an alias. Existing `AUTOJOB_*`
 settings remain supported.
+
+
+### Session AI usage (Task 30)
+
+The bottom-left status panel labels its metrics **Current session info** and shows
+only total scanned, submitted, tokens used, and estimated USD cost. Calls spent on
+skipped, discarded, or failed applications remain included. Confirmed submissions
+capture a snapshot internally; the browser displays the live session totals only.
+Missing usage is marked `(partial)` and missing usage or pricing makes cost unknown.
+
+Prices are fetched once from https://openrouter.ai/api/v1/models, then fall back to
+`data/model_pricing.json`. Edit that file with public USD prices per million tokens;
+`null` means unknown and zero means free. Cached input uses the cached rate when
+available, otherwise the standard input rate. These are estimates, not an invoice.
+Repair subprocess JSON usage is included when reported; unreported usage is excluded
+from the totals. The runtime currently supports one active agent session.
+
+Task 30 also shows **Scanned** and **Submitted** counts beside the session usage.
+Scanned counts distinct jobs the agent attempts to open for evaluation, including
+later skips, discards, and failures, but excluding cards already marked Applied.
+Submitted counts only confirmed submissions, once per job. Stable LinkedIn job IDs
+prevent duplicate counts on repeated scans; when unavailable, the fallback uses the
+results URL and card key. Both counts are frozen with the submission snapshot and
+reset at the next session. Token totals remain session totals, not per-job charges.

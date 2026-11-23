@@ -30,4 +30,4 @@ Each task lives in its own file. This index links to them.
 - [Task 26 — Save an unknown answer only after the human finishes answering](task_26.md) — ✅ Done
 - [Task 28 — Show the latest agent log line in the on-page status panel (no generic placeholder)](task_28.md) — ✅ Done
 - [Task 29 — Log every discarded Easy Apply form with a pre-discard screenshot](task_29.md) — ✅ Done
-- [Task 30 — Show total AI token usage and cost in the browser up to Easy Apply submission](task_30.md) — ⬜ Not started
+- [Task 30 — Show total AI token usage and cost in the browser up to Easy Apply submission](task_30.md) — 🟡 In progress

@@ -167,6 +167,9 @@ async def run_repair_and_test(
     notify("self-heal: streaming the repair agent's output below...")
     code, repair_output = await _run_configured(command_fn, command, PROJECT_ROOT, env, timeout)
     (bundle / "repair.log").write_text(repair_output, encoding="utf-8")
+    from src.tools.token_usage.repair_usage import record_repair_usage
+
+    record_repair_usage(repair_output, settings.self_healing.repair_model)
     if code != 0:
         return False, f"repair command failed with exit code {code}"
 

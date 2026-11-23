@@ -6,7 +6,8 @@
 .env.local
 
 # Runtime state (SQLite, Chromium profile, screenshots)
-data/
+data/*
+!data/model_pricing.json
 
 # Python
 __pycache__/

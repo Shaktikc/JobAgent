@@ -1,0 +1,12 @@
+{
+  "xiaomi/mimo-v2.6-pro": {
+    "input_per_million": null,
+    "output_per_million": null,
+    "cached_input_per_million": null
+  },
+  "deepseek/deepseek-v4.1-flash-1017": {
+    "input_per_million": null,
+    "output_per_million": null,
+    "cached_input_per_million": null
+  }
+}

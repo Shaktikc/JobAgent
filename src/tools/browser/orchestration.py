@@ -68,6 +68,9 @@ async def start_tasks(
     # and, once bound to the page, mirrors the latest runtime log line onto an
     # on-page panel. It is stored on the run so later nodes reach it by run id.
     reporter = StatusReporter(emit=notify)
+    from src.tools.token_usage.runtime import start_session
+
+    await start_session(reporter)
     session = build_browser(settings)
     task1 = Task1Outcome(start_url=url, search_query=search_query)
     task2 = Task2Outcome()

@@ -32,6 +32,7 @@ from pydantic import BaseModel, Field
 from src.configuration import LLMSettings, Settings
 from src.llm_model_routing import answer_llm_settings
 from src.tools.answers import normalize_question
+from src.tools.token_usage.runtime import tracked_completion
 
 
 class QuestionDecision(BaseModel):
@@ -197,7 +198,7 @@ class LLMAnswerChooser:
         messages = build_messages(question, field_type, options, self._answers)
         try:
             client = self._client_or_create()
-            response = await client.chat.completions.create(
+            response = await tracked_completion(client,
                 model=self._settings.model,
                 messages=messages,
                 temperature=self._settings.temperature,

@@ -221,3 +221,7 @@ this index.
 | BUG-T1-REPEAT | [Task 1](task_1_bugs.md) | AI search repeated three times | 🟢 Fixed; verified on LinkedIn | Uncommitted |
 
 - Subtask 25.1: over-limit text recovery ? Open; see [Task 25 bugs](task_25_bugs.md).
+
+| T30-001 / T30-002 / T30-003 | [Task 30](task_30_bugs.md) | Reporter rebinding and test assertion placement | ?🟢 Fixed | Uncommitted |
+
+| T30-004 | [Task 30](task_30_bugs.md) | Public fallback pricing ignored by Git | 🟢 Fixed | Uncommitted |

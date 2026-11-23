@@ -209,6 +209,9 @@ async def _await_human_submit(
             notify("Task 8: submission detected.")
             emit_step(notify, "Submission detected - looking for the next job.")
             await _dismiss_confirmation(run.page, state, title)
+            from src.tools.token_usage.runtime import freeze_submission
+
+            freeze_submission()
             return "submitted"
         if deadline is not None and time.monotonic() >= deadline:
             notify(

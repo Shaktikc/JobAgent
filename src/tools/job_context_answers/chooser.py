@@ -18,6 +18,7 @@ from src.tools.job_context_answers.prompt import (
 from src.tools.job_context_answers.validation import validate_context_decision
 from src.tools.llm_answer_reasoning import build_reasoning_answer_chooser
 from src.tools.llm_answers import AnswerChooser, QuestionDecision, build_answer_chooser
+from src.tools.token_usage.runtime import tracked_completion
 
 
 class JobContextChooser:
@@ -57,7 +58,7 @@ class JobContextChooser:
         messages = build_context_messages(question, field_type, options, self._context)
         try:
             client = self._client_or_create()
-            response = await client.chat.completions.create(
+            response = await tracked_completion(client,
                 model=self._settings.model,
                 messages=messages,
                 temperature=self._settings.temperature,

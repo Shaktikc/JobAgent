@@ -18,6 +18,8 @@ from src.tools.linkedin_status_overlay.panel_js import (
 )
 from src.tools.linkedin_status_overlay.panel_text import sanitize_panel_text
 
+from .metrics_js import UPDATE_METRICS_JS
+
 
 class StatusReporter:
     """Callable CLI callback with serialized, coalesced panel updates."""
@@ -31,11 +33,16 @@ class StatusReporter:
         self._latest: tuple[str, str] | None = None
         self._rendered = None
         self._closed = False
+        self._metrics = getattr(self, "_metrics", ("", ""))
 
     def bind_page(self, page) -> None:
         """Attach the live page and install the automation interaction lock."""
         self._page = page
+        from src.tools.token_usage import runtime as usage_runtime
+
+        usage_runtime.reporter = self
         self._closed = False
+        self._metrics = getattr(self, "_metrics", ("", ""))
         self._rendered = None
         if self._latest is not None:
             self._update(*self._latest)
@@ -76,6 +83,11 @@ class StatusReporter:
         if self._pump_task is None or self._pump_task.done():
             self._pump_task = loop.create_task(self._pump())
 
+    def metrics(self, live: str, frozen: str = "") -> None:
+        self._metrics = (live, frozen)
+        self._rendered = None
+        self._update(*(self._latest or ("agent", "Session started")))
+
     async def _pump(self) -> None:
         while self._pending is not None and not self._closed:
             value, self._pending = self._pending, None
@@ -84,6 +96,8 @@ class StatusReporter:
                 continue
             try:
                 await page.evaluate(_UPDATE_STATUS_JS, *value)
+                if self._metrics[0]:
+                    await page.evaluate(UPDATE_METRICS_JS, *self._metrics)
             except Exception:  # noqa: BLE001 - best-effort panel, CLI still works
                 continue
             self._rendered = (page, value)

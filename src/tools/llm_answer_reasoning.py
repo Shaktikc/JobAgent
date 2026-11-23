@@ -32,6 +32,7 @@ from src.tools.derived_answers import (
 )
 from src.tools.forms import answers_match
 from src.tools.llm_answers import QuestionDecision
+from src.tools.token_usage.runtime import tracked_completion
 
 _SYSTEM_PROMPT = (
     "You answer application-form questions for a job applicant using ONLY the "
@@ -346,7 +347,7 @@ class ReasoningAnswerChooser:
         messages = build_reasoning_messages(question, field_type, options, self._answers)
         try:
             client = self._client_or_create()
-            response = await client.chat.completions.create(
+            response = await tracked_completion(client,
                 model=self._settings.model,
                 messages=messages,
                 temperature=self._settings.temperature,

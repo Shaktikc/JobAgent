@@ -17,6 +17,7 @@ from pathlib import Path
 from src.configuration import LLMSettings, Settings
 from src.llm_model_routing import resume_llm_settings
 from src.state import JobDescription
+from src.tools.token_usage.runtime import tracked_completion
 
 from .messages import (
     build_describe_messages,
@@ -166,7 +167,7 @@ async def _chat_once(client, kwargs: dict) -> str:
     """Send one request, dropping provider-rejected knobs; return the reply text."""
     for _attempt in range(3):
         try:
-            response = await client.chat.completions.create(**kwargs)
+            response = await tracked_completion(client, **kwargs)
             break
         except Exception as exc:  # noqa: BLE001 - retry without an unsupported knob
             if "extra_body" in kwargs and (

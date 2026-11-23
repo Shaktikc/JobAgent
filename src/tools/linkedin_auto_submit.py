@@ -161,6 +161,9 @@ async def _submit_on_page(
                 outcome.submitted = True
                 with contextlib.suppress(Exception):
                     await _dismiss_confirmation(page, current, title)
+                from src.tools.token_usage.runtime import freeze_submission
+
+                freeze_submission()
                 return AutoSubmitResult("submitted")
             if time.monotonic() >= deadline:
                 reason = "LinkedIn did not confirm submission"
