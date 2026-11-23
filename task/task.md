@@ -31,3 +31,4 @@ Each task lives in its own file. This index links to them.
 - [Task 28 — Show the latest agent log line in the on-page status panel (no generic placeholder)](task_28.md) — ✅ Done
 - [Task 29 — Log every discarded Easy Apply form with a pre-discard screenshot](task_29.md) — ✅ Done
 - [Task 30 — Show total AI token usage and cost in the browser up to Easy Apply submission](task_30.md) — 🟡 In progress
+- [Task 31 — Take a second look in answers.json before asking the human about an unknown question](task_31.md) — ⚪ Not started
