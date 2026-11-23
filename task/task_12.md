@@ -1,6 +1,6 @@
 # Task 12 — Answer job-specific questions from the selected resume and job description
 
-**Status:** ✅ Done
+**Status:** 🟡 In progress
 
 **Goal:** Keep the current job's description and the resume selected by Task 3
 available as a per-job **context** while Task 4 fills the Easy Apply form. When

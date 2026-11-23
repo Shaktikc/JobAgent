@@ -50,7 +50,10 @@ class AnswerAttempts:
             return QuestionDecision(question=question)
         entry.automatic_attempted = True
         emit_step(self.notify, f"Answering {question!r} from grounded sources...")
-        return await self.chooser(question, kind, options)
+        decision = await self.chooser(question, kind, options)
+        if decision.job_specific is True and not decision.decided:
+            entry.job_context_rejection = decision.rationale
+        return decision
 
     async def ask(self, question, field):
         entry = self._entry(question, field.get("type", ""))

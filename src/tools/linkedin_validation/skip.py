@@ -32,7 +32,7 @@ async def persist_and_close(page, state, outcome, settings, notify) -> None:
             "retry_count": result.retry_count,
             "correction_failure": result.correction_failure,
             "required_answer_attempts": [
-                row.model_dump() for row in result.required_answer_attempts
+                row.model_dump(exclude_none=True) for row in result.required_answer_attempts
             ],
             "text_shortening_attempts": [
                 row.model_dump() for row in result.text_shortening_attempts

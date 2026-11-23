@@ -224,5 +224,6 @@ async def test_job_context_answers_a_job_question_and_leaves_salary_to_task5(
         "from the job description" in line and "Propeller" in line
         for line in status.llm_lines
     )
-    assert outcome.reached_terminal_step is True
+    assert outcome.reached_terminal_step is False
+    assert outcome.validation.issues[0].question == "What is your expected salary?*"
     assert outcome.submitted is False

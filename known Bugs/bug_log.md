@@ -225,3 +225,5 @@ this index.
 | T30-001 / T30-002 / T30-003 | [Task 30](task_30_bugs.md) | Reporter rebinding and test assertion placement | ?🟢 Fixed | Uncommitted |
 
 | T30-004 | [Task 30](task_30_bugs.md) | Public fallback pricing ignored by Git | 🟢 Fixed | Uncommitted |
+
+| T12-001 | [Task 12](task_12_bugs.md) | Lost job-context rejection before the human prompt | 🟢 Fixed | Uncommitted |
