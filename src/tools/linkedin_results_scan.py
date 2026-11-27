@@ -29,6 +29,7 @@ from src.date_range import (
 )
 from src.state import Task2Outcome
 from src.tools.browser import _append_note, _pace, results_count
+from src.tools.linkedin_company_skip import blacklist_skip_note
 from src.tools.linkedin_date_posted import (
     PAST_24_HOURS_VALUE,
     PAST_WEEK_LABEL,
@@ -238,6 +239,9 @@ async def scan_results_pages(
             note = applied_skip_note(outcome)
             if note:
                 outcome.notes = _append_note(outcome.notes, note)
+        blacklist_note = blacklist_skip_note(outcome)
+        if blacklist_note:
+            outcome.notes = _append_note(outcome.notes, blacklist_note)
         if exhausted and pages_visited > 1:
             if outcome.date_range_fallback_used:
                 outcome.notes = _append_note(

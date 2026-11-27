@@ -34,6 +34,7 @@ from pathlib import Path
 import pytest
 
 from src.configuration import SessionSettings, Settings
+from src.state import DEFAULT_SEARCH_QUERY
 from src.tools import browser as browser_tools
 
 pytest.importorskip("browser_use")
@@ -210,7 +211,7 @@ async def test_task1_selects_past_24_hours_and_keeps_easy_apply(tmp_path: Path) 
         await browser.start()
         page = await browser.new_page()
         outcome = await browser_tools._task1_on_page(
-            page, url, "software engineer", _settings(tmp_path), lambda _m: None
+            page, url, DEFAULT_SEARCH_QUERY, _settings(tmp_path), lambda _m: None
         )
         observed = json.loads(await page.evaluate(_READ_STATE_JS))
     finally:
@@ -252,7 +253,7 @@ async def test_task1_selects_the_requested_past_week_range(tmp_path: Path) -> No
         outcome = await browser_tools._task1_on_page(
             page,
             url,
-            "software engineer",
+            DEFAULT_SEARCH_QUERY,
             _settings(tmp_path),
             lambda _m: None,
             date_range="past_week",
@@ -284,7 +285,7 @@ async def test_task1_uses_the_url_fallback_and_rechecks_easy_apply(tmp_path: Pat
         await browser.start()
         page = await browser.new_page()
         outcome = await browser_tools._task1_on_page(
-            page, url, "software engineer", _settings(tmp_path), lambda _m: None
+            page, url, DEFAULT_SEARCH_QUERY, _settings(tmp_path), lambda _m: None
         )
         observed = json.loads(await page.evaluate(_READ_FALLBACK_JS))
     finally:

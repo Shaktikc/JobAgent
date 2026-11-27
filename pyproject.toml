@@ -15,8 +15,8 @@ dependencies = [
 ]
 
 [project.scripts]
-jobagent = "src.main:main"
-autojob = "src.main:main"
+jobagent = "src.cli:main"
+autojob = "src.cli:main"
 
 [project.optional-dependencies]
 # The browser layer is heavy (browser-use + a Chromium build). Install on demand:

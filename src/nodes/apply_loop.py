@@ -188,6 +188,7 @@ async def next_job(state: ApplyState) -> ApplyState:
         f"easy_apply_clicked={task2.easy_apply_clicked} "
         f"form_opened={task2.application_form_opened} "
         f"applied_skipped={task2.applied_jobs_skipped} "
+        f"blacklisted_skipped={task2.blacklisted_jobs_skipped} "
         f"pages_visited={task2.pages_visited} "
         f"date_range={task2.date_range_used or '(unknown)'} "
         f"preferred={task2.date_range_preferred or '(unknown)'} "

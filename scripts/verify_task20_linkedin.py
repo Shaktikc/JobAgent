@@ -15,7 +15,7 @@ from uuid import uuid4
 from browser_use import BrowserSession
 
 from src.configuration import load_settings
-from src.state import JobAnswerContext
+from src.state import DEFAULT_SEARCH_QUERY, JobAnswerContext
 from src.tools.answers import load_answers
 from src.tools.browser import _ACTIVE_RUNS, _Run, forget_run
 from src.tools.linkedin_apply_loop import open_next_job
@@ -31,7 +31,7 @@ async def main():
     parser.add_argument("--cdp-url", required=True)
     parser.add_argument("--walk", action="store_true")
     parser.add_argument("--continue-next", action="store_true")
-    parser.add_argument("--query", default="software engineer")
+    parser.add_argument("--query", default=DEFAULT_SEARCH_QUERY)  # live tests: default search
     parser.add_argument(
         "--date-range", choices=["past_24_hours", "past_week"], default="past_24_hours"
     )

@@ -54,6 +54,7 @@ from src.nodes import (
     open_form,
     verify,
 )
+from src.nodes.cleanup_guard import guard_cleanup
 from src.nodes.self_heal_guard import guard_node
 from src.nodes.submission_guard import guard_submission
 from src.nodes.task_self_heal import guard_task_node
@@ -68,7 +69,8 @@ def _route_after_browse(state: ApplyState) -> str:
     """A dry run skips matching; a browser failure skips to cleanup."""
     if state.get("dry_run", True):
         return "verify"
-    if state.get("errors"):
+    if state.get("errors") or state.get("status") == "stopped":
+        # Task 32: a clean "no eligible job" stop also releases the session.
         return "cleanup"
     return "match"
 
@@ -83,9 +85,11 @@ def _route_after_match(state: ApplyState) -> str:
 
 
 def _route_after_open_form(state: ApplyState) -> str:
-    """Fill the form that was opened for the selected resume."""
+    """Fill the opened form; a closed safety reminder skips to the next job."""
     if state.get("errors"):
         return "cleanup"
+    if state.get("status") == "skipped":
+        return "next_job"
     return "fill"
 
 
@@ -127,8 +131,9 @@ def build_graph():
 
     # Recoverable nodes are guarded: an uncaught crash is recorded,
     # repaired/tested, and the same node is retried in a fresh browser instead of
-    # silently ending the run (Task 11). ``cleanup`` stays unguarded so a release
-    # failure can never relaunch the browser. Automatic submission also stops
+    # silently ending the run (Task 11). ``cleanup`` stays out of self-healing so a
+    # release failure can never relaunch the browser; Task 33's guard only records
+    # its crash and re-raises it. Automatic submission also stops
     # without reopening/retrying, to avoid sending an application twice.
     builder.add_node("ingest", guard_node("ingest", ingest, reopen=None))
     # Tasks 1-3 return their failures as outcomes rather than raising, so these
@@ -141,7 +146,7 @@ def build_graph():
     builder.add_node("fill", guard_node("fill", fill, reopen="job"))
     builder.add_node("await_submit", guard_submission(await_submit))
     builder.add_node("next_job", guard_task_node("next_job", next_job, reopen="results"))
-    builder.add_node("cleanup", cleanup)
+    builder.add_node("cleanup", guard_cleanup(cleanup))
     builder.add_node("verify", guard_node("verify", verify, reopen=None))
 
     builder.add_edge(START, "ingest")
@@ -159,7 +164,7 @@ def build_graph():
     builder.add_conditional_edges(
         "open_form",
         _route_after_open_form,
-        {"fill": "fill", "cleanup": "cleanup"},
+        {"fill": "fill", "next_job": "next_job", "cleanup": "cleanup"},
     )
     builder.add_conditional_edges(
         "fill",

@@ -103,7 +103,7 @@ def test_dry_run_query_and_summary(monkeypatch, capsys):
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
     monkeypatch.setattr("builtins.input", Mock(side_effect=AssertionError("prompt")))
     assert cli.main(["--date-range", "24h", "--submission-mode", "manual"]) == 0
-    assert "search      : 'software engineer'" in capsys.readouterr().out
+    assert "search      : 'AI engineer'" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("query", ["C++ developer", "data & analytics", "Data Engineer"])

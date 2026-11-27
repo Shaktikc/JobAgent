@@ -173,7 +173,10 @@ async def test_guard_node_runs_the_heal_loop_for_an_uncaught_crash(monkeypatch) 
         seen["reopen"] = kwargs.get("reopen")
         return {"status": "recovered", "self_healing": None}
 
-    monkeypatch.setattr(guard, "heal_node_failure", fake_heal)
+    # ``guard_node`` resolves ``heal_node_failure`` in its own module.
+    from src.nodes.self_heal_guard import guard as guard_module
+
+    monkeypatch.setattr(guard_module, "heal_node_failure", fake_heal)
     wrapped = guard.guard_node("next_job", boom, reopen="results")
 
     result = await wrapped({"dry_run": False, "browser_run_id": "run-1"})
@@ -204,3 +207,120 @@ async def test_next_job_lets_a_crash_propagate_to_the_guard(monkeypatch) -> None
 
 async def _value(value):
     return value
+
+
+# --- Task 33: an unrecovered node crash writes one linked crash bundle ---------
+
+
+@pytest.fixture
+def crash_dir(tmp_path, monkeypatch) -> Path:
+    from src.tools.crash_logs.config import load_crash_config
+    from src.tools.crash_logs.runtime import reset_run_context
+
+    monkeypatch.setenv("AUTOJOB_CRASH_LOG_ENABLED", "true")
+    reset_run_context().config = load_crash_config(tmp_path / "crash-data")
+    return tmp_path / "crash-data" / "crash_logs"
+
+
+def _crash_records(crash_dir: Path) -> list[dict]:
+    import json
+
+    if not crash_dir.exists():
+        return []
+    return [
+        json.loads((path / "crash.json").read_text(encoding="utf-8"))
+        for path in sorted(crash_dir.iterdir()) if path.is_dir()
+    ]
+
+
+def _boom() -> RuntimeError:
+    try:
+        raise RuntimeError("kaboom")
+    except RuntimeError as exc:
+        return exc
+
+
+@pytest.mark.parametrize("healing", [{"enabled": False}, {"max_repair_attempts": 0}])
+async def test_disabled_self_healing_writes_a_node_crash_bundle(tmp_path, crash_dir, healing):
+    async def node_fn(state):
+        raise AssertionError("must not retry")
+
+    exc = _boom()
+    result = await guard.heal_node_failure(
+        "fill", {"dry_run": False, "log": ["fill: step 1"]}, "kaboom", "Traceback: kaboom",
+        node_fn=node_fn, settings=_settings(tmp_path, **healing),
+        progress=lambda _message: None, bug_root=tmp_path, exc=exc,
+    )
+
+    assert result["status"] == "failed"
+    [record] = _crash_records(crash_dir)
+    assert record["kind"] == "node_crash" and record["stage"] == "fill"
+    assert record["exception"]["type"] == "RuntimeError"
+    assert record["context"]["stop_reason"] == "self-healing is disabled"
+    assert "fill: step 1" in record["log"]
+
+
+async def test_capture_failure_writes_a_bundle_with_the_capture_error(tmp_path, crash_dir):
+    async def node_fn(state):
+        raise AssertionError("must not retry")
+
+    async def broken_capture(*args, **kwargs):
+        raise OSError("screenshot pipe closed")
+
+    result = await guard.heal_node_failure(
+        "match", {"dry_run": False}, "kaboom", "Traceback: kaboom",
+        node_fn=node_fn, settings=_settings(tmp_path),
+        progress=lambda _message: None, bug_root=tmp_path,
+        capture_fn=broken_capture, exc=_boom(),
+    )
+
+    assert result["status"] == "failed"
+    [record] = _crash_records(crash_dir)
+    assert record["context"]["capture_error"] == "OSError: screenshot pipe closed"
+    assert "kaboom" in record["exception"]["traceback"]
+
+
+async def test_exhausted_loop_writes_one_linked_bundle(tmp_path, crash_dir):
+    async def node_fn(state):
+        raise RuntimeError("still broken")
+
+    await guard.heal_node_failure(
+        "match", {"dry_run": False, "browser_run_id": "run-1"}, "kaboom", "Traceback",
+        node_fn=node_fn, reopen="job", settings=_settings(tmp_path, max_repair_attempts=2),
+        progress=lambda _message: None, bug_root=tmp_path,
+        capture_fn=lambda *a, **k: _value(_captured(tmp_path)),
+        record_fn=lambda captured: _record(tmp_path),
+        close_fn=lambda run_id, settings: _value((True, "closed")),
+        repair_fn=lambda settings, captured, record, notify: _value((True, "tests passed")),
+        reopen_fn=lambda target, settings, notify: _value(_reopened()),
+        exc=_boom(),
+    )
+
+    [record] = _crash_records(crash_dir)
+    assert record["self_healing"]["bug_id"] == "BUG-900"
+    assert record["self_healing"]["bundle"] == str(tmp_path / "bundle")
+    assert record["self_healing"]["attempts"] == 2
+    assert record["self_healing"]["recovered"] is False
+    assert record["context"]["last_error"] == "still broken"
+    # The self-healing bundle owns the page evidence; nothing is duplicated.
+    assert record["browser"]["error"] == "page capture skipped"
+
+
+async def test_recovered_crash_writes_no_crash_bundle(tmp_path, crash_dir):
+    async def node_fn(state):
+        return {"status": "applied"}
+
+    result = await guard.heal_node_failure(
+        "next_job", {"dry_run": False, "browser_run_id": "run-1"}, "boom", "Traceback",
+        node_fn=node_fn, reopen="results", settings=_settings(tmp_path),
+        progress=lambda _message: None, bug_root=tmp_path,
+        capture_fn=lambda *a, **k: _value(_captured(tmp_path)),
+        record_fn=lambda captured: _record(tmp_path),
+        close_fn=lambda run_id, settings: _value((True, "closed")),
+        repair_fn=lambda settings, captured, record, notify: _value((True, "tests passed")),
+        reopen_results_fn=lambda target, settings, notify, captured: _value(_reopened()),
+        exc=_boom(),
+    )
+
+    assert result["self_healing"].recovered is True
+    assert _crash_records(crash_dir) == []

@@ -12,7 +12,8 @@ Apply**; ``open_form`` opens the form only after a resume match (Task 16).
 from __future__ import annotations
 
 from src.date_range import date_range_label, normalize_date_range
-from src.state import ApplyState
+from src.state import ApplyState, Task8Outcome
+from src.tools.company_blacklist import NO_ELIGIBLE_JOB_REASON, only_blacklisted_jobs_left
 
 
 async def browse(state: ApplyState) -> ApplyState:
@@ -56,6 +57,7 @@ async def browse(state: ApplyState) -> ApplyState:
         f"form_opened={task2.application_form_opened} "
         f"skipped={task2.skipped_jobs} "
         f"applied_skipped={task2.applied_jobs_skipped} "
+        f"blacklisted_skipped={task2.blacklisted_jobs_skipped} "
         f"pages_visited={task2.pages_visited} "
         f"date_range={task2.date_range_used or '(unknown)'} "
         f"preferred={task2.date_range_preferred or '(unknown)'} "
@@ -106,6 +108,12 @@ async def browse(state: ApplyState) -> ApplyState:
             f"browse: Date posted filter '{requested}' not selected "
             f"(url={task1.page_url})"
         )
+    elif only_blacklisted_jobs_left(task2):
+        # Task 32: every remaining posting was filtered out (blacklisted
+        # companies among them). That is a clean end, not a browser failure.
+        update["task8"] = Task8Outcome(stopped_reason=NO_ELIGIBLE_JOB_REASON)
+        update["status"] = "stopped"
+        log.append(f"browse: stopping - {NO_ELIGIBLE_JOB_REASON}")
     elif not task2.job_selected:
         errors.append(f"browse: no job was selected (url={task2.page_url})")
     elif not task2.easy_apply_button_found:

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from src.state import DEFAULT_SEARCH_QUERY
 from src.tools import browser as browser_tools
 from src.tools import linkedin_search as linkedin_tools
 
@@ -63,7 +64,7 @@ async def test_task1_stays_in_ai_mode_when_the_detour_is_empty(
         await browser.start()
         page = await browser.new_page()
         outcome = await browser_tools._task1_on_page(
-            page, url, "software engineer", _settings(tmp_path), lambda _m: None
+            page, url, DEFAULT_SEARCH_QUERY, _settings(tmp_path), lambda _m: None
         )
     finally:
         await browser.kill()

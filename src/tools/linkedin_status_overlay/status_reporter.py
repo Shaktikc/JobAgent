@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 
+from src.tools.crash_logs import note_line
 from src.tools.linkedin_status_overlay.interaction_lock import (
     _RELEASE_TIMEOUT_SECONDS,
     _finish_cleanup,
@@ -55,17 +56,20 @@ class StatusReporter:
     def __call__(self, message: str) -> None:
         """Mirror a runtime log line without changing the CLI output."""
         self.emit(message)
+        note_line(message)  # Task 33 run-log fallback when no stdout tee exists
         self._update("agent", message)
 
     def step(self, message: str) -> None:
         """Plain-language agent step: printed and shown on the page."""
         self.emit(message)
+        note_line(message)
         self._update("agent", message)
 
     def llm(self, action: str, detail: str = "") -> None:
         """An LLM action/decision: printed and shown on the page, marked as LLM."""
         text = _format_llm(action, detail)
         self.emit(text)
+        note_line(text)
         self._update("llm", text)
 
     def _update(self, actor: str, message: str) -> None:

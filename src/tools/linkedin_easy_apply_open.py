@@ -11,14 +11,20 @@ no draft to discard and no modal to close.
 
 from __future__ import annotations
 
+import asyncio
+import time
+
 from src.configuration import Settings
 from src.state import Task2Outcome
 from src.tools.browser import _pace, _safe
 from src.tools.linkedin import looks_like_easy_apply_action
 from src.tools.linkedin_job_apply_button import (
     read_apply_modal,
-    wait_for_easy_apply_modal,
     wait_for_job_apply_button,
+)
+from src.tools.linkedin_safety_reminder import (
+    close_safety_reminder,
+    safety_reminder_open,
 )
 from src.tools.linkedin_status_overlay import emit_step
 
@@ -39,6 +45,7 @@ async def open_easy_apply_form(
     """
     notify = notify or (lambda _message: None)
     outcome = outcome or Task2Outcome()
+    outcome.safety_reminder_skipped = False
     if page is None:
         outcome.notes = "no browser page to open Easy Apply on"
         return False, outcome
@@ -66,7 +73,21 @@ async def open_easy_apply_form(
 
     outcome.easy_apply_clicked = True
     await _pace(settings)
-    opened, modal_text = await wait_for_easy_apply_modal(page, settings)
+    opened, modal_text, reminder = await _wait_for_form_or_reminder(page, settings)
+    if reminder:
+        closed = await close_safety_reminder(page)
+        outcome.safety_reminder_skipped = True
+        outcome.notes = (
+            "Job search safety reminder appeared after Easy Apply; "
+            + ("closed it and skipped the job" if closed else "could not close it; skipped the job")
+        )
+        notify(f"Easy Apply: {outcome.notes}.")
+        emit_step(
+            notify,
+            f"Safety reminder shown for {outcome.job_title or 'this job'} - "
+            "closed it; opening the next job.",
+        )
+        return False, outcome
     outcome.application_form_opened = opened
     outcome.modal_text = modal_text
     if not opened:
@@ -79,6 +100,23 @@ async def open_easy_apply_form(
         f"Resume matched - opening Easy Apply for {outcome.job_title or 'this job'}...",
     )
     return True, outcome
+
+
+_POLL_SECONDS = 0.5
+
+
+async def _wait_for_form_or_reminder(page, settings: Settings) -> tuple[bool, str, bool]:
+    """Wait for the form or the safety reminder; return ``(opened, text, reminder)``."""
+    deadline = time.monotonic() + settings.session.easy_apply_timeout_seconds
+    while True:
+        if await safety_reminder_open(page):
+            return False, "", True
+        opened, text = await read_apply_modal(page)
+        if opened:
+            return True, text, False
+        if time.monotonic() >= deadline:
+            return False, text, False
+        await asyncio.sleep(_POLL_SECONDS)
 
 
 __all__ = ["open_easy_apply_form"]

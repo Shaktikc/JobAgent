@@ -202,6 +202,8 @@ Task 26 follow-up: [BUG-124](task_26_bugs.md) — 🟢 Fixed — native-modal in
 
 | BUG-128 | [Task 8](task_8_bugs.md) | Missing résumé attachment ended the job scan | 🟢 Fixed | Regression and live LinkedIn next-job selection, uncommitted on 7ae0ebe |
 
+| BUG-129 | [Task 2](task_2_bugs.md) | "Job search safety reminder" after Easy Apply stalled the run; now closed and the job skipped | 🟢 Fixed | Unit regression; live re-check pending; uncommitted on 17edbb9 |
+
 ## Template for new entries
 
 

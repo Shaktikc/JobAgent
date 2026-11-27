@@ -21,7 +21,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 DEFAULT_LOGIN_URL = "https://www.linkedin.com/login/"
-DEFAULT_SEARCH_QUERY = "software engineer"
+DEFAULT_SEARCH_QUERY = "AI engineer"
 
 
 class Task1Outcome(BaseModel):
@@ -161,6 +161,9 @@ class Task2Outcome(BaseModel):
     # Task 6: cards that were skipped because they are already "Applied".
     applied_jobs_skipped: int = 0
     applied_skipped_cards: list[dict] = Field(default_factory=list)
+    # Task 32: postings skipped because their company is blacklisted.
+    blacklisted_jobs_skipped: int = 0
+    blacklisted_skipped_cards: list[dict] = Field(default_factory=list)
     # Task 7: how many results pages were visited while looking for an unapplied
     # job (1 = the first page only; >1 = paginated because whole pages were Applied).
     # Task 17: ``pages_visited`` is the total across the scanned ranges.
@@ -179,6 +182,9 @@ class Task2Outcome(BaseModel):
     easy_apply_clicked: bool = False
     application_form_opened: bool = False
     modal_text: str = ""
+    # Clicking Easy Apply showed LinkedIn's "Job search safety reminder" dialog
+    # instead of the form; it was closed and the job is skipped.
+    safety_reminder_skipped: bool = False
     page_url: str | None = None
     page_title: str | None = None
     screenshot_path: str | None = None

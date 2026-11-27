@@ -51,7 +51,7 @@ async def test_automatic_submission_continues_until_cap(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_automatic_crash_never_enters_recovery(monkeypatch):
-    from src.nodes import self_heal_guard
+    from src.nodes.self_heal_guard import guard as self_heal_guard
 
     async def crash(_):
         raise RuntimeError("connection lost after Submit")
@@ -62,3 +62,30 @@ async def test_automatic_crash_never_enters_recovery(monkeypatch):
     update = await guard_submission(crash)(state)
     assert "review" in update["task8"].stopped_reason
     assert _route_after_submit(update) == "cleanup"
+
+
+@pytest.mark.asyncio
+async def test_automatic_crash_writes_a_submission_interrupted_bundle(tmp_path, monkeypatch):
+    """Task 33: evidence is recorded, the update is unchanged, nothing is retried."""
+    import json
+
+    from src.tools.crash_logs.config import load_crash_config
+    from src.tools.crash_logs.runtime import reset_run_context
+
+    monkeypatch.setenv("AUTOJOB_CRASH_LOG_ENABLED", "true")
+    reset_run_context().config = load_crash_config(tmp_path)
+    calls = []
+
+    async def crash(_):
+        calls.append("submit")
+        raise RuntimeError("connection lost after Submit")
+
+    update = await guard_submission(crash)({"dry_run": False, "submission_mode": "auto"})
+
+    assert calls == ["submit"]
+    assert update["status"] == "needs_review"
+    assert update["task8"].last_submission_status == "interrupted"
+    [bundle] = [path for path in (tmp_path / "crash_logs").iterdir() if path.is_dir()]
+    record = json.loads((bundle / "crash.json").read_text(encoding="utf-8"))
+    assert record["kind"] == "submission_interrupted" and record["stage"] == "await_submit"
+    assert "connection lost after Submit" in record["exception"]["traceback"]

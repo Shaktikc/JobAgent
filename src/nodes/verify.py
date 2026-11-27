@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from src.date_range import DEFAULT_DATE_RANGE, date_range_label, normalize_date_range
 from src.state import ApplyState, JobDescription
+from src.tools.company_blacklist import only_blacklisted_jobs_left
 
 
 def _requested_date_range(state: ApplyState) -> str:
@@ -188,6 +189,16 @@ def verify(state: ApplyState) -> ApplyState:
                 f"stopped: {task8.stopped_reason}"
             )
         return {"status": "done", "log": log}
+
+    task2 = state.get("task2")
+    if (only_blacklisted_jobs_left(task2) and task8 and task8.stopped_reason
+            and _task1_succeeded(state) and _task5_succeeded(state)):
+        # Task 32: the first scan found only filtered-out postings (blacklisted
+        # companies among them); no application was started.
+        return {"status": "done", "log": [
+            f"verify: skipped {task2.blacklisted_jobs_skipped} blacklisted-company "
+            f"job(s); no application was started; stopped: {task8.stopped_reason}",
+        ]}
 
     if _task16_skipped_to_the_end(state):
         task16 = state.get("task16")

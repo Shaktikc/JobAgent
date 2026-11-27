@@ -1,46 +1,25 @@
-"""Always-on crash guard for the graph nodes (Task 11).
-
-The fill node owns its own recovery path. Every other node used to catch a
-browser/runtime exception and turn it into a plain ``status="failed"`` update, so
-a crash in ``next_job``, ``await_submit``, ``browse`` or ``match`` ended the run
-without ever recording evidence, closing the stale browser, repairing, or
-resuming the same step.
-
-:func:`guard_node` wraps a node and applies the bounded self-healing loop to any
-**uncaught** exception:
-
-1. Capture evidence and record the failure (BUG-NNN) while the failed page is
-   still open.
-2. Close the run cleanly (force-close, verify the profile lock cleared).
-3. Run the optional repair command and tests.
-4. Reopen the browser (the same job form, or the same results page) and retry
-   the **same node** with the recovered run id.
-5. Stop after the configured attempt cap, preserving the evidence and marking
-   the bug open.
-
-Nothing here clicks **Submit application**.
-"""
+"""The bounded record/close/repair/reopen/retry loop for a crashed node (Task 11)."""
 
 from __future__ import annotations
 
-import contextlib
-import inspect
 import traceback
-from collections.abc import Awaitable, Callable
 from pathlib import Path
-from uuid import uuid4
 
 from src.configuration import PROJECT_ROOT, Settings, load_settings
-from src.state import ApplyState, JobDescription, Task2Outcome
+from src.nodes.self_heal_guard.crash_record import record_node_crash, remember_recovered
+from src.nodes.self_heal_guard.helpers import (
+    NodeFn,
+    ReopenMode,
+    _call_node,
+    _failed_result,
+    _merge_recovered,
+    _reopen_results,
+    _target_with_live_url,
+)
+from src.state import ApplyState
 from src.tools.self_healing.buglog import mark_exhausted, mark_fixed, record_failure
 from src.tools.self_healing.capture import capture_failure
-from src.tools.self_healing.models import (
-    CapturedFailure,
-    FailureRecord,
-    HealingAttempt,
-    JobTarget,
-    SelfHealingOutcome,
-)
+from src.tools.self_healing.models import FailureRecord, HealingAttempt, SelfHealingOutcome
 from src.tools.self_healing.recovery import (
     ReopenResult,
     close_run_force,
@@ -49,118 +28,6 @@ from src.tools.self_healing.recovery import (
     reopen_same_job,
     run_repair_and_test,
 )
-
-NodeFn = Callable[[ApplyState], ApplyState | Awaitable[ApplyState]]
-
-
-async def _call_node(node_fn: NodeFn, state: ApplyState) -> ApplyState:
-    """Run a sync or async graph node and return its update."""
-    result = node_fn(state)
-    if inspect.isawaitable(result):
-        return await result
-    return result
-
-# How a crash is resumed: ``"job"`` reopens the same job's Easy Apply form (for
-# match/await_submit/fill), ``"results"`` reopens the results list the node was
-# working on (for next_job), and ``None`` retries the node without a browser (for
-# ingest/verify/browse, which launch their own session).
-ReopenMode = str | None
-
-
-def _reporter(run_id: str | None):
-    """The run's status reporter, or ``print`` when there is no live run."""
-    from src.tools.browser import get_reporter
-
-    return get_reporter(run_id) or print
-
-
-def _target_with_live_url(target: JobTarget, page_url: str) -> JobTarget:
-    """Point the reopen at the page the failing node was actually on."""
-    resolved = target.model_copy()
-    live = (page_url or "").strip()
-    if live.startswith(("http://", "https://")) and "linkedin.com/jobs" in live.lower():
-        resolved.url = live
-    return resolved
-
-
-async def _reopen_results(
-    target: JobTarget,
-    settings: Settings,
-    notify,
-    captured: CapturedFailure,
-) -> ReopenResult:
-    """Reopen the results page a ``next_job`` crash was on in a fresh browser."""
-    from src.tools.browser import (
-        _ACTIVE_RUNS,
-        _Run,
-        _wait_for_load,
-        build_browser,
-    )
-    from src.tools.linkedin_status_overlay import StatusReporter
-
-    url = (captured.evidence.page_url or target.url or "").strip()
-    if not url.startswith(("http://", "https://")):
-        return ReopenResult(reason="no results page URL was recorded for the reopen")
-
-    reporter = StatusReporter(emit=notify)
-    reporter("self-heal: reopening the results page in a fresh browser...")
-    session = build_browser(settings)
-    await session.start()
-    try:
-        page = await session.new_page()
-        await page.goto(url)
-        await _wait_for_load(page, settings.session.easy_apply_timeout_seconds)
-        reporter.bind_page(page)
-        run_id = uuid4().hex
-        _ACTIVE_RUNS[run_id] = _Run(session=session, page=page, reporter=reporter)
-        task2 = Task2Outcome(job_title=target.title, page_url=url)
-        description = JobDescription(title=target.title, company=target.company, page_url=url)
-        return ReopenResult(run_id=run_id, task2=task2, description=description)
-    except Exception as exc:  # noqa: BLE001 - recovery reports why it stopped
-        with contextlib.suppress(Exception):
-            await session.kill()
-        return ReopenResult(reason=f"reopening the results page failed: {exc}")
-
-
-def _merge_recovered(
-    update: ApplyState,
-    working: ApplyState,
-    outcome: SelfHealingOutcome,
-    stage: str,
-    log: list[str],
-) -> ApplyState:
-    """Return the retried node's update plus the new run id and heal summary."""
-    merged = dict(update)
-    run_id = working.get("browser_run_id")
-    if run_id:
-        merged["browser_run_id"] = run_id
-    merged["self_healing"] = outcome
-    merged["log"] = list(merged.get("log") or []) + log + [
-        f"self-heal({stage}): recovered and resumed {stage} after "
-        f"{outcome.attempts} attempt(s)"
-    ]
-    return merged
-
-
-def _failed_result(
-    stage: str,
-    working: ApplyState,
-    outcome: SelfHealingOutcome,
-    errors: list[str],
-    log: list[str],
-) -> ApplyState:
-    """A failed node update that still carries the evidence and heal summary."""
-    result: ApplyState = {
-        "status": "failed",
-        "errors": errors + ([f"self-heal({stage}): {outcome.stop_reason}"]
-                            if outcome.stop_reason else []),
-        "self_healing": outcome,
-        "log": log,
-    }
-    run_id = working.get("browser_run_id")
-    if run_id:
-        result["browser_run_id"] = run_id
-    return result
 
 
 async def heal_node_failure(
@@ -180,8 +47,13 @@ async def heal_node_failure(
     repair_fn=None,
     reopen_fn=None,
     reopen_results_fn=None,
+    exc: BaseException | None = None,
 ) -> ApplyState:
-    """Record, close, repair/test, reopen, and retry ``node_fn`` (bounded)."""
+    """Record, close, repair/test, reopen, and retry ``node_fn`` (bounded).
+
+    Task 33: when the loop cannot recover (disabled, capture failed, or
+    exhausted) one terminal crash bundle is written before returning.
+    """
     settings = settings or load_settings()
     root = bug_root or PROJECT_ROOT
     notify = progress or print
@@ -202,10 +74,16 @@ async def heal_node_failure(
     if not settings.self_healing.enabled or max_attempts == 0:
         outcome.stop_reason = "self-healing is disabled"
         log.append(f"self-heal({stage}): {outcome.stop_reason}")
-        return _failed_result(stage, working, outcome, errors, log)
+        result = _failed_result(stage, working, outcome, errors, log)
+        await record_node_crash(
+            stage, working, result, outcome,
+            exc=exc, error=error, traceback_text=traceback_text,
+        )
+        return result
 
     current_error = error
     current_tb = traceback_text
+    crash_extra: dict = {}
     run_id = working.get("browser_run_id")
     last_attempt = 0
 
@@ -221,16 +99,17 @@ async def heal_node_failure(
                 target=target,
                 traceback_text=current_tb,
             )
-        except Exception as exc:  # noqa: BLE001 - never lose the original crash
-            outcome.stop_reason = f"evidence capture failed: {exc}"
+        except Exception as capture_exc:  # noqa: BLE001 - never lose the original crash
+            outcome.stop_reason = f"evidence capture failed: {capture_exc}"
+            crash_extra["capture_error"] = f"{type(capture_exc).__name__}: {capture_exc}"
             errors.append(f"self-heal({stage}): {outcome.stop_reason}")
-            log.append(f"self-heal({stage}): evidence capture failed: {exc}")
+            log.append(f"self-heal({stage}): evidence capture failed: {capture_exc}")
             break
 
         target = _target_with_live_url(target, captured.evidence.page_url)
         try:
             record = record_fn(captured)
-        except Exception as exc:  # noqa: BLE001 - logging must not block recovery
+        except Exception as log_exc:  # noqa: BLE001 - logging must not block recovery
             record = FailureRecord(
                 fingerprint=captured.fingerprint,
                 category=captured.category,
@@ -238,7 +117,7 @@ async def heal_node_failure(
                 symptom=captured.symptom,
                 evidence=captured.evidence,
             )
-            log.append(f"self-heal({stage}): bug log write failed: {exc}")
+            log.append(f"self-heal({stage}): bug log write failed: {log_exc}")
         outcome.failures.append(record)
         outcome.last_bundle = captured.bundle_dir
         if record.bug_id and record.bug_id not in outcome.bug_ids:
@@ -351,11 +230,13 @@ async def heal_node_failure(
 
         try:
             update = await _call_node(node_fn, working)
-        except Exception as exc:  # noqa: BLE001 - bounded retry, record next attempt
-            current_error = str(exc)
+        except Exception as retry_exc:  # noqa: BLE001 - bounded retry, record next attempt
+            current_error = str(retry_exc)
             current_tb = traceback.format_exc()
+            crash_extra["last_error"] = current_error
+            crash_extra["last_traceback"] = current_tb
             run_id = working.get("browser_run_id")
-            log.append(f"self-heal({stage}): retry {attempt} crashed: {exc}")
+            log.append(f"self-heal({stage}): retry {attempt} crashed: {retry_exc}")
             continue
 
         outcome.recovered = True
@@ -371,7 +252,9 @@ async def heal_node_failure(
             ),
         )
         notify(f"self-heal({stage}): recovered - resumed the failed step.")
-        return _merge_recovered(update, working, outcome, stage, log)
+        merged = _merge_recovered(update, working, outcome, stage, log)
+        remember_recovered(stage, working, merged)
+        return merged
 
     outcome.attempts = last_attempt
     if not outcome.stop_reason:
@@ -384,32 +267,12 @@ async def heal_node_failure(
     errors.append(f"self-heal({stage}): {outcome.stop_reason}")
     log.append(f"self-heal({stage}): stopping - {outcome.stop_reason}")
     notify(f"self-heal({stage}): stopping - {outcome.stop_reason}. Evidence preserved.")
-    return _failed_result(stage, working, outcome, errors, log)
+    result = _failed_result(stage, working, outcome, errors, log)
+    await record_node_crash(
+        stage, working, result, outcome,
+        exc=exc, error=error, traceback_text=traceback_text, extra=crash_extra,
+    )
+    return result
 
 
-def guard_node(name: str, node_fn: NodeFn, *, reopen: ReopenMode = "job") -> NodeFn:
-    """Wrap ``node_fn`` so any uncaught exception enters the self-healing loop."""
-
-    async def guarded(state: ApplyState) -> ApplyState:
-        if state.get("dry_run", True):
-            return await _call_node(node_fn, state)
-        try:
-            return await _call_node(node_fn, state)
-        except Exception as exc:  # noqa: BLE001 - self-heal instead of ending the run
-            traceback_text = traceback.format_exc()
-            return await heal_node_failure(
-                name,
-                state,
-                str(exc),
-                traceback_text,
-                node_fn=node_fn,
-                reopen=reopen,
-                progress=_reporter(state.get("browser_run_id")),
-            )
-
-    guarded.__name__ = getattr(node_fn, "__name__", name)
-    guarded.__doc__ = getattr(node_fn, "__doc__", None)
-    return guarded
-
-
-__all__ = ["guard_node", "heal_node_failure"]
+__all__ = ["heal_node_failure"]

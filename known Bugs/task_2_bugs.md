@@ -15,6 +15,7 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
 | BUG-019 | stale card handles after a click → jobs silently skipped | 🟢 Fixed | `84b0bb5` |
 | BUG-036 | job with Easy Apply skipped as "no Easy Apply" (stale details pane) | 🟢 Fixed | `fdb6585` |
 | BUG-040 | every clicked job "did not open" (search-query tab title read as the pane title) | 🟢 Fixed | `f928866` |
+| BUG-129 | "Job search safety reminder" dialog after Easy Apply stalled the run instead of skipping | 🟢 Fixed | uncommitted |
 
 ---
 
@@ -113,3 +114,26 @@ Status: 🟢 Fixed · 🟡 Fixed (superseded) · 🔴 Open · ⚪ Won't fix
   `tests/integration/test_task2_skip_applied_live.py::test_task2_reads_the_pane_heading_not_the_search_page_title`
   (the tab title is the search query; the pane heading is the clicked job);
   full live Task 2 suite 4/4. Commit `f928866`.
+
+### BUG-129 — "Job search safety reminder" after Easy Apply stalled the run
+
+- **Symptom:** For some postings (e.g. Wave Visas "Artificial Intelligence
+  Engineer", job 4495067576) clicking **Easy Apply** opened LinkedIn's "Job search
+  safety reminder" dialog (Review job post / Continue applying) instead of the
+  form. The agent waited for a form that never came, `open_form` failed and the
+  run went to cleanup instead of the next application.
+- **Root cause:** `open_easy_apply_form` only waited for the Easy Apply modal; the
+  reminder dialog was not recognised (its text does not look like an apply form),
+  so it was treated as "form did not open" — a hard error.
+- **Fix:** New `src/tools/linkedin_safety_reminder.py` detects the dialog and
+  closes it with its X (Escape as fallback; **Continue applying** is never
+  clicked). `open_easy_apply_form` polls for either the form or the reminder; on
+  the reminder it closes it and sets `Task2Outcome.safety_reminder_skipped`.
+  `open_form` returns `status="skipped"` and adds the card title to
+  `skipped_titles`; `_route_after_open_form` routes a skip to `next_job`.
+- **Status:** 🟢 Fixed (live re-check pending: the agent profile was in use).
+- **Evidence:** `src/tools/linkedin_safety_reminder.py`,
+  `src/tools/linkedin_easy_apply_open.py`, `src/nodes/open_form.py`,
+  `src/graph.py`, `src/state/outcomes.py`;
+  `tests/unit/test_safety_reminder_skip.py`; live script
+  `scripts/verify_safety_reminder_linkedin.py`. Uncommitted.

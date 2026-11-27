@@ -34,7 +34,7 @@ Built with [LangGraph](https://langchain-ai.github.io/langgraph/),
 > progress until I have verified that it works.
 >
 > **Job search at startup:** interactive browser runs ask what job to search
-> for, then the date range. Enter keeps **"software engineer"**. Whitespace is
+> for, then the date range. Enter keeps **"AI engineer"**. Whitespace is
 > normalized while your wording and capitalization are preserved. `--query`
 > skips only the query question; `--date-range` skips only the date question.
 > Dry runs, non-interactive runs, and maintenance modes do not ask for a query.
@@ -309,6 +309,27 @@ separately in `data/derived_answers.json`, so `answers.json` stays
 human-confirmed. Job-specific free-text answers are generated per job and never
 written to either file.
 
+### Blacklisted companies
+
+List companies you never want to apply to in
+[`blacklist company/companies.json`](blacklist%20company/companies.json) as a
+JSON list of names, each written exactly as LinkedIn shows it:
+
+```json
+["Acme", "Globex Corp"]
+```
+
+Matching is on the **whole** name, ignoring case and extra whitespace: `Acme`
+skips ` ACME ` but not `Acme Labs`, so add each variant you want skipped as its
+own entry. Blank names are ignored.
+
+The list is read once at the start of a run. Blacklisted postings are skipped on
+every results page and date range before resume matching or Easy Apply, logged
+as `Task 32: ... blacklisted company ...`, and never counted as applications. An
+empty list (`[]`), empty file, or missing file skips nothing; a file that exists
+but cannot be read, is not valid JSON, or is not a list of names stops the run
+before any job is processed.
+
 ## CLI
 
 ```bash
@@ -380,6 +401,43 @@ AUTOJOB_SELF_HEAL_TEST_COMMAND=uv run pytest -q
 
 The repair agent uses `AUTOJOB_SELF_HEAL_REPAIR_MODEL` (default
 `deepseek/deepseek-v4.1-flash-1017`) and never falls back to the general model.
+
+## Crash logs
+
+Every crash writes one bundle to `data/crash_logs/<UTC timestamp>-<id>/`. This covers
+an uncaught exception, a node crash that self-healing could not recover, a `cleanup`
+crash, an interrupted automatic submission, a startup/CLI failure, a background
+task/thread/unraisable error, Ctrl+C, and a run that ends `failed`/`needs_review`.
+The terminal prints one `crash log   : <path>` line, and the error message and exit
+code stay the same as before.
+
+| File | Contents |
+| --- | --- |
+| `report.md` | Human-readable summary (start here) |
+| `crash.json` | Structured record: exception chain, frames, job, state, settings, browser, self-healing link |
+| `traceback.txt` | Full traceback with chained causes |
+| `state.json` | Latest graph state (redacted, clipped to 2 MB) |
+| `run.log` | Last 500 run-log lines at the crash |
+| `env.json` | Python/platform, git commit, argv, cwd, redacted settings |
+| `screenshot.png`, `dom.html`, `page.txt`, `console.log` | Only when a live page existed |
+
+- `data/crash_logs/index.json` lists every crash, one row each. It is append-only.
+  If it becomes unreadable, it is renamed to `index.corrupt-<UTC>.json`.
+- `data/logs/run-<UTC>-<pid>.log` holds every terminal line (stdout and stderr) with
+  a timestamp. Each run gets one file, capped at 25 MB.
+- If self-healing already captured the page, the crash bundle links that
+  bundle and bug id instead of copying them. A recovered crash writes no crash bundle.
+- Secrets (API keys, tokens, passwords, cookies) and sensitive form answers are
+  redacted. Bundles are never printed. Everything under `data/` is local and
+  git-ignored.
+
+```env
+AUTOJOB_CRASH_LOG_ENABLED=true        # false turns crash bundles off
+AUTOJOB_CRASH_LOG_RUN_LOG=true        # false: no run-log file / stdout tee
+AUTOJOB_CRASH_LOG_INCLUDE_LOCALS=false # true: project-frame locals (redacted, 1,000 chars)
+AUTOJOB_CRASH_LOG_MAX_BUNDLES=0       # >0 keeps only the newest N bundles
+AUTOJOB_CRASH_LOG_MAX_DAYS=0          # >0 prunes bundles older than N days
+```
 
 ## Project layout
 

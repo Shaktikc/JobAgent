@@ -3,13 +3,14 @@
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 from src.date_range import normalize_date_range
+from src.state import DEFAULT_SEARCH_QUERY
 from src.tools.linkedin import build_jobs_search_url, is_linkedin_url
 
 
 def results_url(search_url: str, query: str, date_range: str) -> str:
     parsed = urlsplit(search_url or "")
     if not is_linkedin_url(search_url) or not parsed.path.startswith("/jobs/search"):
-        parsed = urlsplit(build_jobs_search_url(query or "software engineer"))
+        parsed = urlsplit(build_jobs_search_url(query or DEFAULT_SEARCH_QUERY))
     parameters = parse_qs(parsed.query)
     parameters["f_AL"] = ["true"]
     value = normalize_date_range(date_range)

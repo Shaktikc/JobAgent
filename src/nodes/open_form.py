@@ -58,7 +58,16 @@ async def open_form(state: ApplyState) -> ApplyState:
     ]
     if task2.notes:
         log.append(f"open_form: {task2.notes}")
-    update: ApplyState = {
+    if task2.safety_reminder_skipped:
+        # The "Job search safety reminder" dialog was closed: skip this job and
+        # exclude its card so next_job opens a different one.
+        update: ApplyState = {"task2": task2, "status": "skipped", "log": log}
+        if task2.job_title.strip():
+            from src.tools.linkedin_resume_gate import normalize_title  # lazy
+
+            update["skipped_titles"] = [normalize_title(task2.job_title)]
+        return update
+    update = {
         "task2": task2,
         "status": "form_open" if opened else "failed",
         "log": log,

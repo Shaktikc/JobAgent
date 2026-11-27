@@ -112,7 +112,7 @@ def _task5_ok() -> Task5Outcome:
 def test_new_state_defaults_match_task_inputs() -> None:
     state = new_state()
     assert state["url"] == DEFAULT_LOGIN_URL
-    assert state["search_query"] == "software engineer"
+    assert state["search_query"] == "AI engineer"
     assert state["dry_run"] is True
     assert state["resumes_dir"] == ""
 

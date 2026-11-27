@@ -50,6 +50,7 @@ from src.tools.browser import (
     _safe,
 )
 from src.tools.linkedin import looks_like_easy_apply_action
+from src.tools.linkedin_company_skip import skip_blacklisted_card, skip_blacklisted_pane
 from src.tools.linkedin_job_apply_button import (
     _APPLY_MODAL_QUERY,
     _JOB_DETAILS_APPLY_SELECTORS,
@@ -188,6 +189,11 @@ async def _scan_page(
                 identity = await read_card_id(card)
                 if identity and f"job:{identity}" in tried:
                     continue
+            # Task 32: never click a card whose company is blacklisted.
+            if await skip_blacklisted_card(
+                card, label, index=index, title=title, outcome=outcome, notify=notify
+            ):
+                continue
             candidate = (index, card, title, key)
             break
         if candidate is None:
@@ -214,6 +220,19 @@ async def _scan_page(
             head = f"Task 2: the details pane did not open job {index + 1}"
             notify(f"{head}: {title or '(untitled)'}; skipping.")
             emit_step(notify, f"Skipping job {index + 1} - the job details did not open.")
+            continue
+
+        # Task 32: the card showed no company, so check the confirmed pane before
+        # the apply button, description, resume match, or Easy Apply. Track the
+        # posting by its LinkedIn id (not its title) so an unlisted company's job
+        # with the same title stays eligible.
+        if await skip_blacklisted_pane(
+            page, index=index, title=title, outcome=outcome, notify=notify
+        ):
+            identity = await read_card_id(card)
+            if identity:
+                tried.discard(key)
+                tried.add(f"job:{identity}")
             continue
 
         button, label = await wait_for_job_apply_button(page, settings)

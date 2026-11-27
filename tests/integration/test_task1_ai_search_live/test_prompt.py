@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from src.state import DEFAULT_SEARCH_QUERY
 from src.tools import browser as browser_tools
 
 from .common import _render, _serve, _settings
@@ -88,7 +89,7 @@ async def test_task1_searches_via_the_ai_prompt_after_the_ai_click(tmp_path: Pat
         await browser.start()
         page = await browser.new_page()
         outcome = await browser_tools._task1_on_page(
-            page, url, "software engineer", _settings(tmp_path), lambda _m: None
+            page, url, DEFAULT_SEARCH_QUERY, _settings(tmp_path), lambda _m: None
         )
         observed = json.loads(await page.evaluate(_READ_AI_PAGE_JS))
     finally:
@@ -102,7 +103,7 @@ async def test_task1_searches_via_the_ai_prompt_after_the_ai_click(tmp_path: Pat
     assert outcome.ai_job_search_clicks == 1
     assert observed["ai_clicks"] == 1
     assert observed["ai_submits"] == 1
-    assert observed["ai_prompt_value"] == "software engineer"
+    assert observed["ai_prompt_value"] == DEFAULT_SEARCH_QUERY
 
     # Results were found after the AI search and the Easy Apply filter selected.
     assert outcome.results_found is True

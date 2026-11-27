@@ -37,6 +37,8 @@ from collections.abc import Awaitable, Callable
 from src.configuration import Settings
 from src.nodes.self_heal_guard import heal_node_failure
 from src.state import ApplyState
+from src.tools.company_blacklist import only_blacklisted_jobs_left
+from src.tools.crash_logs import note_state
 from src.tools.self_healing.recovery import close_run_force
 
 NodeFn = Callable[[ApplyState], Awaitable[ApplyState]]
@@ -77,6 +79,9 @@ def _browse_reason(update: ApplyState) -> str:
             return "browse: Easy Apply filter not selected"
         if not bool(getattr(task1, "date_posted_filter_selected", False)):
             return "browse: Date posted filter not selected"
+    if only_blacklisted_jobs_left(task2):
+        # Task 32: nothing eligible remains; reopening cannot change that.
+        return ""
     if task2 is not None:
         clicked_and_open = bool(
             getattr(task2, "easy_apply_clicked", False)
@@ -227,6 +232,7 @@ def guard_task_node(stage: str, node_fn: NodeFn, *, reopen: ReopenMode) -> NodeF
     """Wrap a task node with exception *and* returned-failure self-healing."""
 
     async def guarded(state: ApplyState) -> ApplyState:
+        note_state(state, stage)  # Task 33: latest state for any crash path
         if state.get("dry_run", True):
             return await node_fn(state)
 
@@ -245,6 +251,7 @@ def guard_task_node(stage: str, node_fn: NodeFn, *, reopen: ReopenMode) -> NodeF
                 node_fn=node_fn,
                 reopen=reopen,
                 close_fn=close_fn,
+                exc=exc,
             )
 
         reason = task_failure_reason(stage, update)

@@ -53,14 +53,15 @@ def test_choice_is_resolved_before_run_and_reaches_state(monkeypatch):
     from src.configuration import Settings
 
     events = []
-    async def invoke(state, config):
+    async def stream(state, config, stream_mode):
         events.append("run")
         assert state["submission_mode"] == "auto"
-        return {**state, "status": "done"}
+        assert stream_mode == "values"
+        yield {**state, "status": "done"}
     monkeypatch.setattr(cli, "choose_date_range", lambda _: "past_week")
     monkeypatch.setattr(cli, "choose_submission_mode", lambda _: events.append("choice") or "auto")
     monkeypatch.setattr(cli, "load_settings", Settings)
-    monkeypatch.setattr(cli.graph, "ainvoke", invoke)
+    monkeypatch.setattr(cli.graph, "astream", stream)
     assert cli.main(["--no-dry-run"]) == 0
     assert events == ["choice", "run"]
     assert new_state()["submission_mode"] == "manual"

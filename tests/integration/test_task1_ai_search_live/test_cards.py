@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from src.state import DEFAULT_SEARCH_QUERY
 from src.tools import browser as browser_tools
 
 from .common import _render, _serve, _settings
@@ -87,7 +88,7 @@ async def test_task1_detects_ai_div_job_cards_and_selects_filter(tmp_path: Path)
         await browser.start()
         page = await browser.new_page()
         outcome = await browser_tools._task1_on_page(
-            page, url, "software engineer", _settings(tmp_path), lambda _m: None
+            page, url, DEFAULT_SEARCH_QUERY, _settings(tmp_path), lambda _m: None
         )
         observed = json.loads(await page.evaluate(_READ_AI_DIV_JS))
     finally:

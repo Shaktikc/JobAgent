@@ -17,6 +17,7 @@ pytestmark = pytest.mark.skipif(
 def test_startup_query_reaches_linkedin(monkeypatch):
     import src.main as cli
     from src.configuration import load_settings
+    from src.state import DEFAULT_SEARCH_QUERY
     from src.tools.browser import _detach_session, build_browser
     from src.tools.linkedin_search import search_box
     from src.tools.linkedin_search.orchestrator import _task1_on_page
@@ -43,7 +44,9 @@ def test_startup_query_reaches_linkedin(monkeypatch):
 
     monkeypatch.setattr(search_box, "find_jobs_search_input", observe_input)
     prompts = []
-    answers = iter(["  data   engineer  ", "1"])
+    # Live tests use the default search; extra spaces still exercise normalization.
+    expected = " ".join(DEFAULT_SEARCH_QUERY.split())
+    answers = iter(["  " + "   ".join(expected.split()) + "  ", "1"])
 
     def answer(prompt):
         prompts.append(prompt)
@@ -52,7 +55,7 @@ def test_startup_query_reaches_linkedin(monkeypatch):
         return value
 
     async def search_only(state, config):
-        assert state["search_query"] == "data engineer"
+        assert state["search_query"] == expected
         settings = load_settings()
         settings.session.login_timeout_seconds = 60
         cdp_url = os.environ.get("AUTOJOB_TASK18_CDP_URL")
@@ -71,9 +74,9 @@ def test_startup_query_reaches_linkedin(monkeypatch):
             print(outcome.model_dump())
             assert outcome.logged_in
             assert outcome.results_found
-            assert parse_qs(urlparse(outcome.page_url).query)["keywords"] == ["data engineer"]
+            assert parse_qs(urlparse(outcome.page_url).query)["keywords"] == [expected]
             assert typed_values, "the real search input was never filled"
-            assert all(value == "data engineer" for value in typed_values)
+            assert all(value == expected for value in typed_values)
             print(f"Verified real search input values: {typed_values}")
             return {**state, "status": "done", "task1": outcome}
         finally:
@@ -81,7 +84,11 @@ def test_startup_query_reaches_linkedin(monkeypatch):
 
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
     monkeypatch.setattr("builtins.input", answer)
-    monkeypatch.setattr(cli, "graph", SimpleNamespace(ainvoke=search_only))
+    async def stream_only(state, config, stream_mode):
+        # Task 33: the CLI streams graph values instead of calling ainvoke.
+        yield await search_only(state, config)
+
+    monkeypatch.setattr(cli, "graph", SimpleNamespace(astream=stream_only))
     assert cli.main(["--no-dry-run", "--submission-mode", "manual"]) == 0
     assert prompts[0].startswith("What job")
     assert prompts[1].startswith("Choose 1 or 2")

@@ -32,3 +32,6 @@ Each task lives in its own file. This index links to them.
 - [Task 29 — Log every discarded Easy Apply form with a pre-discard screenshot](task_29.md) — ✅ Done
 - [Task 30 — Show total AI token usage and cost in the browser up to Easy Apply submission](task_30.md) — 🟡 In progress
 - [Task 31 — Take a second look in answers.json before asking the human about an unknown question](task_31.md) — 🟡 In progress
+- [Task 32 — Skip jobs from blacklisted companies](task_32.md) — 🟡 In progress
+- [Task 33 — Keep a complete crash log for every crash so it can be debugged later](task_33.md) — 🟡 In progress
+- [Task 34 — Dismiss diverting pop-ups and keep applying to the current job](task_34.md) — Not started

@@ -8,6 +8,7 @@ import json
 import sys
 from pathlib import Path
 
+from src.cli_crash_logging import record_cli_failure, record_returned_failure, stream_graph
 from src.configuration import load_settings, resolve_repair_model
 from src.date_range import (
     DEFAULT_DATE_RANGE,
@@ -270,8 +271,10 @@ async def _run(args: argparse.Namespace) -> ApplyState:
     )
     # Task 8's submit-and-repeat loop is a graph cycle, so raise LangGraph's
     # default recursion limit to leave room for a few nodes per job and per
-    # Task 16 skip.
-    return await graph.ainvoke(state, config={"recursion_limit": _recursion_limit(settings)})
+    # Task 16 skip. Task 33 streams the values so a crash keeps the last state.
+    return await stream_graph(
+        graph, state, {"recursion_limit": _recursion_limit(settings)}
+    )
 
 
 def _clean_profile() -> int:
@@ -283,6 +286,7 @@ def _clean_profile() -> int:
         killed = clean_profile(settings)
     except Exception as exc:  # noqa: BLE001 - surface a clean CLI error
         print(f"error: could not clean the profile: {exc}", file=sys.stderr)
+        record_cli_failure("cli_error", exc, 1)
         return 1
     print(f"profile     : {settings.profile_dir}")
     print(f"leftover    : closed {killed} browser process(es), cleared lock files")
@@ -341,6 +345,10 @@ def _silence_windows_pipe_noise() -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from src.tools.crash_logs import already_recorded, install_crash_logging, record_crash
+
+    # Task 33: first, so every later failure leaves a crash bundle (idempotent).
+    install_crash_logging(None if argv is None else ["autojob", *argv])
     _silence_windows_pipe_noise()
     args = _parse_args(argv)
     if args.clean_profile:
@@ -350,7 +358,20 @@ def main(argv: list[str] | None = None) -> int:
             return asyncio.run(_describe_new_resumes(args))
         except Exception as exc:  # noqa: BLE001 - surface a clean CLI error
             print(f"error: could not process new resumes: {exc}", file=sys.stderr)
+            record_cli_failure("startup_error", exc, 1)
             return 1
+
+    # Task 32: read the company blacklist once, before any job is processed. An
+    # unreadable file stops the run with the file error.
+    from src.tools.company_blacklist import BlacklistFileError, get_blacklist
+
+    try:
+        blacklist = get_blacklist()
+    except BlacklistFileError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        record_cli_failure("startup_error", exc, 2)
+        return 2
+    print(f"blacklist   : {len(blacklist)} compan{'y' if len(blacklist) == 1 else 'ies'}")
 
     # Ask what to search before asking how recent (Tasks 18/17).
     try:
@@ -362,12 +383,18 @@ def main(argv: list[str] | None = None) -> int:
         args.submission_mode = choose_submission_mode(args.submission_mode)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
+        record_cli_failure("startup_error", exc, 2)
         return 2
 
     try:
         state = asyncio.run(_run(args))
+    except KeyboardInterrupt as exc:  # usually already recorded inside the run
+        if not already_recorded(exc):
+            record_crash("interrupted", exc=exc, exit_code=130)
+        raise
     except Exception as exc:  # noqa: BLE001 - surface a clean CLI error
         print(f"error: {exc}", file=sys.stderr)
+        record_cli_failure("uncaught_exception", exc, 1)
         return 1
 
     if args.json:
@@ -378,7 +405,9 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(_summary(state))
 
-    return 0 if state.get("status") == "done" else 1
+    exit_code = 0 if state.get("status") == "done" else 1
+    record_returned_failure(state, exit_code)
+    return exit_code
 
 
 if __name__ == "__main__":
